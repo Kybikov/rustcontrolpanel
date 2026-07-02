@@ -53,6 +53,7 @@ import {
   type ServerDetail,
   type ServerLiveContext,
   type ServerLivePlayerItem,
+  type ServerMapDetail,
   type ServerSnapshot,
   type ServerIntel,
   type ServerWipe,
@@ -757,8 +758,8 @@ function LiveMap({
         </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(420px,1fr)_390px]">
-      <div className="relative aspect-square min-h-[420px] overflow-hidden rounded-md border border-border bg-[linear-gradient(90deg,rgba(255,255,255,0.055)_1px,transparent_1px),linear-gradient(180deg,rgba(255,255,255,0.055)_1px,transparent_1px),linear-gradient(135deg,rgba(41,80,67,0.42),rgba(31,37,45,0.94)_55%,rgba(104,55,42,0.42))] bg-[length:10%_10%,10%_10%,100%_100%]">
+      <div className="grid gap-4 2xl:grid-cols-[minmax(360px,1fr)_minmax(0,390px)]">
+      <div className="relative aspect-square min-h-[320px] overflow-hidden rounded-md border border-border bg-[linear-gradient(90deg,rgba(255,255,255,0.055)_1px,transparent_1px),linear-gradient(180deg,rgba(255,255,255,0.055)_1px,transparent_1px),linear-gradient(135deg,rgba(41,80,67,0.42),rgba(31,37,45,0.94)_55%,rgba(104,55,42,0.42))] bg-[length:10%_10%,10%_10%,100%_100%] sm:min-h-[420px]">
         <div className="absolute left-1/2 top-0 h-full w-px bg-border/80" />
         <div className="absolute left-0 top-1/2 h-px w-full bg-border/80" />
         <div className="absolute left-1/2 top-1/2 h-1/4 w-1/4 -translate-x-1/2 -translate-y-1/2 rounded-full border border-border/70" />
@@ -806,7 +807,7 @@ function LiveMap({
           </div>
         ) : null}
       </div>
-      <div className="max-h-[520px] overflow-auto rounded-md border border-border">
+      <div className="max-h-[520px] min-w-0 overflow-auto rounded-md border border-border">
         <Table>
           <thead>
             <tr>
@@ -5124,30 +5125,56 @@ function ServerDetailView({
     enabled: serverId.length > 0,
     refetchInterval: 5_000,
   });
+  const snapshotsQuery = useQuery({
+    queryKey: ["serverSnapshots", serverId],
+    queryFn: () => api.serverSnapshots(serverId),
+    enabled: serverId.length > 0 && (activeTab === "overview" || activeTab === "history"),
+    refetchInterval: 60_000,
+  });
+  const wipesQuery = useQuery({
+    queryKey: ["serverWipes", serverId],
+    queryFn: () => api.serverWipes(serverId),
+    enabled: serverId.length > 0 && (activeTab === "overview" || activeTab === "wipes"),
+    refetchInterval: 60_000,
+  });
+  const mapQuery = useQuery({
+    queryKey: ["serverMap", serverId],
+    queryFn: () => api.serverMap(serverId),
+    enabled: serverId.length > 0 && activeTab === "map",
+    refetchInterval: 15_000,
+  });
   const sync = useMutation({
     mutationFn: () => api.syncServer(serverId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["serverDetail", serverId] });
       queryClient.invalidateQueries({ queryKey: ["serverLiveContext", serverId] });
+      queryClient.invalidateQueries({ queryKey: ["serverSnapshots", serverId] });
+      queryClient.invalidateQueries({ queryKey: ["serverWipes", serverId] });
+      queryClient.invalidateQueries({ queryKey: ["serverMap", serverId] });
       queryClient.invalidateQueries({ queryKey: ["trackedServers"] });
       queryClient.invalidateQueries({ queryKey: ["wipes"] });
       queryClient.invalidateQueries({ queryKey: ["activity"] });
       queryClient.invalidateQueries({ queryKey: ["overview"] });
     },
   });
-  const server = detail.data?.server ?? liveContext.data?.server;
-  const snapshots = detail.data?.snapshots ?? [];
-  const wipes = detail.data?.wipes ?? [];
+  const server = detail.data?.server ?? mapQuery.data?.server ?? liveContext.data?.server;
+  const snapshots = snapshotsQuery.data?.items ?? detail.data?.snapshots ?? [];
+  const wipes = wipesQuery.data?.items ?? detail.data?.wipes ?? [];
   const activity = detail.data?.activity?.length ? detail.data.activity : liveContext.data?.activity ?? [];
   const settings = detail.data?.settings ?? {};
   const serverKey = server?.battlemetrics_server_id || stringFromUnknown(settings.battlemetrics_server_id) || serverId;
-  const rustmapsUrl = server?.rustmaps_url || stringFromUnknown(settings.rustmaps_url);
-  const sourceStatus = detail.data?.source_status ?? liveContext.data?.source_status ?? "loading";
+  const mapInfo = objectFrom(mapQuery.data?.map);
+  const rustmapsUrl = stringFromUnknown(mapInfo.url) || server?.rustmaps_url || stringFromUnknown(settings.rustmaps_url);
+  const sourceStatus = detail.data?.source_status ?? snapshotsQuery.data?.source_status ?? wipesQuery.data?.source_status ?? mapQuery.data?.source_status ?? liveContext.data?.source_status ?? "loading";
   const stats = serverSnapshotSummary(snapshots, server);
+  const pageError = detail.error ?? liveContext.error ?? snapshotsQuery.error ?? wipesQuery.error ?? mapQuery.error ?? sync.error;
 
   function refreshDetail() {
     void detail.refetch();
     void liveContext.refetch();
+    void snapshotsQuery.refetch();
+    void wipesQuery.refetch();
+    void mapQuery.refetch();
   }
 
   return (
@@ -5168,9 +5195,7 @@ function ServerDetailView({
         </div>
       </div>
 
-      {detail.error || liveContext.error || sync.error ? (
-        <StatusLine tone="bad" text={(detail.error ?? liveContext.error ?? sync.error)?.message ?? "Request failed"} />
-      ) : null}
+      {pageError ? <StatusLine tone="bad" text={pageError.message ?? "Request failed"} /> : null}
       {sync.data ? <StatusLine tone="ok" text={`Synced ${compactText(sync.data.server?.name ?? sync.data.id)}`} /> : null}
 
       <Card>
@@ -5218,8 +5243,8 @@ function ServerDetailView({
       {activeTab === "overview" ? (
         <ServerOverviewTab detail={detail.data} context={liveContext.data} server={server} snapshots={snapshots} wipes={wipes} />
       ) : null}
-      {activeTab === "history" ? <ServerHistoryTab server={server} snapshots={snapshots} loading={detail.isFetching} /> : null}
-      {activeTab === "wipes" ? <ServerWipesTab server={server} wipes={wipes} loading={detail.isFetching} /> : null}
+      {activeTab === "history" ? <ServerHistoryTab server={server} snapshots={snapshots} loading={detail.isFetching || snapshotsQuery.isFetching} /> : null}
+      {activeTab === "wipes" ? <ServerWipesTab server={server} wipes={wipes} loading={detail.isFetching || wipesQuery.isFetching} /> : null}
       {activeTab === "players" ? (
         <Card>
           <CardHeader>
@@ -5241,7 +5266,7 @@ function ServerDetailView({
           </CardContent>
         </Card>
       ) : null}
-      {activeTab === "map" ? <ServerMapTab server={server} context={liveContext.data} onOpenPlayer={onOpenPlayer} /> : null}
+      {activeTab === "map" ? <ServerMapTab server={server} context={liveContext.data} mapData={mapQuery.data} loading={mapQuery.isFetching} onOpenPlayer={onOpenPlayer} /> : null}
       {activeTab === "activity" ? <ServerActivityTab items={activity} loading={detail.isFetching || liveContext.isFetching} /> : null}
       {activeTab === "settings" ? (
         <ServerSettingsTab
@@ -5480,18 +5505,27 @@ function ServerWipesTab({
 function ServerMapTab({
   server,
   context,
+  mapData,
+  loading,
   onOpenPlayer,
 }: {
   server?: ServerIntel | null;
   context?: ServerLiveContext;
+  mapData?: ServerMapDetail;
+  loading?: boolean;
   onOpenPlayer: (playerId: string) => void;
 }) {
-  const liveItems = context?.live_players ?? [];
+  const liveItems = context?.live_players?.length ? context.live_players : mapData?.live_players ?? [];
   const positioned = liveItems.filter((item) => hasMapPosition(item.live_player));
-  const rustmapsUrl = server?.rustmaps_url || liveItems.find((item) => item.live_player.rustmaps_url)?.live_player.rustmaps_url || "";
+  const mapInfo = objectFrom(mapData?.map);
+  const monuments = Array.isArray(mapInfo.monuments) ? mapInfo.monuments : [];
+  const rustmapsMarkers = Array.isArray(mapInfo.rustmaps_markers) ? mapInfo.rustmaps_markers : [];
+  const liveMarkers = Array.isArray(mapInfo.live_markers) ? mapInfo.live_markers : mapData?.markers ?? [];
+  const rustmapsUrl = stringFromUnknown(mapInfo.url) || server?.rustmaps_url || liveItems.find((item) => item.live_player.rustmaps_url)?.live_player.rustmaps_url || "";
+  const thumbnailUrl = stringFromUnknown(mapInfo.thumbnail_url) || server?.rustmaps_thumbnail_url || "";
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[1fr_340px]">
+    <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_340px]">
       <Card>
         <CardHeader>
           <CardTitle>Map And Positions</CardTitle>
@@ -5499,12 +5533,12 @@ function ServerMapTab({
         <CardContent>
           {positioned.length ? (
             <LiveMap items={liveItems} teammateSteamIds={[]} onOpenPlayer={onOpenPlayer} />
-          ) : server?.rustmaps_thumbnail_url ? (
+          ) : thumbnailUrl ? (
             <div className="overflow-hidden rounded-md border border-border bg-background/45">
-              <img className="max-h-[680px] w-full object-contain" src={server.rustmaps_thumbnail_url} alt={server.name} />
+              <img className="max-h-[680px] w-full object-contain" src={thumbnailUrl} alt={server?.name ?? "Rust map"} />
             </div>
           ) : (
-            <EmptyState label="No realtime player positions or RustMaps thumbnail yet" />
+            <EmptyState label={loading ? "Loading map metadata" : "No realtime player positions or RustMaps thumbnail yet"} />
           )}
         </CardContent>
       </Card>
@@ -5517,11 +5551,21 @@ function ServerMapTab({
           <div className="grid grid-cols-2 gap-2">
             <Fact label="Positioned" value={positioned.length} />
             <Fact label="Live rows" value={liveItems.length} />
-            <Fact label="World size" value={server?.rust_world_size} />
-            <Fact label="World seed" value={server?.rust_world_seed} />
-            <Fact label="Rust map" value={server?.rust_map || server?.rust_type} wide />
+            <Fact label="Live markers" value={liveMarkers.length} />
+            <Fact label="Monuments" value={monuments.length} />
+            <Fact label="RustMaps markers" value={rustmapsMarkers.length} />
+            <Fact label="Source" value={mapData?.source_status ?? mapData?.source} />
+            <Fact label="World size" value={mapInfo.size ?? server?.rust_world_size} />
+            <Fact label="World seed" value={mapInfo.seed ?? server?.rust_world_seed} />
+            <Fact label="Rust map" value={mapInfo.map ?? server?.rust_map ?? server?.rust_type} wide />
             <Fact label="Updated" value={formatDateTime(server?.source_updated_at ?? server?.updated_at)} wide />
           </div>
+          {stringFromUnknown(mapInfo.settings_source) ? (
+            <div className="rounded-md border border-border bg-background/50 p-3">
+              <div className="text-xs uppercase tracking-normal text-muted-foreground">Settings source</div>
+              <div className="mt-1 text-sm font-medium">{compactText(mapInfo.settings_source)}</div>
+            </div>
+          ) : null}
           {rustmapsUrl ? (
             <a className="text-sm text-primary underline-offset-4 hover:underline" href={rustmapsUrl} target="_blank" rel="noreferrer">
               Open full RustMaps page

@@ -236,6 +236,33 @@ export type ServerDetail = {
   source_status?: string;
 };
 
+export type ServerSnapshotsResult = {
+  items: ServerSnapshot[];
+  server_id?: string;
+  battlemetrics_server_id?: string;
+  source?: string;
+  source_status?: string;
+};
+
+export type ServerWipesResult = {
+  items: ServerWipe[];
+  server_id?: string;
+  battlemetrics_server_id?: string;
+  source?: string;
+  source_status?: string;
+};
+
+export type ServerMapDetail = {
+  server?: ServerIntel | null;
+  map?: Record<string, unknown>;
+  markers?: Array<Record<string, unknown>>;
+  live_players?: ServerLivePlayerItem[];
+  server_id?: string;
+  battlemetrics_server_id?: string;
+  source?: string;
+  source_status?: string;
+};
+
 export type PlayerRelationItem = {
   player?: PlayerIntel | null;
   live_player?: LivePlayer | null;
@@ -486,6 +513,15 @@ export function createApiClient(baseUrl: string, token?: string) {
     },
     serverDetail(id: string) {
       return request<ServerDetail>(`/api/admin/rustcontrol/servers/${encodeURIComponent(id)}`);
+    },
+    serverSnapshots(id: string) {
+      return request<ServerSnapshotsResult>(`/api/admin/rustcontrol/servers/${encodeURIComponent(id)}/snapshots`);
+    },
+    serverWipes(id: string) {
+      return request<ServerWipesResult>(`/api/admin/rustcontrol/servers/${encodeURIComponent(id)}/wipes`);
+    },
+    serverMap(id: string) {
+      return request<ServerMapDetail>(`/api/admin/rustcontrol/servers/${encodeURIComponent(id)}/map`);
     },
     serverLiveContext(id: string) {
       return request<ServerLiveContext>(`/api/admin/rustcontrol/servers/${encodeURIComponent(id)}/live-context`);
