@@ -206,6 +206,36 @@ export type ServerLiveContext = {
   source_status?: string;
 };
 
+export type ServerSnapshot = {
+  id: string;
+  players?: number;
+  max_players?: number;
+  rank?: number | null;
+  status?: string;
+  captured_at?: string;
+};
+
+export type ServerWipe = {
+  id: string;
+  server_id?: string;
+  server_name?: string;
+  wipe_type: string;
+  wipe_at: string;
+  source?: string;
+  confidence?: number;
+  created_at?: string;
+};
+
+export type ServerDetail = {
+  server?: ServerIntel | null;
+  snapshots?: ServerSnapshot[];
+  wipes?: ServerWipe[];
+  activity?: Array<Record<string, unknown>>;
+  settings?: Record<string, unknown>;
+  source?: string;
+  source_status?: string;
+};
+
 export type PlayerRelationItem = {
   player?: PlayerIntel | null;
   live_player?: LivePlayer | null;
@@ -453,6 +483,9 @@ export function createApiClient(baseUrl: string, token?: string) {
     },
     trackedServers() {
       return request<ServerIntel[]>("/api/admin/rustcontrol/servers");
+    },
+    serverDetail(id: string) {
+      return request<ServerDetail>(`/api/admin/rustcontrol/servers/${encodeURIComponent(id)}`);
     },
     serverLiveContext(id: string) {
       return request<ServerLiveContext>(`/api/admin/rustcontrol/servers/${encodeURIComponent(id)}/live-context`);

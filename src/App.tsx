@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   Activity,
   BarChart3,
@@ -49,9 +50,12 @@ import {
   type PlayerWatchState,
   type RealtimeHealth,
   type RustAlertItem,
+  type ServerDetail,
   type ServerLiveContext,
   type ServerLivePlayerItem,
+  type ServerSnapshot,
   type ServerIntel,
+  type ServerWipe,
   type TeamProbability,
   type WatchlistItem,
 } from "@/lib/api";
@@ -73,8 +77,36 @@ type ServerRosterFilter = "all" | "watched" | QuickRiskLevel | "online" | "clear
 type LiveMapFilter = "all" | "watched" | QuickRiskLevel | "team" | "near150" | "near400" | "same_grid" | "online" | "clear";
 type ActivitySeverityFilter = "all" | "info" | "warning" | "error";
 type ProfileTab = "account" | "steam" | "stats" | "history" | "security";
+type ServerDetailTab = "overview" | "history" | "wipes" | "players" | "map" | "activity" | "settings";
 
 const quickRiskLevels: QuickRiskLevel[] = ["watch", "suspect", "hostile"];
+const profileTabValues: ProfileTab[] = ["account", "steam", "stats", "history", "security"];
+const serverDetailTabs: Array<{ value: ServerDetailTab; label: string }> = [
+  { value: "overview", label: "Overview" },
+  { value: "history", label: "History" },
+  { value: "wipes", label: "Wipes" },
+  { value: "players", label: "Players" },
+  { value: "map", label: "Map" },
+  { value: "activity", label: "Activity" },
+  { value: "settings", label: "Settings" },
+];
+
+function viewFromPath(pathname: string): View {
+  const segment = pathname.split("/").filter(Boolean)[0] ?? "dashboard";
+  if (segment === "live") return "live";
+  if (segment === "players") return "players";
+  if (segment === "watchlist") return "watchlist";
+  if (segment === "servers") return "servers";
+  if (segment === "wipes") return "wipes";
+  if (segment === "activity") return "activity";
+  if (segment === "integrations") return "integrations";
+  if (segment === "profile") return "profile";
+  return "dashboard";
+}
+
+function isProfileTab(value: string): value is ProfileTab {
+  return profileTabValues.includes(value as ProfileTab);
+}
 
 declare global {
   interface Window {
@@ -100,12 +132,21 @@ const savedBaseUrl = localStorage.getItem("rustcp.baseUrl") ?? defaultApiBaseUrl
 const savedToken = localStorage.getItem("rustcp.accessToken") ?? "";
 
 export default function App() {
+  return (
+    <BrowserRouter>
+      <AppShell />
+    </BrowserRouter>
+  );
+}
+
+function AppShell() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [baseUrl, setBaseUrl] = useState(savedBaseUrl);
   const [accessToken, setAccessToken] = useState(savedToken);
-  const [activeView, setActiveView] = useState<View>("dashboard");
-  const [focusedPlayerId, setFocusedPlayerId] = useState("");
   const api = useMemo(() => createApiClient(baseUrl, accessToken), [baseUrl, accessToken]);
+  const activeView = viewFromPath(location.pathname);
 
   function saveSession(nextBaseUrl: string, token: string) {
     queryClient.clear();
@@ -113,16 +154,22 @@ export default function App() {
     localStorage.setItem("rustcp.accessToken", token);
     setBaseUrl(nextBaseUrl);
     setAccessToken(token);
-    setActiveView("dashboard");
-    setFocusedPlayerId("");
+    navigate("/", { replace: true });
   }
 
   function logout() {
     queryClient.clear();
     localStorage.removeItem("rustcp.accessToken");
     setAccessToken("");
-    setActiveView("dashboard");
-    setFocusedPlayerId("");
+    navigate("/", { replace: true });
+  }
+
+  function openPlayer(playerId: string) {
+    if (playerId) navigate(`/players/${encodeURIComponent(playerId)}`);
+  }
+
+  function openServer(serverId: string) {
+    if (serverId) navigate(`/servers/${encodeURIComponent(serverId)}`);
   }
 
   if (!accessToken) {
@@ -130,8 +177,8 @@ export default function App() {
   }
 
   return (
-    <div className="flex min-h-screen">
-      <aside className="flex w-[260px] shrink-0 flex-col border-r border-border bg-background/82 px-3 py-4 backdrop-blur">
+    <div className="flex min-h-screen flex-col lg:flex-row">
+      <aside className="flex w-full shrink-0 flex-col border-b border-border bg-background/82 px-3 py-4 backdrop-blur lg:sticky lg:top-0 lg:h-screen lg:w-[260px] lg:border-b-0 lg:border-r">
         <div className="mb-5 flex items-center gap-3 px-2">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-primary/35 bg-primary/15">
             <Crosshair className="h-5 w-5 text-primary" />
@@ -141,73 +188,70 @@ export default function App() {
             <div className="text-xs text-muted-foreground">{baseUrl.replace(/^https?:\/\//, "")}</div>
           </div>
         </div>
-        <nav className="flex flex-1 flex-col gap-1">
-          <NavButton active={activeView === "dashboard"} icon={<Radar />} label="Overview" onClick={() => setActiveView("dashboard")} />
-          <NavButton active={activeView === "live"} icon={<MapPinned />} label="Live" onClick={() => setActiveView("live")} />
-          <NavButton active={activeView === "players"} icon={<Users />} label="Players" onClick={() => setActiveView("players")} />
-          <NavButton active={activeView === "watchlist"} icon={<ShieldAlert />} label="Watchlist" onClick={() => setActiveView("watchlist")} />
-          <NavButton active={activeView === "servers"} icon={<Server />} label="Servers" onClick={() => setActiveView("servers")} />
-          <NavButton active={activeView === "wipes"} icon={<CalendarClock />} label="Wipes" onClick={() => setActiveView("wipes")} />
-          <NavButton active={activeView === "activity"} icon={<Activity />} label="Activity" onClick={() => setActiveView("activity")} />
-          <NavButton active={activeView === "integrations"} icon={<DatabaseZap />} label="Integrations" onClick={() => setActiveView("integrations")} />
+        <nav className="grid grid-cols-2 gap-1 sm:grid-cols-4 lg:flex lg:flex-1 lg:flex-col">
+          <NavButton active={activeView === "dashboard"} icon={<Radar />} label="Overview" onClick={() => navigate("/")} />
+          <NavButton active={activeView === "live"} icon={<MapPinned />} label="Live" onClick={() => navigate("/live")} />
+          <NavButton active={activeView === "players"} icon={<Users />} label="Players" onClick={() => navigate("/players")} />
+          <NavButton active={activeView === "watchlist"} icon={<ShieldAlert />} label="Watchlist" onClick={() => navigate("/watchlist")} />
+          <NavButton active={activeView === "servers"} icon={<Server />} label="Servers" onClick={() => navigate("/servers")} />
+          <NavButton active={activeView === "wipes"} icon={<CalendarClock />} label="Wipes" onClick={() => navigate("/wipes")} />
+          <NavButton active={activeView === "activity"} icon={<Activity />} label="Activity" onClick={() => navigate("/activity")} />
+          <NavButton active={activeView === "integrations"} icon={<DatabaseZap />} label="Integrations" onClick={() => navigate("/integrations")} />
         </nav>
-        <SidebarProfileFooter api={api} active={activeView === "profile"} onOpen={() => setActiveView("profile")} onLogout={logout} />
+        <SidebarProfileFooter api={api} active={activeView === "profile"} onOpen={() => navigate("/profile")} onLogout={logout} />
       </aside>
-      <main className="min-w-0 flex-1 px-6 py-5">
-        {activeView === "dashboard" && (
-          <Dashboard
-            api={api}
-            onOpenPlayer={(playerId) => {
-              setFocusedPlayerId(playerId);
-              setActiveView("players");
-            }}
-          />
-        )}
-        {activeView === "live" && (
-          <LiveView
-            api={api}
-            onOpenPlayer={(playerId) => {
-              setFocusedPlayerId(playerId);
-              setActiveView("players");
-            }}
-          />
-        )}
-        {activeView === "players" && <PlayersView api={api} focusedPlayerId={focusedPlayerId} />}
-        {activeView === "watchlist" && (
-          <WatchlistView
-            api={api}
-            onOpenPlayer={(playerId) => {
-              setFocusedPlayerId(playerId);
-              setActiveView("players");
-            }}
-          />
-        )}
-        {activeView === "servers" && (
-          <ServersView
-            api={api}
-            onOpenPlayer={(playerId) => {
-              setFocusedPlayerId(playerId);
-              setActiveView("players");
-            }}
-          />
-        )}
-        {activeView === "wipes" && <WipesView api={api} />}
-        {activeView === "activity" && <ActivityView api={api} />}
-        {activeView === "integrations" && <IntegrationsView api={api} baseUrl={baseUrl} />}
-        {activeView === "profile" && (
-          <ProfileView
-            api={api}
-            baseUrl={baseUrl}
-            accessToken={accessToken}
-            onOpenPlayer={(playerId) => {
-              setFocusedPlayerId(playerId);
-              setActiveView("players");
-            }}
-          />
-        )}
+      <main className="min-w-0 flex-1 px-4 py-4 sm:px-6 sm:py-5">
+        <Routes>
+          <Route path="/" element={<Dashboard api={api} onOpenPlayer={openPlayer} />} />
+          <Route path="/live" element={<LiveView api={api} onOpenPlayer={openPlayer} />} />
+          <Route path="/players" element={<PlayersView api={api} />} />
+          <Route path="/players/:playerId" element={<PlayerRoute api={api} />} />
+          <Route path="/watchlist" element={<WatchlistView api={api} onOpenPlayer={openPlayer} />} />
+          <Route path="/servers" element={<ServersView api={api} onOpenPlayer={openPlayer} onOpenServer={openServer} />} />
+          <Route path="/servers/:serverId" element={<ServerRoute api={api} onOpenPlayer={openPlayer} />} />
+          <Route path="/wipes" element={<WipesView api={api} />} />
+          <Route path="/activity" element={<ActivityView api={api} />} />
+          <Route path="/integrations" element={<IntegrationsView api={api} baseUrl={baseUrl} />} />
+          <Route path="/profile" element={<ProfileView api={api} baseUrl={baseUrl} accessToken={accessToken} onOpenPlayer={openPlayer} onOpenTab={(tab) => navigate(`/profile/${tab}`)} />} />
+          <Route path="/profile/:tab" element={<ProfileRoute api={api} baseUrl={baseUrl} accessToken={accessToken} onOpenPlayer={openPlayer} />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
       </main>
     </div>
   );
+}
+
+function PlayerRoute({ api }: { api: ReturnType<typeof createApiClient> }) {
+  const { playerId = "" } = useParams();
+  return <PlayersView api={api} focusedPlayerId={playerId} />;
+}
+
+function ServerRoute({
+  api,
+  onOpenPlayer,
+}: {
+  api: ReturnType<typeof createApiClient>;
+  onOpenPlayer: (playerId: string) => void;
+}) {
+  const { serverId = "" } = useParams();
+  return <ServerDetailView api={api} serverId={serverId} onOpenPlayer={onOpenPlayer} />;
+}
+
+function ProfileRoute({
+  api,
+  baseUrl,
+  accessToken,
+  onOpenPlayer,
+}: {
+  api: ReturnType<typeof createApiClient>;
+  baseUrl: string;
+  accessToken: string;
+  onOpenPlayer: (playerId: string) => void;
+}) {
+  const navigate = useNavigate();
+  const { tab = "account" } = useParams();
+  const activeTab = isProfileTab(tab) ? tab : "account";
+  return <ProfileView api={api} baseUrl={baseUrl} accessToken={accessToken} initialTab={activeTab} onOpenPlayer={onOpenPlayer} onOpenTab={(nextTab) => navigate(`/profile/${nextTab}`)} />;
 }
 
 function SidebarProfileFooter({
@@ -3597,6 +3641,51 @@ function objectFrom(value: unknown) {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 }
 
+function stringFromUnknown(value: unknown) {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return "";
+}
+
+function serverDescription(server?: ServerIntel | null) {
+  const raw = objectFrom(objectFrom(server).raw);
+  const attributes = objectFrom(raw.attributes);
+  const details = objectFrom(attributes.details);
+  const candidates = [
+    attributes.description,
+    details.description,
+    details.rust_description,
+  ];
+  return candidates.map(stringFromUnknown).find((value) => value.trim().length > 0)?.trim() ?? "";
+}
+
+function serverSnapshotSummary(snapshots: ServerSnapshot[], server?: ServerIntel | null) {
+  const fallbackPlayers = Number(server?.players ?? 0);
+  const players = snapshots
+    .map((snapshot) => Number(snapshot.players ?? 0))
+    .filter((value) => Number.isFinite(value));
+  const ranks = snapshots
+    .map((snapshot) => Number(snapshot.rank ?? 0))
+    .filter((value) => Number.isFinite(value) && value > 0);
+  const latestOnline = snapshots.length ? Number(snapshots[0].players ?? 0) : fallbackPlayers;
+  const oldestOnline = snapshots.length ? Number(snapshots[snapshots.length - 1].players ?? 0) : fallbackPlayers;
+  const peakPlayers = players.length ? Math.max(...players) : fallbackPlayers;
+  const avgPlayers = players.length ? Math.round(players.reduce((sum, value) => sum + value, 0) / players.length) : fallbackPlayers;
+  const bestRank = ranks.length ? Math.min(...ranks) : server?.rank ?? undefined;
+  return {
+    latestOnline,
+    peakPlayers,
+    avgPlayers,
+    bestRank,
+    deltaPlayers: latestOnline - oldestOnline,
+  };
+}
+
+function formatSignedNumber(value: number) {
+  if (!Number.isFinite(value) || value === 0) return "0";
+  return value > 0 ? `+${value}` : String(value);
+}
+
 function decodeJwtPayload(token: string) {
   const payload = token.split(".")[1];
   if (!payload || typeof atob !== "function" || typeof TextDecoder === "undefined") return null;
@@ -5011,7 +5100,579 @@ function ServerRosterRow({
   );
 }
 
-function ServersView({ api, onOpenPlayer }: { api: ReturnType<typeof createApiClient>; onOpenPlayer: (playerId: string) => void }) {
+function ServerDetailView({
+  api,
+  serverId,
+  onOpenPlayer,
+}: {
+  api: ReturnType<typeof createApiClient>;
+  serverId: string;
+  onOpenPlayer: (playerId: string) => void;
+}) {
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState<ServerDetailTab>("overview");
+  const detail = useQuery({
+    queryKey: ["serverDetail", serverId],
+    queryFn: () => api.serverDetail(serverId),
+    enabled: serverId.length > 0,
+    refetchInterval: 30_000,
+  });
+  const liveContext = useQuery({
+    queryKey: ["serverLiveContext", serverId],
+    queryFn: () => api.serverLiveContext(serverId),
+    enabled: serverId.length > 0,
+    refetchInterval: 5_000,
+  });
+  const sync = useMutation({
+    mutationFn: () => api.syncServer(serverId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["serverDetail", serverId] });
+      queryClient.invalidateQueries({ queryKey: ["serverLiveContext", serverId] });
+      queryClient.invalidateQueries({ queryKey: ["trackedServers"] });
+      queryClient.invalidateQueries({ queryKey: ["wipes"] });
+      queryClient.invalidateQueries({ queryKey: ["activity"] });
+      queryClient.invalidateQueries({ queryKey: ["overview"] });
+    },
+  });
+  const server = detail.data?.server ?? liveContext.data?.server;
+  const snapshots = detail.data?.snapshots ?? [];
+  const wipes = detail.data?.wipes ?? [];
+  const activity = detail.data?.activity?.length ? detail.data.activity : liveContext.data?.activity ?? [];
+  const settings = detail.data?.settings ?? {};
+  const serverKey = server?.battlemetrics_server_id || stringFromUnknown(settings.battlemetrics_server_id) || serverId;
+  const rustmapsUrl = server?.rustmaps_url || stringFromUnknown(settings.rustmaps_url);
+  const sourceStatus = detail.data?.source_status ?? liveContext.data?.source_status ?? "loading";
+  const stats = serverSnapshotSummary(snapshots, server);
+
+  function refreshDetail() {
+    void detail.refetch();
+    void liveContext.refetch();
+  }
+
+  return (
+    <section className="grid gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <Header title="Server Detail" subtitle={compactText(server?.name ?? serverKey)} />
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" onClick={() => navigate("/servers")}>
+            Servers
+          </Button>
+          <Button variant="secondary" onClick={refreshDetail}>
+            Refresh
+          </Button>
+          <Button onClick={() => sync.mutate()} disabled={!serverId || sync.isPending}>
+            <RefreshCw className="h-4 w-4" />
+            {sync.isPending ? "Syncing" : "Sync"}
+          </Button>
+        </div>
+      </div>
+
+      {detail.error || liveContext.error || sync.error ? (
+        <StatusLine tone="bad" text={(detail.error ?? liveContext.error ?? sync.error)?.message ?? "Request failed"} />
+      ) : null}
+      {sync.data ? <StatusLine tone="ok" text={`Synced ${compactText(sync.data.server?.name ?? sync.data.id)}`} /> : null}
+
+      <Card>
+        <CardContent className="grid gap-4 pt-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="truncate text-xl font-semibold">{compactText(server?.name ?? serverKey)}</div>
+              <div className="mt-1 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                <span>{compactText(serverKey)}</span>
+                <span>{compactText(server?.ip ?? server?.address)}:{compactText(server?.port)}</span>
+                <span>updated {formatRelativeTime(server?.source_updated_at ?? server?.updated_at)}</span>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              <Badge variant={server?.status === "online" ? "success" : "outline"}>{compactText(server?.status ?? "unknown")}</Badge>
+              <Badge variant={sourceStatus === "ok" ? "success" : "warning"}>{compactText(sourceStatus)}</Badge>
+              {server?.country ? <Badge variant="secondary">{compactText(server.country)}</Badge> : null}
+            </div>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+            <Fact label="Online" value={`${formatNumber(server?.players ?? stats.latestOnline)} / ${formatNumber(server?.max_players)}`} />
+            <Fact label="Peak 96" value={stats.peakPlayers} />
+            <Fact label="Avg 96" value={stats.avgPlayers} />
+            <Fact label="Rank" value={server?.rank ?? stats.bestRank} />
+            <Fact label="Next wipe" value={formatDateTime(server?.next_wipe_at)} />
+            <Fact label="Live rows" value={liveContext.data?.counts?.online_players ?? liveContext.data?.live_players?.length ?? 0} />
+          </div>
+
+          <div className="flex flex-wrap gap-2 rounded-md border border-border bg-background/45 p-2">
+            {serverDetailTabs.map((tab) => (
+              <Button
+                key={tab.value}
+                size="sm"
+                variant={activeTab === tab.value ? "default" : "secondary"}
+                onClick={() => setActiveTab(tab.value)}
+              >
+                {tab.label}
+              </Button>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {activeTab === "overview" ? (
+        <ServerOverviewTab detail={detail.data} context={liveContext.data} server={server} snapshots={snapshots} wipes={wipes} />
+      ) : null}
+      {activeTab === "history" ? <ServerHistoryTab server={server} snapshots={snapshots} loading={detail.isFetching} /> : null}
+      {activeTab === "wipes" ? <ServerWipesTab server={server} wipes={wipes} loading={detail.isFetching} /> : null}
+      {activeTab === "players" ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Live Players</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ServerContextPanel
+              api={api}
+              context={liveContext.data}
+              loading={liveContext.isFetching}
+              onOpenPlayer={onOpenPlayer}
+              onChanged={() => {
+                refreshDetail();
+                void queryClient.invalidateQueries({ queryKey: ["rustAlerts"] });
+                void queryClient.invalidateQueries({ queryKey: ["watchlist"] });
+                void queryClient.invalidateQueries({ queryKey: ["livePlayers"] });
+              }}
+            />
+          </CardContent>
+        </Card>
+      ) : null}
+      {activeTab === "map" ? <ServerMapTab server={server} context={liveContext.data} onOpenPlayer={onOpenPlayer} /> : null}
+      {activeTab === "activity" ? <ServerActivityTab items={activity} loading={detail.isFetching || liveContext.isFetching} /> : null}
+      {activeTab === "settings" ? (
+        <ServerSettingsTab
+          server={server}
+          detail={detail.data}
+          settings={settings}
+          serverId={serverId}
+          serverKey={serverKey}
+          rustmapsUrl={rustmapsUrl}
+          syncing={sync.isPending}
+          onSync={() => sync.mutate()}
+        />
+      ) : null}
+    </section>
+  );
+}
+
+function ServerOverviewTab({
+  detail,
+  context,
+  server,
+  snapshots,
+  wipes,
+}: {
+  detail?: ServerDetail;
+  context?: ServerLiveContext;
+  server?: ServerIntel | null;
+  snapshots: ServerSnapshot[];
+  wipes: ServerWipe[];
+}) {
+  const description = serverDescription(server);
+  const latestSnapshot = snapshots[0];
+  const latestWipe = wipes[0];
+  const rustmapsUrl = server?.rustmaps_url || stringFromUnknown(detail?.settings?.rustmaps_url);
+  const battleMetricsUrl = battleMetricsServerUrl(server?.battlemetrics_server_id);
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-[1.1fr_.9fr]">
+      <Card>
+        <CardHeader>
+          <CardTitle>Server Overview</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4">
+          <div className="grid gap-2 md:grid-cols-2">
+            <Fact label="BattleMetrics" value={server?.battlemetrics_server_id} wide />
+            <Fact label="Address" value={server?.ip ? `${server.ip}:${compactText(server.port)}` : server?.address} />
+            <Fact label="Query port" value={server?.port_query} />
+            <Fact label="Map" value={server?.rust_map || server?.rust_type} />
+            <Fact label="World size" value={server?.rust_world_size} />
+            <Fact label="World seed" value={server?.rust_world_seed} />
+            <Fact label="Last wipe" value={formatDateTime(server?.last_wipe_at)} />
+            <Fact label="Next wipe" value={formatDateTime(server?.next_wipe_at)} />
+            <Fact label="Tracked source" value={server?.source ?? detail?.source ?? detail?.source_status} />
+            <Fact label="Updated" value={formatDateTime(server?.source_updated_at ?? server?.updated_at)} />
+          </div>
+
+          {description ? (
+            <div className="rounded-md border border-border bg-background/50 p-3">
+              <div className="text-xs uppercase tracking-normal text-muted-foreground">Description</div>
+              <div className="mt-2 whitespace-pre-wrap text-sm leading-6">{description}</div>
+            </div>
+          ) : null}
+
+          <div className="flex flex-wrap gap-3 text-sm">
+            {battleMetricsUrl ? (
+              <a className="text-primary underline-offset-4 hover:underline" href={battleMetricsUrl} target="_blank" rel="noreferrer">
+                Open BattleMetrics
+              </a>
+            ) : null}
+            {rustmapsUrl ? (
+              <a className="text-primary underline-offset-4 hover:underline" href={rustmapsUrl} target="_blank" rel="noreferrer">
+                Open RustMaps
+              </a>
+            ) : null}
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-4">
+        <Card>
+          <CardHeader>
+            <CardTitle>Live Context</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-3">
+            <div className="grid grid-cols-2 gap-2">
+              <Fact label="Online rows" value={context?.counts?.online_players ?? context?.live_players?.length ?? 0} />
+              <Fact label="Known" value={context?.counts?.known_players ?? context?.live_players?.length ?? 0} />
+              <Fact label="Watched" value={context?.counts?.watched_players ?? context?.watched_players?.length ?? 0} />
+              <Fact label="Teams" value={context?.counts?.teams ?? context?.team_clusters?.length ?? 0} />
+            </div>
+            <div className="rounded-md border border-border bg-background/50 p-3">
+              <div className="text-sm font-medium">Source freshness</div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                {compactText(context?.source_status ?? detail?.source_status ?? "No live source status yet")}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Latest Signals</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-2">
+            <Fact label="Latest snapshot" value={latestSnapshot ? `${compactText(latestSnapshot.players)} online at ${formatDateTime(latestSnapshot.captured_at)}` : "-"} wide />
+            <Fact label="Latest wipe record" value={latestWipe ? `${compactText(latestWipe.wipe_type)} at ${formatDateTime(latestWipe.wipe_at)}` : "-"} wide />
+            <Fact label="Activity rows" value={detail?.activity?.length ?? context?.activity?.length ?? 0} />
+            <Fact label="Snapshots" value={snapshots.length} />
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+function ServerHistoryTab({
+  server,
+  snapshots,
+  loading,
+}: {
+  server?: ServerIntel | null;
+  snapshots: ServerSnapshot[];
+  loading?: boolean;
+}) {
+  const stats = serverSnapshotSummary(snapshots, server);
+  const rows = [...snapshots].reverse();
+  const barMax = Math.max(1, server?.max_players ?? 0, ...snapshots.map((snapshot) => Number(snapshot.players ?? 0)));
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Population History</CardTitle>
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          <Fact label="Samples" value={snapshots.length} />
+          <Fact label="Peak online" value={stats.peakPlayers} />
+          <Fact label="Average" value={stats.avgPlayers} />
+          <Fact label="Best rank" value={stats.bestRank} />
+          <Fact label="Delta" value={formatSignedNumber(stats.deltaPlayers)} />
+        </div>
+
+        {rows.length ? (
+          <div className="grid gap-2">
+            {rows.slice(-36).map((snapshot) => {
+              const players = Number(snapshot.players ?? 0);
+              const width = Math.max(4, Math.min(100, Math.round((players / barMax) * 100)));
+              return (
+                <div key={snapshot.id} className="grid gap-2 md:grid-cols-[150px_1fr_90px_70px] md:items-center">
+                  <div className="text-xs text-muted-foreground">{formatDateTime(snapshot.captured_at)}</div>
+                  <div className="h-8 overflow-hidden rounded-md border border-border bg-background/45">
+                    <div className="h-full bg-primary/55" style={{ width: `${width}%` }} />
+                  </div>
+                  <div className="text-sm font-medium">{formatNumber(players)} / {formatNumber(snapshot.max_players)}</div>
+                  <Badge variant={snapshot.status === "online" ? "success" : "outline"}>{compactText(snapshot.status)}</Badge>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <EmptyState label={loading ? "Loading history" : "No server snapshots yet"} />
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ServerWipesTab({
+  server,
+  wipes,
+  loading,
+}: {
+  server?: ServerIntel | null;
+  wipes: ServerWipe[];
+  loading?: boolean;
+}) {
+  const now = Date.now();
+  const upcoming = wipes.filter((wipe) => dateMs(wipe.wipe_at) >= now).sort((a, b) => dateMs(a.wipe_at) - dateMs(b.wipe_at));
+  const history = wipes.filter((wipe) => dateMs(wipe.wipe_at) < now);
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-[340px_1fr]">
+      <Card>
+        <CardHeader>
+          <CardTitle>Wipe Calendar</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-3">
+          <Fact label="Next wipe from server" value={formatDateTime(server?.next_wipe_at)} wide />
+          <Fact label="Last wipe from server" value={formatDateTime(server?.last_wipe_at)} wide />
+          <Fact label="Upcoming records" value={upcoming.length} />
+          <Fact label="History records" value={history.length} />
+          <div className="rounded-md border border-border bg-background/50 p-3 text-sm text-muted-foreground">
+            Wipe records combine BattleMetrics/RustMaps metadata and local tracked server history when available.
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Wipe Records</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-auto rounded-md border border-border">
+            <Table>
+              <thead>
+                <tr>
+                  <Th>When</Th>
+                  <Th>Type</Th>
+                  <Th>Source</Th>
+                  <Th>Confidence</Th>
+                  <Th>Stored</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {wipes.map((wipe) => (
+                  <tr key={wipe.id}>
+                    <Td>{formatDateTime(wipe.wipe_at)}</Td>
+                    <Td>
+                      <Badge variant={dateMs(wipe.wipe_at) >= now ? "warning" : "secondary"}>{compactText(wipe.wipe_type)}</Badge>
+                    </Td>
+                    <Td>{compactText(wipe.source)}</Td>
+                    <Td>{compactText(wipe.confidence)}</Td>
+                    <Td>{formatDateTime(wipe.created_at)}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+            {!wipes.length ? <EmptyState label={loading ? "Loading wipes" : "No wipe records yet"} /> : null}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function ServerMapTab({
+  server,
+  context,
+  onOpenPlayer,
+}: {
+  server?: ServerIntel | null;
+  context?: ServerLiveContext;
+  onOpenPlayer: (playerId: string) => void;
+}) {
+  const liveItems = context?.live_players ?? [];
+  const positioned = liveItems.filter((item) => hasMapPosition(item.live_player));
+  const rustmapsUrl = server?.rustmaps_url || liveItems.find((item) => item.live_player.rustmaps_url)?.live_player.rustmaps_url || "";
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-[1fr_340px]">
+      <Card>
+        <CardHeader>
+          <CardTitle>Map And Positions</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {positioned.length ? (
+            <LiveMap items={liveItems} teammateSteamIds={[]} onOpenPlayer={onOpenPlayer} />
+          ) : server?.rustmaps_thumbnail_url ? (
+            <div className="overflow-hidden rounded-md border border-border bg-background/45">
+              <img className="max-h-[680px] w-full object-contain" src={server.rustmaps_thumbnail_url} alt={server.name} />
+            </div>
+          ) : (
+            <EmptyState label="No realtime player positions or RustMaps thumbnail yet" />
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Map Metadata</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-3">
+          <div className="grid grid-cols-2 gap-2">
+            <Fact label="Positioned" value={positioned.length} />
+            <Fact label="Live rows" value={liveItems.length} />
+            <Fact label="World size" value={server?.rust_world_size} />
+            <Fact label="World seed" value={server?.rust_world_seed} />
+            <Fact label="Rust map" value={server?.rust_map || server?.rust_type} wide />
+            <Fact label="Updated" value={formatDateTime(server?.source_updated_at ?? server?.updated_at)} wide />
+          </div>
+          {rustmapsUrl ? (
+            <a className="text-sm text-primary underline-offset-4 hover:underline" href={rustmapsUrl} target="_blank" rel="noreferrer">
+              Open full RustMaps page
+            </a>
+          ) : null}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function ServerActivityTab({ items, loading }: { items: Array<Record<string, unknown>>; loading?: boolean }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Server Activity</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="overflow-auto rounded-md border border-border">
+          <Table>
+            <thead>
+              <tr>
+                <Th>Time</Th>
+                <Th>Severity</Th>
+                <Th>Source</Th>
+                <Th>Event</Th>
+                <Th>Payload</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((event, index) => (
+                <tr key={String(event.id ?? `${event.occurred_at ?? "event"}-${index}`)}>
+                  <Td>
+                    <div>{formatDateTime(String(event.occurred_at ?? ""))}</div>
+                    <div className="text-xs text-muted-foreground">{formatRelativeTime(event.occurred_at)}</div>
+                  </Td>
+                  <Td>
+                    <Badge variant={timelineSeverityVariant(String(event.severity ?? ""))}>{compactText(event.severity)}</Badge>
+                  </Td>
+                  <Td>{compactText(event.source)}</Td>
+                  <Td>
+                    <div className="font-medium">{compactText(event.event_type)}</div>
+                    <div className="text-xs text-muted-foreground">{compactText(event.entity_type)}</div>
+                  </Td>
+                  <Td>
+                    <div className="max-w-[520px] truncate text-xs text-muted-foreground">{activityPayloadSummary(event.payload)}</div>
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+          {!items.length ? <EmptyState label={loading ? "Loading activity" : "No server activity yet"} /> : null}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ServerSettingsTab({
+  server,
+  detail,
+  settings,
+  serverId,
+  serverKey,
+  rustmapsUrl,
+  syncing,
+  onSync,
+}: {
+  server?: ServerIntel | null;
+  detail?: ServerDetail;
+  settings: Record<string, unknown>;
+  serverId: string;
+  serverKey: string;
+  rustmapsUrl: string;
+  syncing?: boolean;
+  onSync: () => void;
+}) {
+  const battleMetricsUrl = battleMetricsServerUrl(serverKey);
+  const pluginReady = Boolean(settings.plugin_webhook_ready);
+  const rconConfigured = Boolean(settings.rcon_configured);
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-[1fr_360px]">
+      <Card>
+        <CardHeader>
+          <CardTitle>Integration Settings</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4">
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+            <Fact label="Local server id" value={serverId} wide />
+            <Fact label="BattleMetrics id" value={settings.battlemetrics_server_id ?? server?.battlemetrics_server_id} />
+            <Fact label="Source status" value={detail?.source_status} />
+            <Fact label="RustMaps URL" value={rustmapsUrl || "-"} wide />
+            <Fact label="Plugin webhook" value={pluginReady ? "configured" : "missing"} />
+            <Fact label="RCON" value={rconConfigured ? "configured" : "not configured"} />
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={onSync} disabled={syncing}>
+              <RefreshCw className="h-4 w-4" />
+              {syncing ? "Syncing" : "Sync BattleMetrics"}
+            </Button>
+            {battleMetricsUrl ? (
+              <a className="inline-flex h-10 items-center justify-center rounded-md border border-border bg-secondary px-4 text-sm font-medium text-secondary-foreground hover:bg-secondary/80" href={battleMetricsUrl} target="_blank" rel="noreferrer">
+                BattleMetrics
+              </a>
+            ) : null}
+            {rustmapsUrl ? (
+              <a className="inline-flex h-10 items-center justify-center rounded-md border border-border bg-secondary px-4 text-sm font-medium text-secondary-foreground hover:bg-secondary/80" href={rustmapsUrl} target="_blank" rel="noreferrer">
+                RustMaps
+              </a>
+            ) : null}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Readiness</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-3">
+          <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-background/50 p-3">
+            <span className="text-sm">BattleMetrics metadata</span>
+            <Badge variant={server?.battlemetrics_server_id ? "success" : "warning"}>{server?.battlemetrics_server_id ? "ready" : "missing"}</Badge>
+          </div>
+          <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-background/50 p-3">
+            <span className="text-sm">Rust+/plugin feed</span>
+            <Badge variant={pluginReady ? "success" : "warning"}>{pluginReady ? "ready" : "configure"}</Badge>
+          </div>
+          <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-background/50 p-3">
+            <span className="text-sm">RCON admin actions</span>
+            <Badge variant={rconConfigured ? "success" : "outline"}>{rconConfigured ? "ready" : "planned"}</Badge>
+          </div>
+          <div className="rounded-md border border-border bg-background/50 p-3 text-xs text-muted-foreground">
+            This page is wired for the current local backend. RCON stays disabled until server credentials are added backend-side.
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function ServersView({
+  api,
+  onOpenPlayer,
+  onOpenServer,
+}: {
+  api: ReturnType<typeof createApiClient>;
+  onOpenPlayer: (playerId: string) => void;
+  onOpenServer?: (serverId: string) => void;
+}) {
   const queryClient = useQueryClient();
   const [query, setQuery] = useState("");
   const [selectedServerId, setSelectedServerId] = useState("");
@@ -5032,6 +5693,14 @@ function ServersView({ api, onOpenPlayer }: { api: ReturnType<typeof createApiCl
     enabled: selectedServerId.length > 0,
     refetchInterval: 5_000,
   });
+  const openServer = (server: ServerIntel) => {
+    const serverId = server.id ?? server.battlemetrics_server_id;
+    if (onOpenServer && server.id) {
+      onOpenServer(server.id);
+      return;
+    }
+    setSelectedServerId(serverId);
+  };
 
   return (
     <section className="grid gap-4">
@@ -5053,7 +5722,7 @@ function ServersView({ api, onOpenPlayer }: { api: ReturnType<typeof createApiCl
           items={searchItems}
           actionLabel="Track"
           onAction={(server) => track.mutate(server.battlemetrics_server_id)}
-          onOpen={(server) => setSelectedServerId(server.id ?? server.battlemetrics_server_id)}
+          onOpen={openServer}
         />
       ) : null}
 
@@ -5062,7 +5731,7 @@ function ServersView({ api, onOpenPlayer }: { api: ReturnType<typeof createApiCl
         items={tracked.data ?? []}
         actionLabel="Sync"
         onAction={(server) => sync.mutate(server.id ?? server.battlemetrics_server_id)}
-        onOpen={(server) => setSelectedServerId(server.id ?? server.battlemetrics_server_id)}
+        onOpen={openServer}
       />
 
       {selectedServerId ? (
@@ -5174,16 +5843,21 @@ function ProfileView({
   api,
   baseUrl,
   accessToken,
+  initialTab = "account",
   onOpenPlayer,
+  onOpenTab,
 }: {
   api: ReturnType<typeof createApiClient>;
   baseUrl: string;
   accessToken: string;
+  initialTab?: ProfileTab;
   onOpenPlayer: (playerId: string) => void;
+  onOpenTab?: (tab: ProfileTab) => void;
 }) {
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<ProfileTab>("account");
+  const [activeTab, setActiveTab] = useState<ProfileTab>(initialTab);
   const [steamQuery, setSteamQuery] = useState("");
+  useEffect(() => setActiveTab(initialTab), [initialTab]);
   const claims = useMemo(() => decodeJwtPayload(accessToken), [accessToken]);
   const myContext = useQuery({ queryKey: ["myLiveContext"], queryFn: api.myLiveContext, refetchInterval: 5_000 });
   const overview = useQuery({ queryKey: ["overview"], queryFn: api.overview, refetchInterval: 30_000 });
@@ -5213,6 +5887,10 @@ function ProfileView({
   const accountName = compactText(
     steam.persona_name ?? live?.display_name ?? profileClaim(claims, ["email", "name", "preferred_username", "sub", "user_id"]) ?? "Operator",
   );
+  function selectTab(tab: ProfileTab) {
+    setActiveTab(tab);
+    onOpenTab?.(tab);
+  }
 
   return (
     <section className="grid gap-4">
@@ -5257,7 +5935,7 @@ function ProfileView({
           <div className="rounded-md border border-border bg-background/45 p-3">
             <div className="mb-3 flex flex-wrap gap-2">
               {profileTabs.map((tab) => (
-                <Button key={tab.value} size="sm" variant={activeTab === tab.value ? "default" : "secondary"} onClick={() => setActiveTab(tab.value)}>
+                <Button key={tab.value} size="sm" variant={activeTab === tab.value ? "default" : "secondary"} onClick={() => selectTab(tab.value)}>
                   {tab.icon}
                   {tab.label}
                 </Button>
