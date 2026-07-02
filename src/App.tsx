@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
@@ -29,6 +29,8 @@ import {
 } from "lucide-react";
 import {
   createApiClient,
+  type CommandSearchItem,
+  type CommandSearchResult,
   type IntegrationProvider,
   type IntegrationStatus,
   type LivePlayer,
@@ -131,8 +133,32 @@ function defaultApiBaseUrl() {
   return window.location.origin;
 }
 
-const savedBaseUrl = localStorage.getItem("rustcp.baseUrl") ?? defaultApiBaseUrl();
-const savedToken = localStorage.getItem("rustcp.accessToken") ?? "";
+function readStoredValue(key: string, fallback: string) {
+  try {
+    return window.localStorage?.getItem(key) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeStoredValue(key: string, value: string) {
+  try {
+    window.localStorage?.setItem(key, value);
+  } catch {
+    return;
+  }
+}
+
+function removeStoredValue(key: string) {
+  try {
+    window.localStorage?.removeItem(key);
+  } catch {
+    return;
+  }
+}
+
+const savedBaseUrl = readStoredValue("rustcp.baseUrl", defaultApiBaseUrl());
+const savedToken = readStoredValue("rustcp.accessToken", "");
 
 export default function App() {
   return (
@@ -148,13 +174,32 @@ function AppShell() {
   const location = useLocation();
   const [baseUrl, setBaseUrl] = useState(savedBaseUrl);
   const [accessToken, setAccessToken] = useState(savedToken);
+  const [commandOpen, setCommandOpen] = useState(false);
+  const [commandQuery, setCommandQuery] = useState("");
   const api = useMemo(() => createApiClient(baseUrl, accessToken), [baseUrl, accessToken]);
   const activeView = viewFromPath(location.pathname);
+  const commandSearch = useQuery({
+    queryKey: ["command-search", commandQuery],
+    queryFn: () => api.commandSearch(commandQuery),
+    enabled: Boolean(accessToken && commandOpen),
+    staleTime: 5_000,
+  });
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setCommandOpen(true);
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   function saveSession(nextBaseUrl: string, token: string) {
     queryClient.clear();
-    localStorage.setItem("rustcp.baseUrl", nextBaseUrl);
-    localStorage.setItem("rustcp.accessToken", token);
+    writeStoredValue("rustcp.baseUrl", nextBaseUrl);
+    writeStoredValue("rustcp.accessToken", token);
     setBaseUrl(nextBaseUrl);
     setAccessToken(token);
     navigate("/", { replace: true });
@@ -162,7 +207,7 @@ function AppShell() {
 
   function logout() {
     queryClient.clear();
-    localStorage.removeItem("rustcp.accessToken");
+    removeStoredValue("rustcp.accessToken");
     setAccessToken("");
     navigate("/", { replace: true });
   }
@@ -173,6 +218,13 @@ function AppShell() {
 
   function openServer(serverId: string) {
     if (serverId) navigate(`/servers/${encodeURIComponent(serverId)}`);
+  }
+
+  function openCommandItem(item: CommandSearchItem) {
+    if (item.href) {
+      navigate(item.href);
+    }
+    setCommandOpen(false);
   }
 
   if (!accessToken) {
@@ -204,6 +256,32 @@ function AppShell() {
         <SidebarProfileFooter api={api} active={activeView === "profile"} onOpen={() => navigate("/profile")} onLogout={logout} />
       </aside>
       <main className="min-w-0 flex-1 px-4 py-4 sm:px-6 sm:py-5">
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <button
+            type="button"
+            data-testid="command-search-open"
+            onClick={() => setCommandOpen(true)}
+            className="flex h-11 min-w-0 flex-1 items-center gap-3 rounded-lg border border-border bg-card px-3 text-left shadow-sm transition hover:border-primary/45 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:max-w-xl"
+          >
+            <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 truncate text-sm text-muted-foreground">Search players, servers, events</span>
+          </button>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="capitalize">
+              {activeView === "dashboard" ? "overview" : activeView}
+            </Badge>
+          </div>
+        </div>
+        <CommandPalette
+          open={commandOpen}
+          query={commandQuery}
+          result={commandSearch.data}
+          loading={commandSearch.isFetching}
+          error={commandSearch.error instanceof Error ? commandSearch.error.message : ""}
+          onQuery={setCommandQuery}
+          onClose={() => setCommandOpen(false)}
+          onSelect={openCommandItem}
+        />
         <Routes>
           <Route path="/" element={<Dashboard api={api} onOpenPlayer={openPlayer} />} />
           <Route path="/live" element={<LiveView api={api} onOpenPlayer={openPlayer} />} />
@@ -222,6 +300,126 @@ function AppShell() {
       </main>
     </div>
   );
+}
+
+function CommandPalette({
+  open,
+  query,
+  result,
+  loading,
+  error,
+  onQuery,
+  onClose,
+  onSelect,
+}: {
+  open: boolean;
+  query: string;
+  result?: CommandSearchResult;
+  loading: boolean;
+  error: string;
+  onQuery: (value: string) => void;
+  onClose: () => void;
+  onSelect: (item: CommandSearchItem) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const items = result?.items ?? [];
+
+  useEffect(() => {
+    if (!open) return;
+    inputRef.current?.focus();
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose, open]);
+
+  if (!open) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center bg-background/70 px-3 py-20 backdrop-blur-sm sm:px-6"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div className="w-full max-w-2xl overflow-hidden rounded-lg border border-border bg-card shadow-2xl">
+        <div className="flex h-14 items-center gap-2 border-b border-border px-3">
+          <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <Input
+            ref={inputRef}
+            value={query}
+            data-testid="command-search-input"
+            onChange={(event) => onQuery(event.target.value)}
+            placeholder="Search players, servers, events"
+            className="h-12 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
+          />
+          <Button type="button" variant="ghost" size="icon" aria-label="Close search" onClick={onClose}>
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+        <div className="max-h-[60vh] overflow-y-auto p-2">
+          {loading ? (
+            <div className="flex h-24 items-center justify-center text-sm text-muted-foreground">Searching...</div>
+          ) : error ? (
+            <div className="flex h-24 items-center justify-center text-sm text-destructive">{error}</div>
+          ) : items.length === 0 ? (
+            <div className="flex h-24 items-center justify-center text-sm text-muted-foreground">No matches yet</div>
+          ) : (
+            <div className="grid gap-1">
+              {items.map((item) => (
+                <button
+                  type="button"
+                  key={`${item.type}:${item.id}`}
+                  data-testid="command-search-result"
+                  onClick={() => onSelect(item)}
+                  className="grid min-h-16 grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-3 rounded-md px-2 py-2 text-left transition hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <div className="flex h-10 w-10 items-center justify-center rounded-md border border-border bg-background">
+                    <CommandResultIcon type={item.type} />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium" title={item.title}>
+                      {item.title}
+                    </div>
+                    {item.subtitle ? (
+                      <div className="mt-0.5 truncate text-xs text-muted-foreground" title={item.subtitle}>
+                        {item.subtitle}
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="flex max-w-36 shrink-0 flex-wrap justify-end gap-1">
+                    {(item.badges ?? []).slice(0, 3).map((badge) => (
+                      <Badge key={badge} variant={badgeVariantForLabel(badge)} className="max-w-24 truncate text-[10px] uppercase">
+                        {badge}
+                      </Badge>
+                    ))}
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CommandResultIcon({ type }: { type: string }) {
+  const className = "h-4 w-4 text-muted-foreground";
+  if (type === "server") return <Server className={className} />;
+  if (type === "player" || type === "live_player") return <Users className={className} />;
+  if (type === "activity") return <Activity className={className} />;
+  return <SlidersHorizontal className={className} />;
+}
+
+function badgeVariantForLabel(label?: string): BadgeVariant {
+  const value = (label ?? "").toLowerCase();
+  if (["critical", "error", "hostile", "offline", "failed"].includes(value)) return "danger";
+  if (["warning", "suspect", "stale", "pending"].includes(value)) return "warning";
+  if (["online", "ok", "success", "live", "tracked", "local", "steam", "battlemetrics"].includes(value)) return "success";
+  if (["view", "command", "event"].includes(value)) return "secondary";
+  return "outline";
 }
 
 function PlayerRoute({ api }: { api: ReturnType<typeof createApiClient> }) {
@@ -1207,6 +1405,7 @@ function Dashboard({ api, onOpenPlayer }: { api: ReturnType<typeof createApiClie
   const integrations = useQuery({ queryKey: ["integrations"], queryFn: api.integrations });
   const health = useQuery({ queryKey: ["realtimeHealth"], queryFn: api.realtimeHealth, refetchInterval: 5_000 });
   const data = overview.data ?? {};
+  const providers = integrations.data?.providers ?? [];
 
   return (
     <section className="grid gap-4">
@@ -1224,7 +1423,7 @@ function Dashboard({ api, onOpenPlayer }: { api: ReturnType<typeof createApiClie
           <CardTitle>Source Health</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-4">
-          {integrations.data?.providers.map((provider) => (
+          {providers.map((provider) => (
             <div key={provider.provider} className="rounded-md border border-border bg-background/50 p-3">
               <div className="mb-2 flex items-center justify-between">
                 <span className="text-sm font-medium">{provider.provider}</span>
@@ -1235,6 +1434,7 @@ function Dashboard({ api, onOpenPlayer }: { api: ReturnType<typeof createApiClie
               <div className="text-xs leading-5 text-muted-foreground">{provider.use}</div>
             </div>
           ))}
+          {!providers.length ? <EmptyState label={integrations.isFetching ? "Loading integrations" : "No integration status"} /> : null}
           {overview.error ? <div className="text-sm text-destructive">{overview.error.message}</div> : null}
         </CardContent>
       </Card>

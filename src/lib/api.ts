@@ -480,6 +480,24 @@ export type RealtimeHealth = {
   silent_after_seconds?: number;
 };
 
+export type CommandSearchItem = {
+  id: string;
+  type: "command" | "server" | "player" | "live_player" | "activity" | string;
+  title: string;
+  subtitle?: string;
+  href?: string;
+  source?: string;
+  score?: number;
+  badges?: string[];
+  payload?: Record<string, unknown>;
+};
+
+export type CommandSearchResult = {
+  items: CommandSearchItem[];
+  query?: string;
+  source_status?: string;
+};
+
 export type ApiClient = ReturnType<typeof createApiClient>;
 
 type RequestOptions = {
@@ -518,6 +536,9 @@ export function createApiClient(baseUrl: string, token?: string) {
     },
     overview() {
       return request<Record<string, unknown>>("/api/admin/rustcontrol/overview");
+    },
+    commandSearch(query: string) {
+      return request<CommandSearchResult>(`/api/admin/rustcontrol/search?q=${encodeURIComponent(query)}`);
     },
     realtimeHealth() {
       return request<RealtimeHealth>("/api/admin/rustcontrol/realtime/health");
