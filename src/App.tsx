@@ -2,10 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
+  BarChart3,
   CalendarClock,
   Crosshair,
   DatabaseZap,
   Gamepad2,
+  History,
+  KeyRound,
+  Link2,
   LogOut,
   MapPinned,
   Pencil,
@@ -14,15 +18,19 @@ import {
   Search,
   Server,
   ShieldAlert,
+  ShieldCheck,
   SlidersHorizontal,
   Save,
+  UserCircle,
   Users,
   Wifi,
   X,
 } from "lucide-react";
 import {
   createApiClient,
+  type IntegrationStatus,
   type LivePlayer,
+  type MyLiveContext,
   type PlayerAlias,
   type PlayerDossier,
   type PlayerIntel,
@@ -54,7 +62,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, Td, Th } from "@/components/ui/table";
 
-type View = "dashboard" | "live" | "players" | "watchlist" | "servers" | "wipes" | "activity" | "integrations";
+type View = "dashboard" | "live" | "players" | "watchlist" | "servers" | "wipes" | "activity" | "integrations" | "profile";
 type QuickRiskLevel = "watch" | "suspect" | "hostile";
 type WatchlistRiskFilter = "all" | QuickRiskLevel;
 type WatchlistLiveFilter = "all" | "online" | "offline";
@@ -64,6 +72,7 @@ type PlayerTimelineFilter = "all" | "live" | "session" | "evidence" | "activity"
 type ServerRosterFilter = "all" | "watched" | QuickRiskLevel | "online" | "clear";
 type LiveMapFilter = "all" | "watched" | QuickRiskLevel | "team" | "near150" | "near400" | "same_grid" | "online" | "clear";
 type ActivitySeverityFilter = "all" | "info" | "warning" | "error";
+type ProfileTab = "account" | "steam" | "stats" | "history" | "security";
 
 const quickRiskLevels: QuickRiskLevel[] = ["watch", "suspect", "hostile"];
 
@@ -91,6 +100,7 @@ const savedBaseUrl = localStorage.getItem("rustcp.baseUrl") ?? defaultApiBaseUrl
 const savedToken = localStorage.getItem("rustcp.accessToken") ?? "";
 
 export default function App() {
+  const queryClient = useQueryClient();
   const [baseUrl, setBaseUrl] = useState(savedBaseUrl);
   const [accessToken, setAccessToken] = useState(savedToken);
   const [activeView, setActiveView] = useState<View>("dashboard");
@@ -98,15 +108,21 @@ export default function App() {
   const api = useMemo(() => createApiClient(baseUrl, accessToken), [baseUrl, accessToken]);
 
   function saveSession(nextBaseUrl: string, token: string) {
+    queryClient.clear();
     localStorage.setItem("rustcp.baseUrl", nextBaseUrl);
     localStorage.setItem("rustcp.accessToken", token);
     setBaseUrl(nextBaseUrl);
     setAccessToken(token);
+    setActiveView("dashboard");
+    setFocusedPlayerId("");
   }
 
   function logout() {
+    queryClient.clear();
     localStorage.removeItem("rustcp.accessToken");
     setAccessToken("");
+    setActiveView("dashboard");
+    setFocusedPlayerId("");
   }
 
   if (!accessToken) {
@@ -135,10 +151,7 @@ export default function App() {
           <NavButton active={activeView === "activity"} icon={<Activity />} label="Activity" onClick={() => setActiveView("activity")} />
           <NavButton active={activeView === "integrations"} icon={<DatabaseZap />} label="Integrations" onClick={() => setActiveView("integrations")} />
         </nav>
-        <Button variant="ghost" className="justify-start" onClick={logout}>
-          <LogOut className="h-4 w-4" />
-          Logout
-        </Button>
+        <SidebarProfileFooter api={api} active={activeView === "profile"} onOpen={() => setActiveView("profile")} onLogout={logout} />
       </aside>
       <main className="min-w-0 flex-1 px-6 py-5">
         {activeView === "dashboard" && (
@@ -181,7 +194,71 @@ export default function App() {
         {activeView === "wipes" && <WipesView api={api} />}
         {activeView === "activity" && <ActivityView api={api} />}
         {activeView === "integrations" && <IntegrationsView api={api} baseUrl={baseUrl} />}
+        {activeView === "profile" && (
+          <ProfileView
+            api={api}
+            baseUrl={baseUrl}
+            accessToken={accessToken}
+            onOpenPlayer={(playerId) => {
+              setFocusedPlayerId(playerId);
+              setActiveView("players");
+            }}
+          />
+        )}
       </main>
+    </div>
+  );
+}
+
+function SidebarProfileFooter({
+  api,
+  active,
+  onOpen,
+  onLogout,
+}: {
+  api: ReturnType<typeof createApiClient>;
+  active: boolean;
+  onOpen: () => void;
+  onLogout: () => void;
+}) {
+  const profile = useQuery({ queryKey: ["myLiveContext"], queryFn: api.myLiveContext, refetchInterval: 30_000 });
+  const steam = objectFrom(profile.data?.steam);
+  const live = profile.data?.live_player;
+  const avatarUrl = String(steam.avatar_url ?? "");
+  const name = compactText(steam.persona_name ?? live?.display_name ?? "Operator");
+  const subtitle = profile.data?.connected
+    ? compactText(live?.server_name ?? live?.map_grid ?? steam.steam_id)
+    : profile.isFetching
+      ? "Loading profile"
+      : "Steam not linked";
+
+  return (
+    <div className="grid gap-2 border-t border-border pt-3">
+      <button
+        className={`flex min-h-[68px] items-center gap-3 rounded-md border px-3 py-2 text-left transition-colors ${
+          active ? "border-primary/45 bg-primary/15" : "border-border bg-background/45 hover:bg-secondary"
+        }`}
+        onClick={onOpen}
+      >
+        {avatarUrl ? (
+          <img className="h-10 w-10 shrink-0 rounded-md border border-border object-cover" src={avatarUrl} />
+        ) : (
+          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-md border border-border bg-secondary">
+            <UserCircle className="h-5 w-5 text-muted-foreground" />
+          </div>
+        )}
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-medium">{name}</div>
+          <div className="mt-1 truncate text-xs text-muted-foreground">{subtitle}</div>
+        </div>
+        <Badge variant={live?.is_online ? "success" : profile.data?.connected ? "secondary" : "outline"}>
+          {live?.is_online ? "live" : profile.data?.connected ? "linked" : "setup"}
+        </Badge>
+      </button>
+      <Button variant="ghost" className="justify-start" onClick={onLogout}>
+        <LogOut className="h-4 w-4" />
+        Logout
+      </Button>
     </div>
   );
 }
@@ -879,13 +956,20 @@ function LoginScreen({
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [totp, setTotp] = useState("");
+  const [totpRequired, setTotpRequired] = useState(false);
   const loginApi = useMemo(() => createApiClient(baseUrl), [baseUrl]);
   const login = useMutation({
     mutationFn: () => loginApi.login(email, password, totp),
     onSuccess: (result) => {
       const token = result.tokens?.access_token;
-      if (token) onLogin(baseUrl, token);
+      if (token) {
+        setTotpRequired(false);
+        onLogin(baseUrl, token);
+        return;
+      }
+      setTotpRequired(Boolean(result.totp_required));
     },
+    onError: () => setTotpRequired(false),
   });
 
   return (
@@ -908,7 +992,8 @@ function LoginScreen({
             <Input value={baseUrl} onChange={(event) => onBaseUrl(event.target.value)} />
             <Input type="email" placeholder="admin@email" value={email} onChange={(event) => setEmail(event.target.value)} />
             <Input type="password" placeholder="password" value={password} onChange={(event) => setPassword(event.target.value)} />
-            <Input placeholder="2FA" value={totp} onChange={(event) => setTotp(event.target.value)} />
+            <Input placeholder={totpRequired ? "2FA code required" : "2FA"} value={totp} onChange={(event) => setTotp(event.target.value)} />
+            {totpRequired ? <StatusLine tone="ok" text="Two-factor code required. Enter the current 2FA code and log in again." /> : null}
             {login.error ? <div className="text-sm text-destructive">{login.error.message}</div> : null}
             <Button type="submit" disabled={login.isPending}>
               {login.isPending ? <RefreshCw className="h-4 w-4 animate-spin" /> : <ShieldAlert className="h-4 w-4" />}
@@ -1002,7 +1087,7 @@ function AlertsPanel({
                   busy={updateRisk.isPending}
                   onOpenPlayer={onOpenPlayer}
                   onRisk={(riskLevel) => {
-                    const playerId = item.player.id ?? item.watch.player_id;
+                    const playerId = item.player.id ?? item.watch?.player_id;
                     if (playerId) updateRisk.mutate({ playerId, riskLevel });
                   }}
                 />
@@ -1029,7 +1114,8 @@ function AlertCard({
   onOpenPlayer?: (playerId: string) => void;
   onRisk?: (riskLevel: QuickRiskLevel) => void;
 }) {
-  const playerId = item.player.id ?? item.watch.player_id;
+  const watch = item.watch;
+  const playerId = item.player.id ?? watch?.player_id;
   const proximityLabel = alertProximityLabel(item);
   return (
     <div className="rounded-md border border-border bg-background/55 p-3">
@@ -1041,7 +1127,7 @@ function AlertCard({
         <Badge variant={alertSeverityVariant(item.severity)}>{compactText(item.alert_type)}</Badge>
       </div>
       <div className="mt-2 flex flex-wrap gap-1">
-        <Badge variant={riskBadgeVariant(item.watch.risk_level)}>{compactText(item.watch.risk_level)}</Badge>
+        <Badge variant={watch ? riskBadgeVariant(watch.risk_level) : "outline"}>{watch ? compactText(watch.risk_level) : "untracked"}</Badge>
         {proximityLabel ? <Badge variant={proximityBadgeVariant(item.proximity_status)}>{proximityLabel}</Badge> : null}
         <Badge variant={item.live_player?.is_online ? "success" : "outline"}>{item.live_player?.is_online ? "online" : "recent"}</Badge>
       </div>
@@ -1052,7 +1138,7 @@ function AlertCard({
         <Fact label="Distance" value={item.same_server_as_me ? formatMeters(item.distance_to_me) : "-"} />
         <Fact label="My grid" value={compactText(item.my_live?.map_grid)} />
       </div>
-      <div className="mt-2 truncate text-xs text-muted-foreground">{compactText(item.watch.reason ?? item.watch.note)}</div>
+      <div className="mt-2 truncate text-xs text-muted-foreground">{compactText(watch?.reason ?? watch?.note)}</div>
       <div className="mt-3 flex items-center justify-between gap-2">
         <span className="text-xs text-muted-foreground">{formatDateTime(item.live_player?.last_seen_at)}</span>
         <div className="flex flex-wrap justify-end gap-2">
@@ -1235,17 +1321,22 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
   const liveMatches = search.data?.live_items ?? [];
   const selectedLocalPlayer = localMatches.find((player) => player.id === selectedLocalPlayerId) ?? resolve.data?.local_player;
   const localPlayerId = selectedLocalPlayerId || resolve.data?.local_player?.id || "";
-  const sessionBattleMetricsId = selectedBattleMetricsId || selectedLocalPlayer?.battlemetrics_player_id || resolve.data?.local_player?.battlemetrics_player_id || "";
-  const sessions = useQuery({
-    queryKey: ["sessions", sessionBattleMetricsId],
-    queryFn: () => api.playerSessions(sessionBattleMetricsId),
-    enabled: sessionBattleMetricsId.length > 0,
-  });
   const intel = useQuery({
     queryKey: ["playerIntel", localPlayerId],
     queryFn: () => api.playerIntel(localPlayerId),
     enabled: localPlayerId.length > 0,
     refetchInterval: 5_000,
+  });
+  const sessionBattleMetricsId =
+    selectedBattleMetricsId ||
+    selectedLocalPlayer?.battlemetrics_player_id ||
+    resolve.data?.local_player?.battlemetrics_player_id ||
+    intel.data?.player.battlemetrics_player_id ||
+    "";
+  const sessions = useQuery({
+    queryKey: ["sessions", sessionBattleMetricsId],
+    queryFn: () => api.playerSessions(sessionBattleMetricsId),
+    enabled: sessionBattleMetricsId.length > 0,
   });
   const dossier = useQuery({
     queryKey: ["playerDossier", localPlayerId],
@@ -1390,6 +1481,31 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
     if (localPlayerId) queryClient.invalidateQueries({ queryKey: ["playerTimeline", localPlayerId] });
   }
 
+  function updateQuery(value: string) {
+    setQuery(value);
+    setSelectedLocalPlayerId("");
+    setSelectedBattleMetricsId("");
+    resolve.reset();
+    search.reset();
+    connect.reset();
+  }
+
+  function runResolve() {
+    search.reset();
+    resolve.mutate();
+  }
+
+  function runSearch() {
+    resolve.reset();
+    search.mutate();
+  }
+
+  function runConnectMe() {
+    resolve.reset();
+    search.reset();
+    connect.mutate();
+  }
+
   return (
     <section className="grid gap-4">
       <Header title="Player Intelligence" subtitle="Steam, BattleMetrics, sessions and team probability" />
@@ -1397,22 +1513,18 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
         <CardContent className="grid gap-3 pt-4 lg:grid-cols-[1fr_auto_auto_auto]">
           <Input
             value={query}
-            onChange={(event) => {
-              setQuery(event.target.value);
-              setSelectedLocalPlayerId("");
-              setSelectedBattleMetricsId("");
-            }}
+            onChange={(event) => updateQuery(event.target.value)}
             placeholder="SteamID, profile URL, nickname, BattleMetrics player ID"
           />
-          <Button onClick={() => resolve.mutate()} disabled={!query || resolve.isPending}>
+          <Button onClick={runResolve} disabled={!query || resolve.isPending}>
             <Crosshair className="h-4 w-4" />
             Resolve
           </Button>
-          <Button variant="secondary" onClick={() => search.mutate()} disabled={!query || search.isPending}>
+          <Button variant="secondary" onClick={runSearch} disabled={!query || search.isPending}>
             <Search className="h-4 w-4" />
             Search
           </Button>
-          <Button variant="secondary" onClick={() => connect.mutate()} disabled={!query || connect.isPending}>
+          <Button variant="secondary" onClick={runConnectMe} disabled={!query || connect.isPending}>
             <Gamepad2 className="h-4 w-4" />
             Connect Me
           </Button>
@@ -3485,6 +3597,71 @@ function objectFrom(value: unknown) {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 }
 
+function decodeJwtPayload(token: string) {
+  const payload = token.split(".")[1];
+  if (!payload || typeof atob !== "function" || typeof TextDecoder === "undefined") return null;
+
+  try {
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), "=");
+    const binary = atob(padded);
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    const parsed = JSON.parse(new TextDecoder().decode(bytes));
+    return objectFrom(parsed);
+  } catch {
+    return null;
+  }
+}
+
+function profileClaim(claims: Record<string, unknown> | null, keys: string[]) {
+  for (const key of keys) {
+    const text = claimDisplayValue(claims?.[key]);
+    if (text) return text;
+  }
+  return undefined;
+}
+
+function profileClaimList(claims: Record<string, unknown> | null, keys: string[]) {
+  const raw = keys.map((key) => claims?.[key]).find((value) => value !== undefined && value !== null && value !== "");
+  if (Array.isArray(raw)) return raw.map(claimDisplayValue).filter(Boolean);
+  if (typeof raw === "string") return raw.split(/[,\s]+/).map((item) => item.trim()).filter(Boolean);
+  const single = claimDisplayValue(raw);
+  return single ? [single] : [];
+}
+
+function profileClaimRows(claims: Record<string, unknown> | null) {
+  const hidden = new Set(["exp", "iat", "nbf"]);
+  return Object.entries(claims ?? {})
+    .filter(([key, value]) => !hidden.has(key) && !key.toLowerCase().includes("token") && claimDisplayValue(value))
+    .slice(0, 12)
+    .map(([key, value]) => ({ key, value: claimDisplayValue(value) }));
+}
+
+function claimDisplayValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "";
+  if (Array.isArray(value)) return value.map(claimDisplayValue).filter(Boolean).join(", ");
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+function jwtTimestampMs(claims: Record<string, unknown> | null, key: string) {
+  const value = claims?.[key];
+  const numeric = typeof value === "number" ? value : typeof value === "string" ? Number(value) : 0;
+  if (!Number.isFinite(numeric) || numeric <= 0) return 0;
+  return numeric > 1_000_000_000_000 ? numeric : numeric * 1000;
+}
+
+function formatJwtTime(claims: Record<string, unknown> | null, key: string) {
+  const value = jwtTimestampMs(claims, key);
+  return value ? formatDateTime(new Date(value).toISOString()) : "-";
+}
+
+function ageSecondsFromDate(value: unknown) {
+  const time = dateMs(value);
+  if (!time) return null;
+  return Math.max(0, Math.floor((Date.now() - time) / 1000));
+}
+
 function formatSeconds(seconds: number) {
   if (!Number.isFinite(seconds) || seconds <= 0) return "-";
   const hours = Math.floor(seconds / 3600);
@@ -4990,6 +5167,547 @@ function ServerTable({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function ProfileView({
+  api,
+  baseUrl,
+  accessToken,
+  onOpenPlayer,
+}: {
+  api: ReturnType<typeof createApiClient>;
+  baseUrl: string;
+  accessToken: string;
+  onOpenPlayer: (playerId: string) => void;
+}) {
+  const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState<ProfileTab>("account");
+  const [steamQuery, setSteamQuery] = useState("");
+  const claims = useMemo(() => decodeJwtPayload(accessToken), [accessToken]);
+  const myContext = useQuery({ queryKey: ["myLiveContext"], queryFn: api.myLiveContext, refetchInterval: 5_000 });
+  const overview = useQuery({ queryKey: ["overview"], queryFn: api.overview, refetchInterval: 30_000 });
+  const health = useQuery({ queryKey: ["realtimeHealth"], queryFn: api.realtimeHealth, refetchInterval: 5_000 });
+  const alerts = useQuery({ queryKey: ["rustAlerts"], queryFn: api.alerts, refetchInterval: 5_000 });
+  const watchlist = useQuery({ queryKey: ["watchlist"], queryFn: api.watchlist, refetchInterval: 10_000 });
+  const activity = useQuery({ queryKey: ["activity"], queryFn: api.activity, refetchInterval: 10_000 });
+  const integrations = useQuery({ queryKey: ["integrations"], queryFn: api.integrations });
+  const connectSteam = useMutation({
+    mutationFn: () => api.connectMySteam(steamQuery),
+    onSuccess: () => {
+      setSteamQuery("");
+      queryClient.invalidateQueries({ queryKey: ["myLiveContext"] });
+      queryClient.invalidateQueries({ queryKey: ["livePlayers"] });
+      queryClient.invalidateQueries({ queryKey: ["realtimeHealth"] });
+      queryClient.invalidateQueries({ queryKey: ["activity"] });
+      queryClient.invalidateQueries({ queryKey: ["rustAlerts"] });
+      queryClient.invalidateQueries({ queryKey: ["overview"] });
+    },
+  });
+  const steam = objectFrom(myContext.data?.steam);
+  const live = myContext.data?.live_player;
+  const activityItems = activity.data ?? [];
+  const watchItems = watchlist.data ?? [];
+  const alertItems = alerts.data?.items ?? [];
+  const counts = health.data?.counts ?? {};
+  const accountName = compactText(
+    steam.persona_name ?? live?.display_name ?? profileClaim(claims, ["email", "name", "preferred_username", "sub", "user_id"]) ?? "Operator",
+  );
+
+  return (
+    <section className="grid gap-4">
+      <Header title="Operator Profile" subtitle="Account binding, live identity, operator stats, history and session health" />
+
+      <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
+        <div className="rounded-md border border-border bg-background/45 p-4">
+          <div className="flex items-start gap-3">
+            {steam.avatar_url ? (
+              <img className="h-16 w-16 rounded-md border border-border object-cover" src={String(steam.avatar_url)} />
+            ) : (
+              <div className="grid h-16 w-16 place-items-center rounded-md border border-border bg-secondary">
+                <UserCircle className="h-7 w-7 text-muted-foreground" />
+              </div>
+            )}
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-xl font-semibold">{accountName}</div>
+              <div className="mt-1 truncate text-xs text-muted-foreground">{compactText(steam.steam_id ?? profileClaim(claims, ["sub", "user_id"]))}</div>
+              <div className="mt-3 flex flex-wrap gap-1">
+                <Badge variant={myContext.data?.connected ? "success" : "warning"}>{myContext.data?.connected ? "steam linked" : "steam setup"}</Badge>
+                <Badge variant={live?.is_online ? "success" : "outline"}>{live?.is_online ? "online" : "offline"}</Badge>
+                <Badge variant={healthStatusVariant(health.data?.status)}>{compactText(health.data?.status ?? "health")}</Badge>
+              </div>
+            </div>
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <Fact label="API" value={baseUrl.replace(/^https?:\/\//, "")} wide />
+            <Fact label="Token expires" value={formatJwtTime(claims, "exp")} />
+            <Fact label="Live age" value={formatAgeSeconds(ageSecondsFromDate(live?.last_seen_at))} />
+            <Fact label="Current grid" value={live?.map_grid} />
+            <Fact label="Team" value={live?.team_id || live?.clan_tag} />
+          </div>
+        </div>
+
+        <div className="grid gap-4">
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+            <ProfileStatPill label="Tracked Servers" value={overview.data?.tracked_servers} icon={<Server />} variant="secondary" />
+            <ProfileStatPill label="Known Players" value={overview.data?.known_players} icon={<Users />} variant="secondary" />
+            <ProfileStatPill label="Live Online" value={counts.live_online} icon={<Wifi />} variant={Number(counts.live_online ?? 0) ? "success" : "outline"} />
+            <ProfileStatPill label="Active Alerts" value={alertItems.length} icon={<ShieldAlert />} variant={alertItems.length ? "danger" : "outline"} />
+          </div>
+          <div className="rounded-md border border-border bg-background/45 p-3">
+            <div className="mb-3 flex flex-wrap gap-2">
+              {profileTabs.map((tab) => (
+                <Button key={tab.value} size="sm" variant={activeTab === tab.value ? "default" : "secondary"} onClick={() => setActiveTab(tab.value)}>
+                  {tab.icon}
+                  {tab.label}
+                </Button>
+              ))}
+            </div>
+            <div className="grid gap-2 md:grid-cols-4">
+              <Fact label="Watchlist" value={watchItems.length} />
+              <Fact label="Events" value={activityItems.length} />
+              <Fact label="Events 5m" value={counts.events_5m} />
+              <Fact label="Teammates" value={myContext.data?.teammates?.length ?? 0} />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {myContext.error ? <StatusLine tone="bad" text={myContext.error.message} /> : null}
+      {connectSteam.error ? <StatusLine tone="bad" text={connectSteam.error.message} /> : null}
+      {connectSteam.data ? <StatusLine tone="ok" text={`Steam connected: ${compactText(connectSteam.data.steam_id)}`} /> : null}
+
+      {activeTab === "account" && (
+        <ProfileAccountTab claims={claims} baseUrl={baseUrl} myContext={myContext.data} integrations={integrations.data} health={health.data} />
+      )}
+      {activeTab === "steam" && (
+        <ProfileSteamTab
+          steamQuery={steamQuery}
+          onSteamQuery={setSteamQuery}
+          onConnect={() => connectSteam.mutate()}
+          connecting={connectSteam.isPending}
+          myContext={myContext.data}
+          health={health.data}
+        />
+      )}
+      {activeTab === "stats" && (
+        <ProfileStatsTab
+          overview={overview.data}
+          health={health.data}
+          watchlist={watchItems}
+          alerts={alertItems}
+          activity={activityItems}
+          loading={overview.isFetching || health.isFetching}
+        />
+      )}
+      {activeTab === "history" && (
+        <ProfileHistoryTab activity={activityItems} watchlist={watchItems} alerts={alertItems} loading={activity.isFetching} onOpenPlayer={onOpenPlayer} />
+      )}
+      {activeTab === "security" && <ProfileSecurityTab claims={claims} baseUrl={baseUrl} health={health.data} />}
+    </section>
+  );
+}
+
+const profileTabs: Array<{ value: ProfileTab; label: string; icon: React.ReactElement }> = [
+  { value: "account", label: "Account", icon: <UserCircle className="h-4 w-4" /> },
+  { value: "steam", label: "Steam Link", icon: <Link2 className="h-4 w-4" /> },
+  { value: "stats", label: "Stats", icon: <BarChart3 className="h-4 w-4" /> },
+  { value: "history", label: "History", icon: <History className="h-4 w-4" /> },
+  { value: "security", label: "Security", icon: <KeyRound className="h-4 w-4" /> },
+];
+
+function ProfileAccountTab({
+  claims,
+  baseUrl,
+  myContext,
+  integrations,
+  health,
+}: {
+  claims: Record<string, unknown> | null;
+  baseUrl: string;
+  myContext?: MyLiveContext;
+  integrations?: IntegrationStatus;
+  health?: RealtimeHealth;
+}) {
+  const steam = objectFrom(myContext?.steam);
+  const providers = integrations?.providers ?? [];
+  return (
+    <div className="grid gap-4 xl:grid-cols-[1fr_420px]">
+      <div className="rounded-md border border-border bg-background/45 p-3">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div className="text-sm font-medium">Account Identity</div>
+            <div className="text-xs text-muted-foreground">JWT session, backend target and linked Steam persona</div>
+          </div>
+          <Badge variant={myContext?.connected ? "success" : "warning"}>{myContext?.connected ? "linked" : "needs link"}</Badge>
+        </div>
+        <div className="grid gap-2 md:grid-cols-3">
+          <Fact label="Email" value={profileClaim(claims, ["email", "preferred_username"])} />
+          <Fact label="User ID" value={profileClaim(claims, ["user_id", "sub"])} wide />
+          <Fact label="Role" value={profileClaim(claims, ["role", "roles", "scope"])} />
+          <Fact label="Workspace" value={profileClaim(claims, ["workspace_id", "workspace", "workspace_slug"])} />
+          <Fact label="API base" value={baseUrl} wide />
+          <Fact label="Issued" value={formatJwtTime(claims, "iat")} />
+          <Fact label="Expires" value={formatJwtTime(claims, "exp")} />
+          <Fact label="Steam" value={steam.steam_id} />
+          <Fact label="Persona" value={steam.persona_name} />
+        </div>
+      </div>
+
+      <div className="rounded-md border border-border bg-background/45 p-3">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <div className="text-sm font-medium">Provider Readiness</div>
+          <Badge variant={healthStatusVariant(health?.status)}>{compactText(health?.status)}</Badge>
+        </div>
+        <div className="grid gap-2">
+          {providers.map((provider) => (
+            <div key={provider.provider} className="grid grid-cols-[1fr_auto] gap-2 border-b border-border pb-2 last:border-0 last:pb-0">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium">{compactText(provider.provider)}</div>
+                <div className="truncate text-xs text-muted-foreground">{compactText(provider.use)}</div>
+              </div>
+              <Badge variant={provider.configured || provider.public_mode ? "success" : "warning"}>
+                {provider.configured ? "ready" : provider.public_mode ? "public" : "missing"}
+              </Badge>
+            </div>
+          ))}
+          {!providers.length ? <EmptyState label="Loading providers" /> : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProfileSteamTab({
+  steamQuery,
+  onSteamQuery,
+  onConnect,
+  connecting,
+  myContext,
+  health,
+}: {
+  steamQuery: string;
+  onSteamQuery: (value: string) => void;
+  onConnect: () => void;
+  connecting: boolean;
+  myContext?: MyLiveContext;
+  health?: RealtimeHealth;
+}) {
+  const steam = objectFrom(myContext?.steam);
+  const live = myContext?.live_player;
+  const teammates = myContext?.teammates ?? [];
+  return (
+    <div className="grid gap-4 xl:grid-cols-[420px_1fr]">
+      <div className="rounded-md border border-border bg-background/45 p-3">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div className="text-sm font-medium">Steam Account Binding</div>
+            <div className="text-xs text-muted-foreground">SteamID, profile URL or vanity URL accepted by the backend resolver</div>
+          </div>
+          <Badge variant={myContext?.connected ? "success" : "warning"}>{myContext?.connected ? "connected" : "not connected"}</Badge>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+          <Input value={steamQuery} onChange={(event) => onSteamQuery(event.target.value)} placeholder="SteamID or profile URL" />
+          <Button onClick={onConnect} disabled={!steamQuery.trim() || connecting}>
+            {connecting ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
+            Link
+          </Button>
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <Fact label="Steam ID" value={steam.steam_id} wide />
+          <Fact label="Persona" value={steam.persona_name} />
+          <Fact label="Profile" value={steam.profile_url} />
+          <Fact label="Live source" value={live?.source ?? myContext?.source_status} />
+          <Fact label="Feed status" value={health?.status} />
+        </div>
+      </div>
+
+      <div className="grid gap-4">
+        {live ? (
+          <div className="rounded-md border border-border bg-background/45 p-3">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <div className="text-sm font-medium">Current Live Identity</div>
+              <Badge variant={live.is_online ? "success" : "outline"}>{live.is_online ? "online" : "offline"}</Badge>
+            </div>
+            <div className="grid gap-3 xl:grid-cols-[1fr_1fr]">
+              <LiveFacts player={live} />
+              <CurrentServerFacts live={live} />
+            </div>
+          </div>
+        ) : (
+          <EmptyState label={myContext?.connected ? "Steam is linked, but no live plugin row has matched this account yet" : "Link Steam to unlock live account context"} />
+        )}
+
+        <div className="rounded-md border border-border bg-background/45 p-3">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <div className="text-sm font-medium">Detected Teammates</div>
+            <Badge variant={teammates.length ? "success" : "outline"}>{teammates.length}</Badge>
+          </div>
+          <div className="grid gap-2 md:grid-cols-2">
+            {teammates.slice(0, 8).map((player) => (
+              <LivePlayerCompact key={player.id} player={player} />
+            ))}
+          </div>
+          {!teammates.length ? <EmptyState label="Team data appears after plugin/Rust+ snapshots include this account" /> : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProfileStatsTab({
+  overview,
+  health,
+  watchlist,
+  alerts,
+  activity,
+  loading,
+}: {
+  overview?: Record<string, unknown>;
+  health?: RealtimeHealth;
+  watchlist: WatchlistItem[];
+  alerts: RustAlertItem[];
+  activity: Array<Record<string, unknown>>;
+  loading: boolean;
+}) {
+  const counts = health?.counts ?? {};
+  const watchStats = watchlistStats(watchlist);
+  const activitySummary = activityStats(activity);
+  const sourceOptions = activityOptionCounts(activity, "source");
+  const typeOptions = activityOptionCounts(activity, "event_type");
+  return (
+    <div className="grid gap-4">
+      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-5">
+        <WatchlistSummaryPill label="Watchlist" value={watchStats.total} variant={watchStats.total ? "warning" : "outline"} />
+        <WatchlistSummaryPill label="Hostile" value={watchStats.hostile} variant={watchStats.hostile ? "danger" : "outline"} />
+        <WatchlistSummaryPill label="Suspect" value={watchStats.suspect} variant={watchStats.suspect ? "warning" : "outline"} />
+        <WatchlistSummaryPill label="Online Watched" value={watchStats.online} variant={watchStats.online ? "success" : "outline"} />
+        <WatchlistSummaryPill label="Alerts" value={alerts.length} variant={alerts.length ? "danger" : "outline"} />
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+        <div className="rounded-md border border-border bg-background/45 p-3">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <div className="text-sm font-medium">RustControl Totals</div>
+            <Badge variant={loading ? "secondary" : "outline"}>{loading ? "refreshing" : "cached"}</Badge>
+          </div>
+          <div className="grid gap-2 md:grid-cols-3">
+            <Fact label="Tracked servers" value={overview?.tracked_servers} />
+            <Fact label="Known players" value={overview?.known_players} />
+            <Fact label="Team edges" value={overview?.team_edges} />
+            <Fact label="Live events 1h" value={overview?.live_events_1h} />
+            <Fact label="Live online" value={counts.live_online} />
+            <Fact label="Live teams" value={counts.live_teams} />
+            <Fact label="Live servers" value={counts.live_servers} />
+            <Fact label="Events 5m" value={counts.events_5m} />
+            <Fact label="Events 1h" value={counts.events_1h} />
+          </div>
+        </div>
+
+        <div className="rounded-md border border-border bg-background/45 p-3">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <div className="text-sm font-medium">Activity Mix</div>
+            <Badge variant={activitySummary.error ? "danger" : activitySummary.warning ? "warning" : "outline"}>{activitySummary.total} events</Badge>
+          </div>
+          <div className="grid gap-2 md:grid-cols-2">
+            <Fact label="Warnings" value={activitySummary.warning} />
+            <Fact label="Errors" value={activitySummary.error} />
+            <Fact label="Operator notes" value={activitySummary.operatorNotes} />
+            <Fact label="Shown rows" value={activity.length} />
+          </div>
+          <div className="mt-3 grid gap-2 md:grid-cols-2">
+            <ActivityFilterChips title="Top Sources" allLabel="All sources" selected="all" items={sourceOptions} onSelect={() => undefined} />
+            <ActivityFilterChips title="Top Event Types" allLabel="All types" selected="all" items={typeOptions} onSelect={() => undefined} />
+          </div>
+        </div>
+      </div>
+
+      <RealtimeHealthPanel health={health} loading={loading} compact />
+    </div>
+  );
+}
+
+function ProfileHistoryTab({
+  activity,
+  watchlist,
+  alerts,
+  loading,
+  onOpenPlayer,
+}: {
+  activity: Array<Record<string, unknown>>;
+  watchlist: WatchlistItem[];
+  alerts: RustAlertItem[];
+  loading: boolean;
+  onOpenPlayer: (playerId: string) => void;
+}) {
+  const recentActivity = activity.slice(0, 12);
+  const recentWatchlist = [...watchlist].sort((a, b) => dateMs(b.watch.updated_at) - dateMs(a.watch.updated_at)).slice(0, 8);
+  return (
+    <div className="grid gap-4 xl:grid-cols-[1fr_420px]">
+      <div className="rounded-md border border-border bg-background/45 p-3">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <div className="text-sm font-medium">Recent Account Feed</div>
+          <Badge variant={loading ? "secondary" : "outline"}>{loading ? "loading" : `${recentActivity.length} rows`}</Badge>
+        </div>
+        <div className="overflow-auto rounded-md border border-border">
+          <Table>
+            <thead>
+              <tr>
+                <Th>Time</Th>
+                <Th>Signal</Th>
+                <Th>Details</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {recentActivity.map((event) => (
+                <tr key={String(event.id)}>
+                  <Td>
+                    <div className="text-sm">{formatDateTime(event.occurred_at)}</div>
+                    <div className="text-xs text-muted-foreground">{formatRelativeTime(event.occurred_at)}</div>
+                  </Td>
+                  <Td>
+                    <div className="flex flex-wrap gap-1">
+                      <Badge variant={timelineSeverityVariant(String(event.severity ?? ""))}>{compactText(event.severity)}</Badge>
+                      <Badge variant="secondary">{compactText(event.source)}</Badge>
+                    </div>
+                  </Td>
+                  <Td>
+                    <div className="font-medium">{compactText(event.event_type)}</div>
+                    <div className="max-w-[560px] truncate text-xs text-muted-foreground">{activityPayloadSummary(event.payload)}</div>
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+          {!recentActivity.length ? <EmptyState label={loading ? "Loading history" : "No account activity yet"} /> : null}
+        </div>
+      </div>
+
+      <div className="grid gap-4">
+        <div className="rounded-md border border-border bg-background/45 p-3">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <div className="text-sm font-medium">Recent Watch Changes</div>
+            <Badge variant={recentWatchlist.length ? "warning" : "outline"}>{recentWatchlist.length}</Badge>
+          </div>
+          <div className="grid gap-2">
+            {recentWatchlist.map((item) => (
+              <button
+                key={item.watch.id}
+                className="grid grid-cols-[1fr_auto] items-center gap-2 rounded-md border border-border bg-background/50 p-2 text-left hover:bg-secondary"
+                onClick={() => onOpenPlayer(item.player.id ?? item.watch.player_id)}
+              >
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium">{compactText(item.player.display_name ?? item.player.name)}</div>
+                  <div className="truncate text-xs text-muted-foreground">{compactText(item.watch.reason || item.watch.note || item.player.steam_id)}</div>
+                </div>
+                <div className="flex flex-col items-end gap-1">
+                  <Badge variant={riskBadgeVariant(item.watch.risk_level)}>{compactText(item.watch.risk_level)}</Badge>
+                  <span className="text-xs text-muted-foreground">{formatRelativeTime(item.watch.updated_at)}</span>
+                </div>
+              </button>
+            ))}
+            {!recentWatchlist.length ? <EmptyState label="No watchlist changes yet" /> : null}
+          </div>
+        </div>
+
+        <div className="rounded-md border border-border bg-background/45 p-3">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <div className="text-sm font-medium">Current Alerts</div>
+            <Badge variant={alerts.length ? "danger" : "outline"}>{alerts.length}</Badge>
+          </div>
+          <div className="grid gap-2">
+            {alerts.slice(0, 6).map((alert) => (
+              <button
+                key={`${alert.player.id ?? alert.player.steam_id}-${alert.alert_type}`}
+                className="grid grid-cols-[1fr_auto] items-center gap-2 rounded-md border border-border bg-background/50 p-2 text-left hover:bg-secondary"
+                onClick={() => alert.player.id && onOpenPlayer(alert.player.id)}
+              >
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium">{compactText(alert.player.display_name ?? alert.player.name)}</div>
+                  <div className="truncate text-xs text-muted-foreground">{compactText(alert.alert_type)} / {compactText(alert.current_server?.name)}</div>
+                </div>
+                <Badge variant={alertSeverityVariant(alert.severity)}>{compactText(alert.severity)}</Badge>
+              </button>
+            ))}
+            {!alerts.length ? <EmptyState label="No active watched-player alerts" /> : null}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProfileSecurityTab({ claims, baseUrl, health }: { claims: Record<string, unknown> | null; baseUrl: string; health?: RealtimeHealth }) {
+  const permissions = profileClaimList(claims, ["permissions", "perms", "scope", "roles", "role"]);
+  const expiresMs = jwtTimestampMs(claims, "exp");
+  const expired = expiresMs > 0 && Date.now() > expiresMs;
+  return (
+    <div className="grid gap-4 xl:grid-cols-[420px_1fr]">
+      <div className="rounded-md border border-border bg-background/45 p-3">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <div>
+            <div className="text-sm font-medium">Session Security</div>
+            <div className="text-xs text-muted-foreground">Token lifecycle and client-side storage status</div>
+          </div>
+          <Badge variant={expired ? "danger" : "success"}>{expired ? "expired" : "active"}</Badge>
+        </div>
+        <div className="grid gap-2">
+          <Fact label="API base" value={baseUrl} wide />
+          <Fact label="Token subject" value={profileClaim(claims, ["sub", "user_id"])} wide />
+          <Fact label="Issued at" value={formatJwtTime(claims, "iat")} />
+          <Fact label="Expires at" value={formatJwtTime(claims, "exp")} />
+          <Fact label="Realtime status" value={health?.status} />
+          <Fact label="Silent after" value={formatAgeSeconds(health?.silent_after_seconds)} />
+        </div>
+      </div>
+
+      <div className="rounded-md border border-border bg-background/45 p-3">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <div>
+            <div className="text-sm font-medium">Permissions / Claims</div>
+            <div className="text-xs text-muted-foreground">Decoded JWT claims only; the raw token is never shown here</div>
+          </div>
+          <ShieldCheck className="h-4 w-4 text-primary" />
+        </div>
+        <div className="mb-3 flex flex-wrap gap-1">
+          {permissions.slice(0, 20).map((permission) => (
+            <Badge key={permission} variant="secondary">
+              {permission}
+            </Badge>
+          ))}
+          {!permissions.length ? <Badge variant="outline">no explicit permissions claim</Badge> : null}
+        </div>
+        <div className="grid gap-2 md:grid-cols-2">
+          {profileClaimRows(claims).map((row) => (
+            <Fact key={row.key} label={row.key} value={row.value} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProfileStatPill({
+  label,
+  value,
+  icon,
+  variant,
+}: {
+  label: string;
+  value: unknown;
+  icon: React.ReactElement;
+  variant: "default" | "secondary" | "outline" | "danger" | "success" | "warning";
+}) {
+  return (
+    <div className="grid min-h-[92px] gap-3 rounded-md border border-border bg-background/45 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs text-muted-foreground">{label}</span>
+        <span className="[&>svg]:h-4 [&>svg]:w-4 text-muted-foreground">{icon}</span>
+      </div>
+      <Badge variant={variant} className="h-8 justify-center text-sm">
+        {compactText(value)}
+      </Badge>
+    </div>
   );
 }
 
