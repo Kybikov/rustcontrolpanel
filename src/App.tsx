@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import {
   createApiClient,
+  type IntegrationProvider,
   type IntegrationStatus,
   type LivePlayer,
   type MyLiveContext,
@@ -79,6 +80,7 @@ type LiveMapFilter = "all" | "watched" | QuickRiskLevel | "team" | "near150" | "
 type ActivitySeverityFilter = "all" | "info" | "warning" | "error";
 type ProfileTab = "account" | "steam" | "stats" | "history" | "security";
 type ServerDetailTab = "overview" | "history" | "wipes" | "players" | "map" | "activity" | "settings";
+type BadgeVariant = "default" | "secondary" | "outline" | "danger" | "success" | "warning";
 
 const quickRiskLevels: QuickRiskLevel[] = ["watch", "suspect", "hostile"];
 const profileTabValues: ProfileTab[] = ["account", "steam", "stats", "history", "security"];
@@ -6600,28 +6602,258 @@ function ActivityFilterChips({
 function IntegrationsView({ api, baseUrl }: { api: ReturnType<typeof createApiClient>; baseUrl: string }) {
   const integrations = useQuery({ queryKey: ["integrations"], queryFn: api.integrations });
   const health = useQuery({ queryKey: ["realtimeHealth"], queryFn: api.realtimeHealth, refetchInterval: 5_000 });
-  const rustPlus = (integrations.data?.providers ?? []).find((provider) => provider.provider === "rust_plus");
+  const providers = integrations.data?.providers ?? [];
+  const rustPlus = providers.find((provider) => provider.provider === "rust_plus");
 
   return (
     <section className="grid gap-4">
       <Header title="Integrations" subtitle="BattleMetrics, Steam, RustMaps and Rust+" />
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {(integrations.data?.providers ?? []).map((provider) => (
+      {integrations.error ? <StatusLine tone="bad" text={integrations.error.message} /> : null}
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        {providers.map((provider) => (
           <Card key={provider.provider}>
             <CardHeader>
-              <CardTitle className="flex items-center justify-between">
-                {provider.provider}
-                <Badge variant={provider.configured || provider.public_mode ? "success" : "outline"}>
-                  {provider.configured ? "ready" : provider.public_mode ? "public" : "missing"}
+              <CardTitle className="flex items-center justify-between gap-2">
+                <span className="truncate">{provider.label ?? provider.provider}</span>
+                <Badge variant={integrationStatusVariant(provider)}>
+                  {integrationStatusLabel(provider)}
                 </Badge>
               </CardTitle>
             </CardHeader>
-            <CardContent className="text-sm leading-6 text-muted-foreground">{provider.use}</CardContent>
+            <CardContent className="grid gap-3 text-sm leading-6 text-muted-foreground">
+              <div>{provider.use}</div>
+              <div className="flex flex-wrap gap-2">
+                {provider.public_mode ? <Badge variant="secondary">public</Badge> : null}
+                {provider.env_configured ? <Badge variant="success">env</Badge> : <Badge variant="outline">env missing</Badge>}
+                {provider.enabled ? <Badge variant="default">enabled</Badge> : <Badge variant="outline">disabled</Badge>}
+              </div>
+            </CardContent>
           </Card>
         ))}
       </div>
+      <IntegrationSettingsPanel api={api} providers={providers} loading={integrations.isFetching} />
       <RustPlusIntakePanel api={api} provider={rustPlus} health={health.data} loading={health.isFetching} baseUrl={baseUrl} />
     </section>
+  );
+}
+
+function IntegrationSettingsPanel({
+  api,
+  providers,
+  loading,
+}: {
+  api: ReturnType<typeof createApiClient>;
+  providers: IntegrationProvider[];
+  loading: boolean;
+}) {
+  if (!providers.length) {
+    return (
+      <Card>
+        <CardContent className="pt-4">
+          <EmptyState label={loading ? "Loading integration settings" : "No integration providers returned"} />
+        </CardContent>
+      </Card>
+    );
+  }
+  return (
+    <div className="grid gap-4 xl:grid-cols-2">
+      {providers.map((provider) => (
+        <IntegrationSettingsCard key={provider.provider} api={api} provider={provider} />
+      ))}
+    </div>
+  );
+}
+
+function IntegrationSettingsCard({ api, provider }: { api: ReturnType<typeof createApiClient>; provider: IntegrationProvider }) {
+  const queryClient = useQueryClient();
+  const configSignature = useMemo(() => formatIntegrationConfig(provider.config), [provider.config]);
+  const [enabled, setEnabled] = useState(Boolean(provider.enabled));
+  const [secretHint, setSecretHint] = useState(provider.secret_hint ?? "");
+  const [configText, setConfigText] = useState(configSignature);
+  const [localError, setLocalError] = useState("");
+  const saveSettings = useMutation({
+    mutationFn: (payload: { enabled: boolean; secret_hint: string; config: Record<string, unknown> }) =>
+      api.updateIntegration(provider.provider, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["integrations"] });
+      queryClient.invalidateQueries({ queryKey: ["realtimeHealth"] });
+      queryClient.invalidateQueries({ queryKey: ["overview"] });
+    },
+  });
+  const testSettings = useMutation({
+    mutationFn: () => api.testIntegration(provider.provider),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["realtimeHealth"] });
+      queryClient.invalidateQueries({ queryKey: ["activity"] });
+    },
+  });
+
+  useEffect(() => {
+    setEnabled(Boolean(provider.enabled));
+    setSecretHint(provider.secret_hint ?? "");
+    setConfigText(configSignature);
+    setLocalError("");
+  }, [configSignature, provider.enabled, provider.provider, provider.secret_hint]);
+
+  function onSave() {
+    const parsed = parseIntegrationConfig(configText);
+    if (parsed.error) {
+      setLocalError(parsed.error);
+      return;
+    }
+    setLocalError("");
+    saveSettings.mutate({
+      enabled,
+      secret_hint: secretHint,
+      config: parsed.config ?? {},
+    });
+  }
+
+  const droppedSecretKeys = saveSettings.data?.dropped_secret_keys ?? [];
+  const checks = testSettings.data?.checks ?? [];
+  const testStatus = testSettings.data?.status;
+
+  return (
+    <Card data-testid={`integration-settings-${provider.provider}`}>
+      <CardHeader>
+        <CardTitle className="flex flex-wrap items-center justify-between gap-2">
+          <span className="flex min-w-0 items-center gap-2">
+            <KeyRound className="h-4 w-4 shrink-0 text-primary" />
+            <span className="truncate">{provider.label ?? provider.provider}</span>
+          </span>
+          <Badge variant={integrationStatusVariant(provider)}>{integrationStatusLabel(provider)}</Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        <div className="grid gap-2 md:grid-cols-3">
+          <Fact label="Provider" value={provider.provider} />
+          <Fact label="Env" value={provider.env_configured ? "configured" : "missing"} />
+          <Fact label="Updated" value={provider.updated_at ? formatDateTime(provider.updated_at) : "-"} />
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+          <label className="flex h-10 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm">
+            <input
+              type="checkbox"
+              checked={enabled}
+              onChange={(event) => setEnabled(event.target.checked)}
+              className="h-4 w-4 rounded border-border accent-primary"
+            />
+            Enabled
+          </label>
+          <Input value={secretHint} onChange={(event) => setSecretHint(event.target.value)} placeholder={provider.secret_source ? `${provider.secret_source} hint` : "Secret hint"} />
+        </div>
+
+        <div className="grid gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="text-sm font-medium">Workspace config</div>
+            {provider.secret_source ? <Badge variant="outline">{provider.secret_source}</Badge> : null}
+          </div>
+          <textarea
+            data-testid={`integration-config-${provider.provider}`}
+            value={configText}
+            onChange={(event) => setConfigText(event.target.value)}
+            spellCheck={false}
+            rows={8}
+            className="min-h-40 w-full resize-y rounded-md border border-input bg-background px-3 py-2 font-mono text-xs text-foreground outline-none transition-colors placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+          />
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Button data-testid={`integration-save-${provider.provider}`} size="sm" onClick={onSave} disabled={saveSettings.isPending}>
+            <Save className="h-4 w-4" />
+            Save
+          </Button>
+          <Button data-testid={`integration-test-${provider.provider}`} size="sm" variant="secondary" onClick={() => testSettings.mutate()} disabled={testSettings.isPending || !provider.testable}>
+            <RefreshCw className={`h-4 w-4 ${testSettings.isPending ? "animate-spin" : ""}`} />
+            Test
+          </Button>
+          <Badge variant={enabled ? "success" : "outline"}>{enabled ? "enabled" : "disabled"}</Badge>
+          {testStatus ? <Badge variant={integrationCheckVariant(testStatus)}>{compactText(testStatus)}</Badge> : null}
+        </div>
+
+        {localError ? <StatusLine tone="bad" text={localError} /> : null}
+        {saveSettings.error ? <StatusLine tone="bad" text={saveSettings.error.message} /> : null}
+        {saveSettings.data ? <StatusLine tone="ok" text={`Saved ${compactText(saveSettings.data.provider.provider)}`} /> : null}
+        {droppedSecretKeys.length ? <StatusLine tone="bad" text={`Dropped secret fields: ${droppedSecretKeys.join(", ")}`} /> : null}
+        {testSettings.error ? <StatusLine tone="bad" text={testSettings.error.message} /> : null}
+
+        {checks.length ? (
+          <div className="grid gap-2">
+            {checks.map((check, index) => (
+              <IntegrationTestCheck key={`${provider.provider}-${index}`} check={check} />
+            ))}
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+function integrationStatusVariant(provider: IntegrationProvider): BadgeVariant {
+  const status = String(provider.status ?? "").toLowerCase();
+  if (status === "not_configured") return provider.public_mode ? "secondary" : "outline";
+  if (status.includes("missing") || status.includes("needs")) return "warning";
+  if (status.includes("configured") || status === "available" || provider.configured) return "success";
+  return provider.public_mode ? "secondary" : "outline";
+}
+
+function integrationStatusLabel(provider: IntegrationProvider) {
+  if (provider.status) return compactText(provider.status);
+  if (provider.configured) return "ready";
+  if (provider.public_mode) return "public";
+  return "missing";
+}
+
+function integrationCheckVariant(status?: string): BadgeVariant {
+  const normalized = String(status ?? "").toLowerCase();
+  if (normalized === "ok" || normalized === "configured" || normalized === "available") return "success";
+  if (normalized === "error" || normalized === "failed") return "danger";
+  if (normalized === "warning" || normalized.includes("missing") || normalized.includes("needs")) return "warning";
+  return "outline";
+}
+
+function formatIntegrationConfig(value: unknown) {
+  const object = objectFrom(value);
+  return JSON.stringify(object, null, 2);
+}
+
+function parseIntegrationConfig(value: string): { config?: Record<string, unknown>; error?: string } {
+  try {
+    const parsed = JSON.parse(value || "{}") as unknown;
+    if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
+      return { error: "Config must be a JSON object." };
+    }
+    return { config: parsed as Record<string, unknown> };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Config must be valid JSON." };
+  }
+}
+
+function IntegrationTestCheck({ check }: { check: Record<string, unknown> }) {
+  const status = String(check.status ?? "unknown");
+  const name = compactText(check.name);
+  const message = compactText(check.message);
+  const extra = Object.entries(check)
+    .filter(([key]) => key !== "name" && key !== "status" && key !== "message")
+    .slice(0, 4);
+  return (
+    <div className="rounded-md border border-border bg-background/50 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0 truncate text-sm font-medium">{name}</div>
+        <Badge variant={integrationCheckVariant(status)}>{compactText(status)}</Badge>
+      </div>
+      <div className="mt-1 text-xs leading-5 text-muted-foreground">{message}</div>
+      {extra.length ? (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {extra.map(([key, value]) => (
+            <Badge key={key} variant="outline">
+              {compactText(key)}: {compactText(typeof value === "object" ? JSON.stringify(value) : value)}
+            </Badge>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -6633,7 +6865,7 @@ function RustPlusIntakePanel({
   baseUrl,
 }: {
   api: ReturnType<typeof createApiClient>;
-  provider?: { provider: string; configured: boolean; public_mode?: boolean; use?: string };
+  provider?: IntegrationProvider;
   health?: RealtimeHealth;
   loading: boolean;
   baseUrl: string;

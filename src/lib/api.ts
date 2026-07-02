@@ -435,13 +435,38 @@ export type PlayerRealtimeContext = {
   source_status?: string;
 };
 
+export type IntegrationProvider = {
+  provider: string;
+  label?: string;
+  configured: boolean;
+  enabled?: boolean;
+  env_configured?: boolean;
+  public_mode?: boolean;
+  testable?: boolean;
+  status?: string;
+  use?: string;
+  secret_source?: string;
+  secret_hint?: string;
+  updated_at?: string | null;
+  config?: Record<string, unknown>;
+};
+
 export type IntegrationStatus = {
-  providers: Array<{
-    provider: string;
-    configured: boolean;
-    public_mode?: boolean;
-    use?: string;
-  }>;
+  providers: IntegrationProvider[];
+};
+
+export type IntegrationUpdatePayload = {
+  enabled?: boolean;
+  secret_hint?: string;
+  config?: Record<string, unknown>;
+};
+
+export type IntegrationTestResult = {
+  provider: string;
+  status: string;
+  enabled?: boolean;
+  checked_at?: string;
+  checks?: Array<Record<string, unknown>>;
 };
 
 export type RealtimeHealth = {
@@ -502,6 +527,23 @@ export function createApiClient(baseUrl: string, token?: string) {
     },
     integrations() {
       return request<IntegrationStatus>("/api/admin/rustcontrol/integrations");
+    },
+    updateIntegration(provider: string, payload: IntegrationUpdatePayload) {
+      return request<{ provider: IntegrationProvider; dropped_secret_keys?: string[] }>(
+        `/api/admin/rustcontrol/integrations/${encodeURIComponent(provider)}`,
+        {
+          method: "PUT",
+          body: payload,
+        },
+      );
+    },
+    testIntegration(provider: string) {
+      return request<IntegrationTestResult>(
+        `/api/admin/rustcontrol/integrations/${encodeURIComponent(provider)}/test`,
+        {
+          method: "POST",
+        },
+      );
     },
     searchServers(query: string) {
       return request<{ items: ServerIntel[]; source: string }>(
