@@ -5648,6 +5648,7 @@ function ServerSettingsTab({
   const battleMetricsUrl = battleMetricsServerUrl(serverKey);
   const pluginReady = Boolean(settings.plugin_webhook_ready);
   const rconConfigured = Boolean(settings.rcon_configured);
+  const rconStatus = String(settings.rcon_status ?? (rconConfigured ? "configured" : "not_configured"));
 
   return (
     <div className="grid gap-4 xl:grid-cols-[1fr_360px]">
@@ -5662,7 +5663,7 @@ function ServerSettingsTab({
             <Fact label="Source status" value={detail?.source_status} />
             <Fact label="RustMaps URL" value={rustmapsUrl || "-"} wide />
             <Fact label="Plugin webhook" value={pluginReady ? "configured" : "missing"} />
-            <Fact label="RCON" value={rconConfigured ? "configured" : "not configured"} />
+            <Fact label="RCON" value={rconStatus} />
           </div>
 
           <div className="flex flex-wrap gap-2">
@@ -5698,11 +5699,13 @@ function ServerSettingsTab({
             <Badge variant={pluginReady ? "success" : "warning"}>{pluginReady ? "ready" : "configure"}</Badge>
           </div>
           <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-background/50 p-3">
-            <span className="text-sm">RCON admin actions</span>
-            <Badge variant={rconConfigured ? "success" : "outline"}>{rconConfigured ? "ready" : "planned"}</Badge>
+            <span className="text-sm">RCON read-only test</span>
+            <Badge variant={rconConfigured ? "success" : rconStatus.includes("missing") || rconStatus.includes("needs") ? "warning" : "outline"}>
+              {compactText(rconStatus)}
+            </Badge>
           </div>
           <div className="rounded-md border border-border bg-background/50 p-3 text-xs text-muted-foreground">
-            This page is wired for the current local backend. RCON stays disabled until server credentials are added backend-side.
+            RCON Test on the Integrations page runs a fixed read-only serverinfo command. Kick, ban, mute and other admin actions stay disabled until the command path is audited.
           </div>
         </CardContent>
       </Card>
