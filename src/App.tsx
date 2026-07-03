@@ -2357,6 +2357,17 @@ function PlayerIdentitySummaryPanel({ intel }: { intel: PlayerIntelDetail }) {
   const server = intel.current_server;
   const liveStatus = intel.live_status;
   const links = playerQuickLinks(player, live, server);
+  const steamBans = intel.steam_bans ?? [];
+  const steamBan = objectFrom(steamBans[0]);
+  const steamFriends = recordList(intel.steam_friends);
+  const steamCache = objectFrom(intel.steam_cache);
+  const gameBans = numberFromRecord(steamBan, "NumberOfGameBans");
+  const vacBanned = booleanFromRecord(steamBan, "VACBanned");
+  const communityBanned = booleanFromRecord(steamBan, "CommunityBanned");
+  const friendTotal = numberFromRecord(steamCache, "friends_count") || steamFriends.length;
+  const friendCacheStatus = compactText(steamCache.friends_cache_status);
+  const steamBanText = steamBans.length ? `${vacBanned ? "VAC" : "no VAC"} / game ${gameBans}` : "-";
+  const publicFriendText = friendTotal > 0 || friendCacheStatus === "fresh" || friendCacheStatus === "stale" ? friendTotal : friendCacheStatus !== "-" ? friendCacheStatus : "-";
 
   return (
     <div className="xl:col-span-2 rounded-md border border-border bg-background/45 p-3">
@@ -2380,6 +2391,8 @@ function PlayerIdentitySummaryPanel({ intel }: { intel: PlayerIntelDetail }) {
           <Fact label="Last seen" value={formatDateTime(player.last_seen_at)} />
           <Fact label="Live source" value={liveStatus?.source ?? live?.source} />
           <Fact label="Visibility" value={player.visibility_state ?? "-"} />
+          <Fact label="Steam bans" value={steamBanText} />
+          <Fact label="Public friends" value={publicFriendText} />
           <div className="md:col-span-3">
             <DetailsBlock summary="Identity audit fields">
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
@@ -2387,6 +2400,36 @@ function PlayerIdentitySummaryPanel({ intel }: { intel: PlayerIntelDetail }) {
                 <Fact label="Created" value={formatDateTime(player.created_at)} />
                 <Fact label="Updated" value={formatDateTime(player.updated_at)} />
               </div>
+            </DetailsBlock>
+            <DetailsBlock summary="Steam signals">
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                <Fact label="VAC" value={steamBans.length ? String(vacBanned) : "-"} />
+                <Fact label="Community" value={steamBans.length ? String(communityBanned) : "-"} />
+                <Fact label="Game bans" value={steamBans.length ? gameBans : "-"} />
+                <Fact label="Economy" value={steamBan.EconomyBan ?? "-"} />
+                <Fact label="Profile cache" value={steamCache.profile_cache_status} />
+                <Fact label="Bans cache" value={steamCache.bans_cache_status} />
+                <Fact label="Friends cache" value={steamCache.friends_cache_status} />
+                <Fact label="Friends shown" value={friendTotal > steamFriends.length ? `${steamFriends.length} / ${friendTotal}` : steamFriends.length} />
+              </div>
+              {steamFriends.length ? (
+                <div className="mt-3 overflow-hidden rounded-md border border-border">
+                  {steamFriends.slice(0, 8).map((friend) => (
+                    <a
+                      key={String(friend.steamid)}
+                      className="flex items-center justify-between gap-3 border-b border-border px-3 py-2 text-xs last:border-0 hover:bg-secondary/60"
+                      href={String(friend.profileurl ?? `https://steamcommunity.com/profiles/${friend.steamid}`)}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <span className="truncate font-medium">{compactText(friend.steamid)}</span>
+                      <span className="shrink-0 text-muted-foreground">{formatDateTime(friend.friend_since_at)}</span>
+                    </a>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-3 text-xs text-muted-foreground">{friendCacheStatus === "missing" ? "No public friend cache yet" : "No public friends cached"}</div>
+              )}
             </DetailsBlock>
           </div>
         </div>
@@ -4132,6 +4175,14 @@ function numberFromRecord(item: Record<string, unknown>, key: string) {
     return Number.isFinite(parsed) ? parsed : 0;
   }
   return 0;
+}
+
+function booleanFromRecord(item: Record<string, unknown>, key: string) {
+  const value = item[key];
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") return value.toLowerCase() === "true";
+  if (typeof value === "number") return value !== 0;
+  return false;
 }
 
 function countRecordsBy(items: Array<Record<string, unknown>>, key: string) {

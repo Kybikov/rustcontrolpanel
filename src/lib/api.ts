@@ -121,6 +121,7 @@ export type ResolvePlayerResult = {
   steam?: Record<string, unknown>;
   steam_profile?: Record<string, unknown> | null;
   steam_bans?: Array<Record<string, unknown>>;
+  steam_friends?: Array<Record<string, unknown>>;
   battlemetrics?: PlayerIntel[];
   local_player?: PlayerIntel;
   local_matches?: PlayerIntel[];
@@ -410,6 +411,10 @@ export type PlayerIntelDetail = {
   realtime_teammates?: LivePlayer[];
   realtime_context?: PlayerRealtimeContext;
   nearby_players?: PlayerRealtimeNearbyItem[];
+  steam_profile?: Record<string, unknown> | null;
+  steam_bans?: Array<Record<string, unknown>>;
+  steam_friends?: Array<Record<string, unknown>>;
+  steam_cache?: Record<string, unknown>;
   likely_teammates?: TeamProbability[];
   team_evidence?: Array<Record<string, unknown>>;
   recent_sessions?: Array<Record<string, unknown>>;
