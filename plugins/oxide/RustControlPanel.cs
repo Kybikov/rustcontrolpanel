@@ -9,7 +9,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("RustControlPanel", "WaterMelon", "0.1.0")]
+    [Info("RustControlPanel", "WaterMelon", "0.1.1")]
     [Description("Streams Rust player, team, combat, and position telemetry into Rust Control Panel.")]
     public class RustControlPanel : RustPlugin
     {
@@ -53,6 +53,9 @@ namespace Oxide.Plugins
 
             [JsonProperty("send_death_events")]
             public bool SendDeathEvents = true;
+
+            [JsonProperty("send_wipe_events")]
+            public bool SendWipeEvents = true;
 
             [JsonProperty("debug_logging")]
             public bool DebugLogging = false;
@@ -182,6 +185,11 @@ namespace Oxide.Plugins
             });
         }
 
+        private void OnNewSave(string filename)
+        {
+            SendWipeEvent("map_wipe", filename, false);
+        }
+
         [ConsoleCommand("rustcontrol.snapshot")]
         private void CmdSnapshot(ConsoleSystem.Arg arg)
         {
@@ -205,6 +213,14 @@ namespace Oxide.Plugins
                 }
             });
             Puts("RustControlPanel test event queued.");
+        }
+
+        [ConsoleCommand("rustcontrol.wipe")]
+        private void CmdWipe(ConsoleSystem.Arg arg)
+        {
+            var wipeType = arg?.Args != null && arg.Args.Length > 0 ? arg.Args[0] : "manual_wipe";
+            SendWipeEvent(wipeType, "", true);
+            Puts($"RustControlPanel wipe event queued: {wipeType}.");
         }
 
         private void SendOnlineSnapshot()
@@ -268,6 +284,30 @@ namespace Oxide.Plugins
                     }
                 });
             }
+        }
+
+        private void SendWipeEvent(string wipeType, string filename, bool manual)
+        {
+            if (!_config.SendWipeEvents || !IsConfigured())
+            {
+                return;
+            }
+
+            var now = DateTime.UtcNow;
+            SendEvent(new EventEnvelope
+            {
+                EventType = "wipe_detected",
+                Severity = "warning",
+                Source = "oxide-plugin",
+                Server = BuildServer(),
+                Payload = new Dictionary<string, object>
+                {
+                    ["wipe_type"] = string.IsNullOrWhiteSpace(wipeType) ? "map_wipe" : wipeType,
+                    ["wipe_at"] = now.ToString("o"),
+                    ["save_filename"] = filename ?? "",
+                    ["manual"] = manual
+                }
+            });
         }
 
         private void SendPlayerEvent(string eventType, BasePlayer player, string severity, Dictionary<string, object> payload = null, bool online = true)

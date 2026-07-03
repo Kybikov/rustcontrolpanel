@@ -64,7 +64,8 @@ Minimal config:
   "send_position_snapshots": true,
   "send_team_snapshots": true,
   "send_chat_events": false,
-  "send_death_events": true
+  "send_death_events": true,
+  "send_wipe_events": true
 }
 ```
 
@@ -73,6 +74,7 @@ Minimal config:
 ```text
 rustcontrol.test
 rustcontrol.snapshot
+rustcontrol.wipe map_wipe
 ```
 
 The plugin streams:
@@ -81,6 +83,7 @@ The plugin streams:
 - `team_snapshot` with live Rust team members;
 - `player_connected` and `player_disconnected`;
 - `player_death` with attacker/victim combat relation;
+- `wipe_detected` when the server reports a new save/wipe;
 - optional `player_chat` events when enabled in config.
 
 ## Local HMAC smoke test
@@ -159,9 +162,42 @@ After a successful request, check:
 }
 ```
 
+## Wipe detected
+
+The plugin sends this automatically from the wipe/save hook when `send_wipe_events` is enabled. It can also be sent manually from server console:
+
+```text
+rustcontrol.wipe map_wipe
+rustcontrol.wipe bp_wipe
+rustcontrol.wipe full_wipe
+```
+
+Payload shape:
+
+```json
+{
+  "event_type": "wipe_detected",
+  "severity": "warning",
+  "source": "oxide-plugin",
+  "server": {
+    "battlemetrics_server_id": "39442578",
+    "name": "Rustoria Lite"
+  },
+  "payload": {
+    "wipe_type": "map_wipe",
+    "wipe_at": "2026-07-03T12:34:56Z",
+    "save_filename": "Procedural Map_4000_12345.sav",
+    "manual": false
+  }
+}
+```
+
+The backend stores the activity event, upserts `rustcontrol.server_wipes`, and updates tracked server `last_wipe_at`, so Wipe Calendar and server detail pages reflect plugin-detected wipes.
+
 The backend stores:
 
 - `rustcontrol.activity_events`;
+- `rustcontrol.server_wipes` for `wipe_detected` events;
 - `rustcontrol.live_players`;
 - `rustcontrol.player_position_snapshots`;
 - `rustcontrol.team_evidence_events`;
