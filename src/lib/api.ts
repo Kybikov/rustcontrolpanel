@@ -308,6 +308,38 @@ export type WipeRemindersQuery = {
   status?: string;
 };
 
+export type ActivityQuery = {
+  q?: string;
+  severity?: string;
+  source?: string;
+  event_type?: string;
+  from?: string;
+  to?: string;
+  page?: string;
+  per_page?: string;
+};
+
+export type ActivityOptionCount = {
+  value: string;
+  count: number;
+};
+
+export type ActivityFeedResult = {
+  items: Array<Record<string, unknown>>;
+  stats?: {
+    total?: number;
+    warning?: number;
+    error?: number;
+    operator_notes?: number;
+  };
+  sources?: ActivityOptionCount[];
+  event_types?: ActivityOptionCount[];
+  source?: string;
+  source_status?: string;
+  stale?: boolean;
+  raw_available?: boolean;
+};
+
 export type ServerMapDetail = {
   server?: ServerIntel | null;
   map?: Record<string, unknown>;
@@ -852,6 +884,9 @@ export function createApiClient(baseUrl: string, token?: string) {
     },
     activity() {
       return requestItems<Record<string, unknown>>("/api/admin/rustcontrol/activity");
+    },
+    activityFeed(query?: ActivityQuery) {
+      return request<ActivityFeedResult>(withQuery("/api/admin/rustcontrol/activity", query));
     },
     sendRustPlusTestEvent() {
       return request<Record<string, unknown>>("/api/admin/rustcontrol/integrations/rustplus/test-event", {

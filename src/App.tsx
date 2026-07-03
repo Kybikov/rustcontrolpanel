@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import {
   createApiClient,
+  type ActivityFeedResult,
   type CommandSearchItem,
   type CommandSearchResult,
   type IntegrationProvider,
@@ -4408,39 +4409,19 @@ function activityStats(items: Array<Record<string, unknown>>) {
   );
 }
 
+function activityStatsFromFeed(feed: ActivityFeedResult | undefined, fallbackItems: Array<Record<string, unknown>>) {
+  const stats = feed?.stats;
+  if (!stats) return activityStats(fallbackItems);
+  return {
+    total: Number(stats.total ?? fallbackItems.length),
+    warning: Number(stats.warning ?? 0),
+    error: Number(stats.error ?? 0),
+    operatorNotes: Number(stats.operator_notes ?? 0),
+  };
+}
+
 function activityOptionCounts(items: Array<Record<string, unknown>>, key: string) {
   return countRecordsBy(items, key).slice(0, 12);
-}
-
-function activitySeverityMatches(item: Record<string, unknown>, filter: ActivitySeverityFilter) {
-  if (filter === "all") return true;
-  if (filter === "error") return item.severity === "error" || item.severity === "critical";
-  return item.severity === filter;
-}
-
-function activitySourceMatches(item: Record<string, unknown>, filter: string) {
-  return filter === "all" || compactText(item.source) === filter;
-}
-
-function activityTypeMatches(item: Record<string, unknown>, filter: string) {
-  return filter === "all" || compactText(item.event_type) === filter;
-}
-
-function activitySearchMatches(item: Record<string, unknown>, searchText: string) {
-  const query = searchText.trim().toLowerCase();
-  if (!query) return true;
-  return [
-    item.event_type,
-    item.severity,
-    item.source,
-    activityPayloadTitle(item.payload),
-    activityPayloadSummary(item.payload),
-    payloadJSON(item.payload),
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase()
-    .includes(query);
 }
 
 function activityPayloadTitle(value: unknown) {
@@ -7575,22 +7556,34 @@ function ActivityView({ api }: { api: ReturnType<typeof createApiClient> }) {
   const [severityFilter, setSeverityFilter] = useState<ActivitySeverityFilter>("all");
   const [sourceFilter, setSourceFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
-  const activity = useQuery({ queryKey: ["activity"], queryFn: api.activity, refetchInterval: 10_000 });
-  const items = activity.data ?? [];
-  const filteredItems = useMemo(
-    () =>
-      items.filter(
-        (event) =>
-          activitySeverityMatches(event, severityFilter) &&
-          activitySourceMatches(event, sourceFilter) &&
-          activityTypeMatches(event, typeFilter) &&
-          activitySearchMatches(event, searchText),
-      ),
-    [items, searchText, severityFilter, sourceFilter, typeFilter],
+  const deferredSearchText = useDeferredValue(searchText);
+  const activityQuery = useMemo(
+    () => ({
+      q: deferredSearchText.trim() || undefined,
+      severity: severityFilter === "all" ? undefined : severityFilter,
+      source: sourceFilter === "all" ? undefined : sourceFilter,
+      event_type: typeFilter === "all" ? undefined : typeFilter,
+      per_page: "100",
+    }),
+    [deferredSearchText, severityFilter, sourceFilter, typeFilter],
   );
-  const stats = useMemo(() => activityStats(items), [items]);
-  const sourceOptions = useMemo(() => activityOptionCounts(items, "source"), [items]);
-  const typeOptions = useMemo(() => activityOptionCounts(items, "event_type"), [items]);
+  const activity = useQuery({
+    queryKey: ["activity", activityQuery],
+    queryFn: () => api.activityFeed(activityQuery),
+    refetchInterval: 10_000,
+  });
+  const items = activity.data?.items ?? [];
+  const stats = useMemo(() => activityStatsFromFeed(activity.data, items), [activity.data, items]);
+  const sourceOptions = activity.data?.sources?.length ? activity.data.sources : activityOptionCounts(items, "source");
+  const typeOptions = activity.data?.event_types?.length ? activity.data.event_types : activityOptionCounts(items, "event_type");
+  const hasFilters = Boolean(searchText.trim() || severityFilter !== "all" || sourceFilter !== "all" || typeFilter !== "all");
+
+  function clearFilters() {
+    setSearchText("");
+    setSeverityFilter("all");
+    setSourceFilter("all");
+    setTypeFilter("all");
+  }
 
   return (
     <section className="grid gap-4">
@@ -7598,13 +7591,13 @@ function ActivityView({ api }: { api: ReturnType<typeof createApiClient> }) {
       <Card>
         <CardContent className="grid gap-3 pt-4">
           <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-            <WatchlistSummaryPill label="Total" value={stats.total} variant="secondary" />
+            <WatchlistSummaryPill label="Matching" value={stats.total} variant="secondary" />
             <WatchlistSummaryPill label="Warnings" value={stats.warning} variant={stats.warning ? "warning" : "outline"} />
             <WatchlistSummaryPill label="Errors" value={stats.error} variant={stats.error ? "danger" : "outline"} />
-            <WatchlistSummaryPill label="Shown" value={filteredItems.length} variant="outline" />
+            <WatchlistSummaryPill label="Shown" value={items.length} variant="outline" />
           </div>
 
-          <div className="grid gap-2 xl:grid-cols-[1fr_auto]">
+          <div className="grid gap-2 xl:grid-cols-[1fr_auto_auto]">
             <Input
               value={searchText}
               onChange={(event) => setSearchText(event.target.value)}
@@ -7617,6 +7610,10 @@ function ActivityView({ api }: { api: ReturnType<typeof createApiClient> }) {
                 </Button>
               ))}
             </div>
+            <Button size="sm" variant="secondary" onClick={clearFilters} disabled={!hasFilters}>
+              <X className="h-4 w-4" />
+              Clear
+            </Button>
           </div>
 
           <div className="grid gap-2 xl:grid-cols-2">
@@ -7636,6 +7633,8 @@ function ActivityView({ api }: { api: ReturnType<typeof createApiClient> }) {
             />
           </div>
 
+          {activity.error ? <StatusLine tone="bad" text={activity.error.message} /> : null}
+
           <div className="overflow-auto rounded-md border border-border">
             <Table>
               <thead>
@@ -7646,7 +7645,7 @@ function ActivityView({ api }: { api: ReturnType<typeof createApiClient> }) {
                 </tr>
               </thead>
               <tbody>
-                {filteredItems.map((event) => (
+                {items.map((event) => (
                   <tr key={String(event.id)}>
                     <Td>
                       <div className="text-sm">{formatDateTime(event.occurred_at)}</div>
@@ -7669,8 +7668,7 @@ function ActivityView({ api }: { api: ReturnType<typeof createApiClient> }) {
                 ))}
               </tbody>
             </Table>
-            {!items.length ? <EmptyState label={activity.isFetching ? "Loading activity" : "-"} /> : null}
-            {items.length && !filteredItems.length ? <EmptyState label="No activity events match current filters" /> : null}
+            {!items.length ? <EmptyState label={activity.isFetching ? "Loading activity" : hasFilters ? "No activity events match current filters" : "No activity events yet"} /> : null}
           </div>
         </CardContent>
       </Card>
