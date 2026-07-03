@@ -86,6 +86,11 @@ export type ServersQuery = {
   per_page?: string;
 };
 
+export type ServerDetailListQuery = {
+  page?: string;
+  per_page?: string;
+};
+
 export type PlayerIntel = {
   id?: string;
   battlemetrics_player_id?: string;
@@ -338,6 +343,7 @@ export type ServerSnapshotsResult = {
   battlemetrics_server_id?: string;
   source?: string;
   source_status?: string;
+  meta?: ApiEnvelope<unknown>["meta"];
 };
 
 export type ServerWipesResult = {
@@ -346,6 +352,7 @@ export type ServerWipesResult = {
   battlemetrics_server_id?: string;
   source?: string;
   source_status?: string;
+  meta?: ApiEnvelope<unknown>["meta"];
 };
 
 export type WipeOverrideInput = {
@@ -879,11 +886,17 @@ export function createApiClient(baseUrl: string, token?: string) {
     serverDetail(id: string) {
       return request<ServerDetail>(`/api/admin/rustcontrol/servers/${encodeURIComponent(id)}`);
     },
-    serverSnapshots(id: string) {
-      return request<ServerSnapshotsResult>(`/api/admin/rustcontrol/servers/${encodeURIComponent(id)}/snapshots`);
+    async serverSnapshots(id: string, query?: ServerDetailListQuery): Promise<ServerSnapshotsResult> {
+      const envelope = await requestEnvelope<Omit<ServerSnapshotsResult, "meta">>(
+        withQuery(`/api/admin/rustcontrol/servers/${encodeURIComponent(id)}/snapshots`, query),
+      );
+      return { ...(envelope.data ?? { items: [] }), meta: envelope.meta };
     },
-    serverWipes(id: string) {
-      return request<ServerWipesResult>(`/api/admin/rustcontrol/servers/${encodeURIComponent(id)}/wipes`);
+    async serverWipes(id: string, query?: ServerDetailListQuery): Promise<ServerWipesResult> {
+      const envelope = await requestEnvelope<Omit<ServerWipesResult, "meta">>(
+        withQuery(`/api/admin/rustcontrol/servers/${encodeURIComponent(id)}/wipes`, query),
+      );
+      return { ...(envelope.data ?? { items: [] }), meta: envelope.meta };
     },
     serverMap(id: string) {
       return request<ServerMapDetail>(`/api/admin/rustcontrol/servers/${encodeURIComponent(id)}/map`);

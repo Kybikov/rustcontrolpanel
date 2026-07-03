@@ -65,6 +65,7 @@ import {
   type RconActionInput,
   type RustAlertItem,
   type ServerDetail,
+  type ServerDetailListQuery,
   type ServerLiveContext,
   type ServerLivePlayerItem,
   type ServerMapDetail,
@@ -5935,6 +5936,18 @@ function ServerDetailView({
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<ServerDetailTab>("overview");
+  const [snapshotPage, setSnapshotPage] = useState(1);
+  const [wipePage, setWipePage] = useState(1);
+  const snapshotPerPage = 36;
+  const wipePerPage = 25;
+  const snapshotQuery = useMemo<ServerDetailListQuery>(
+    () => ({ page: String(snapshotPage), per_page: String(snapshotPerPage) }),
+    [snapshotPage],
+  );
+  const serverWipesQuery = useMemo<ServerDetailListQuery>(
+    () => ({ page: String(wipePage), per_page: String(wipePerPage) }),
+    [wipePage],
+  );
   const detail = useQuery({
     queryKey: ["serverDetail", serverId],
     queryFn: () => api.serverDetail(serverId),
@@ -5948,15 +5961,15 @@ function ServerDetailView({
     refetchInterval: 5_000,
   });
   const snapshotsQuery = useQuery({
-    queryKey: ["serverSnapshots", serverId],
-    queryFn: () => api.serverSnapshots(serverId),
-    enabled: serverId.length > 0 && (activeTab === "overview" || activeTab === "history"),
+    queryKey: ["serverSnapshots", serverId, snapshotQuery],
+    queryFn: () => api.serverSnapshots(serverId, snapshotQuery),
+    enabled: serverId.length > 0 && activeTab === "history",
     refetchInterval: 60_000,
   });
   const wipesQuery = useQuery({
-    queryKey: ["serverWipes", serverId],
-    queryFn: () => api.serverWipes(serverId),
-    enabled: serverId.length > 0 && (activeTab === "overview" || activeTab === "wipes"),
+    queryKey: ["serverWipes", serverId, serverWipesQuery],
+    queryFn: () => api.serverWipes(serverId, serverWipesQuery),
+    enabled: serverId.length > 0 && activeTab === "wipes",
     refetchInterval: 60_000,
   });
   const mapQuery = useQuery({
@@ -5980,8 +5993,8 @@ function ServerDetailView({
     },
   });
   const server = detail.data?.server ?? mapQuery.data?.server ?? liveContext.data?.server;
-  const snapshots = snapshotsQuery.data?.items ?? detail.data?.snapshots ?? [];
-  const wipes = wipesQuery.data?.items ?? detail.data?.wipes ?? [];
+  const snapshots = activeTab === "history" ? snapshotsQuery.data?.items ?? [] : detail.data?.snapshots ?? [];
+  const wipes = activeTab === "wipes" ? wipesQuery.data?.items ?? [] : detail.data?.wipes ?? [];
   const activity = detail.data?.activity?.length ? detail.data.activity : liveContext.data?.activity ?? [];
   const settings = detail.data?.settings ?? {};
   const serverKey = server?.battlemetrics_server_id || stringFromUnknown(settings.battlemetrics_server_id) || serverId;
@@ -5989,7 +6002,18 @@ function ServerDetailView({
   const rustmapsUrl = stringFromUnknown(mapInfo.url) || server?.rustmaps_url || stringFromUnknown(settings.rustmaps_url);
   const sourceStatus = detail.data?.source_status ?? snapshotsQuery.data?.source_status ?? wipesQuery.data?.source_status ?? mapQuery.data?.source_status ?? liveContext.data?.source_status ?? "loading";
   const stats = serverSnapshotSummary(snapshots, server);
+  const snapshotTotal = snapshotsQuery.data?.meta?.total ?? snapshots.length;
+  const snapshotPageCount = Math.max(1, Math.ceil(Number(snapshotTotal || 0) / snapshotPerPage));
+  const wipeTotal = wipesQuery.data?.meta?.total ?? wipes.length;
+  const wipePageCount = Math.max(1, Math.ceil(Number(wipeTotal || 0) / wipePerPage));
   const pageError = detail.error ?? liveContext.error ?? snapshotsQuery.error ?? wipesQuery.error ?? mapQuery.error ?? sync.error;
+
+  useEffect(() => {
+    if (snapshotPage > snapshotPageCount) setSnapshotPage(snapshotPageCount);
+  }, [snapshotPage, snapshotPageCount]);
+  useEffect(() => {
+    if (wipePage > wipePageCount) setWipePage(wipePageCount);
+  }, [wipePage, wipePageCount]);
 
   function refreshDetail() {
     void detail.refetch();
@@ -6065,8 +6089,34 @@ function ServerDetailView({
       {activeTab === "overview" ? (
         <ServerOverviewTab detail={detail.data} context={liveContext.data} server={server} snapshots={snapshots} wipes={wipes} />
       ) : null}
-      {activeTab === "history" ? <ServerHistoryTab server={server} snapshots={snapshots} loading={detail.isFetching || snapshotsQuery.isFetching} /> : null}
-      {activeTab === "wipes" ? <ServerWipesTab server={server} wipes={wipes} loading={detail.isFetching || wipesQuery.isFetching} /> : null}
+      {activeTab === "history" ? (
+        <ServerHistoryTab
+          server={server}
+          snapshots={snapshots}
+          loading={snapshotsQuery.isFetching}
+          total={Number(snapshotTotal || 0)}
+          page={snapshotPage}
+          pageCount={snapshotPageCount}
+          sourceStatus={snapshotsQuery.data?.source_status}
+          onRefresh={() => snapshotsQuery.refetch()}
+          onPrev={() => setSnapshotPage((value) => Math.max(1, value - 1))}
+          onNext={() => setSnapshotPage((value) => Math.min(snapshotPageCount, value + 1))}
+        />
+      ) : null}
+      {activeTab === "wipes" ? (
+        <ServerWipesTab
+          server={server}
+          wipes={wipes}
+          loading={wipesQuery.isFetching}
+          total={Number(wipeTotal || 0)}
+          page={wipePage}
+          pageCount={wipePageCount}
+          sourceStatus={wipesQuery.data?.source_status}
+          onRefresh={() => wipesQuery.refetch()}
+          onPrev={() => setWipePage((value) => Math.max(1, value - 1))}
+          onNext={() => setWipePage((value) => Math.min(wipePageCount, value + 1))}
+        />
+      ) : null}
       {activeTab === "players" ? (
         <Card>
           <CardHeader>
@@ -6212,10 +6262,24 @@ function ServerHistoryTab({
   server,
   snapshots,
   loading,
+  total,
+  page,
+  pageCount,
+  sourceStatus,
+  onRefresh,
+  onPrev,
+  onNext,
 }: {
   server?: ServerIntel | null;
   snapshots: ServerSnapshot[];
   loading?: boolean;
+  total: number;
+  page: number;
+  pageCount: number;
+  sourceStatus?: string;
+  onRefresh: () => void;
+  onPrev: () => void;
+  onNext: () => void;
 }) {
   const stats = serverSnapshotSummary(snapshots, server);
   const rows = [...snapshots].reverse();
@@ -6255,6 +6319,17 @@ function ServerHistoryTab({
         ) : (
           <EmptyState label={loading ? "Loading history" : "No server snapshots yet"} />
         )}
+        <PageStatusBar
+          total={total}
+          itemLabel="snapshot samples"
+          page={page}
+          pageCount={pageCount}
+          sourceStatus={sourceStatus}
+          loading={loading}
+          onRefresh={onRefresh}
+          onPrev={onPrev}
+          onNext={onNext}
+        />
       </CardContent>
     </Card>
   );
@@ -6264,10 +6339,24 @@ function ServerWipesTab({
   server,
   wipes,
   loading,
+  total,
+  page,
+  pageCount,
+  sourceStatus,
+  onRefresh,
+  onPrev,
+  onNext,
 }: {
   server?: ServerIntel | null;
   wipes: ServerWipe[];
   loading?: boolean;
+  total: number;
+  page: number;
+  pageCount: number;
+  sourceStatus?: string;
+  onRefresh: () => void;
+  onPrev: () => void;
+  onNext: () => void;
 }) {
   const now = Date.now();
   const upcoming = wipes.filter((wipe) => dateMs(wipe.wipe_at) >= now).sort((a, b) => dateMs(a.wipe_at) - dateMs(b.wipe_at));
@@ -6321,6 +6410,19 @@ function ServerWipesTab({
               </tbody>
             </Table>
             {!wipes.length ? <EmptyState label={loading ? "Loading wipes" : "No wipe records yet"} /> : null}
+          </div>
+          <div className="mt-3">
+            <PageStatusBar
+              total={total}
+              itemLabel="server wipe records"
+              page={page}
+              pageCount={pageCount}
+              sourceStatus={sourceStatus}
+              loading={loading}
+              onRefresh={onRefresh}
+              onPrev={onPrev}
+              onNext={onNext}
+            />
           </div>
         </CardContent>
       </Card>
