@@ -4291,13 +4291,25 @@ function mapMarkerPositionLabel(marker: Record<string, unknown>) {
 }
 
 function numberFromRecord(item: Record<string, unknown>, key: string) {
-  const value = item[key];
+  return numberFromUnknown(item[key]);
+}
+
+function numberFromUnknown(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string") {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : 0;
   }
   return 0;
+}
+
+function optionalNumberFromUnknown(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
 }
 
 function booleanFromRecord(item: Record<string, unknown>, key: string) {
@@ -5933,12 +5945,15 @@ function ServerMapTab({
   const mapInfo = objectFrom(mapData?.map);
   const monuments = Array.isArray(mapInfo.monuments) ? mapInfo.monuments : [];
   const rustmapsMarkers = Array.isArray(mapInfo.rustmaps_markers) ? mapInfo.rustmaps_markers : [];
-  const liveMarkers = Array.isArray(mapInfo.live_markers) ? mapInfo.live_markers : mapData?.markers ?? [];
+  const liveMarkers = Array.isArray(mapInfo.live_markers) ? recordList(mapInfo.live_markers) : recordList(mapData?.markers);
   const eventMarkers = recordList(mapInfo.event_markers).length ? recordList(mapInfo.event_markers) : recordList(mapData?.event_markers);
   const mapHistory = recordList(mapData?.map_history);
   const storedMapCount = numberFromRecord(mapInfo, "stored_map_count") || mapHistory.length;
   const rustmapsUrl = stringFromUnknown(mapInfo.url) || server?.rustmaps_url || liveItems.find((item) => item.live_player.rustmaps_url)?.live_player.rustmaps_url || "";
   const thumbnailUrl = stringFromUnknown(mapInfo.thumbnail_url) || server?.rustmaps_thumbnail_url || "";
+  const worldSize = numberFromUnknown(mapInfo.size ?? server?.rust_world_size);
+  const overlayMarkers = mapOverlayMarkers(liveMarkers, eventMarkers, worldSize);
+  const overlayMarkerTotal = liveMarkers.length + eventMarkers.length;
 
   return (
     <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_340px]">
@@ -5947,12 +5962,10 @@ function ServerMapTab({
           <CardTitle>Map And Positions</CardTitle>
         </CardHeader>
         <CardContent>
-          {positioned.length ? (
+          {thumbnailUrl ? (
+            <RustMapImageLayer imageUrl={thumbnailUrl} alt={server?.name ?? "Rust map"} markers={overlayMarkers} onOpenPlayer={onOpenPlayer} />
+          ) : positioned.length ? (
             <LiveMap items={liveItems} teammateSteamIds={[]} onOpenPlayer={onOpenPlayer} />
-          ) : thumbnailUrl ? (
-            <div className="overflow-hidden rounded-md border border-border bg-background/45">
-              <img className="max-h-[680px] w-full object-contain" src={thumbnailUrl} alt={server?.name ?? "Rust map"} />
-            </div>
           ) : (
             <EmptyState label={loading ? "Loading map metadata" : "No realtime player positions or RustMaps thumbnail yet"} />
           )}
@@ -5966,8 +5979,6 @@ function ServerMapTab({
         <CardContent className="grid gap-3">
           <div className="grid grid-cols-2 gap-2">
             <Fact label="Positioned" value={positioned.length} />
-            <Fact label="Live rows" value={liveItems.length} />
-            <Fact label="Monuments" value={monuments.length} />
             <Fact label="Events" value={eventMarkers.length} />
             <Fact label="World size" value={mapInfo.size ?? server?.rust_world_size} />
             <Fact label="World seed" value={mapInfo.seed ?? server?.rust_world_seed} />
@@ -5975,8 +5986,10 @@ function ServerMapTab({
           </div>
           <DetailsBlock summary="Map data details">
             <div className="grid gap-2 sm:grid-cols-2">
+              <Fact label="Live rows" value={liveItems.length} />
               <Fact label="Live markers" value={liveMarkers.length} />
-              <Fact label="Event markers" value={eventMarkers.length} />
+              <Fact label="Monuments" value={monuments.length} />
+              <Fact label="Overlayed" value={overlayMarkerTotal ? `${overlayMarkers.length}/${overlayMarkerTotal}` : 0} />
               <Fact label="RustMaps markers" value={rustmapsMarkers.length} />
               <Fact label="Source" value={mapData?.source_status ?? mapData?.source} />
               <Fact label="Updated" value={formatDateTime(server?.source_updated_at ?? server?.updated_at)} />
@@ -6034,6 +6047,131 @@ function ServerMapTab({
       </Card>
     </div>
   );
+}
+
+type MapOverlayMarker = {
+  id: string;
+  label: string;
+  subtitle: string;
+  title: string;
+  kind: "player" | "event";
+  variant?: string;
+  left: number;
+  top: number;
+  playerId?: string;
+};
+
+function RustMapImageLayer({
+  imageUrl,
+  alt,
+  markers,
+  onOpenPlayer,
+}: {
+  imageUrl: string;
+  alt: string;
+  markers: MapOverlayMarker[];
+  onOpenPlayer: (playerId: string) => void;
+}) {
+  return (
+    <div className="relative aspect-square max-h-[720px] overflow-hidden rounded-md border border-border bg-background/45">
+      <img className="h-full w-full object-cover" src={imageUrl} alt={alt} />
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(90deg,rgba(255,255,255,0.08)_1px,transparent_1px),linear-gradient(180deg,rgba(255,255,255,0.08)_1px,transparent_1px)] bg-[length:12.5%_12.5%]" />
+      {markers.map((marker) => {
+        const canOpen = Boolean(marker.playerId);
+        return (
+          <button
+            key={marker.id}
+            type="button"
+            className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-full border border-background shadow-[0_0_0_3px_rgba(0,0,0,0.35)] transition-transform hover:scale-125 disabled:cursor-default ${mapOverlayMarkerClass(marker)}`}
+            style={{ left: `${marker.left}%`, top: `${marker.top}%` }}
+            title={marker.title}
+            disabled={!canOpen}
+            onClick={() => {
+              if (marker.playerId) onOpenPlayer(marker.playerId);
+            }}
+          >
+            <span className="sr-only">{marker.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function mapOverlayMarkers(liveMarkers: Array<Record<string, unknown>>, eventMarkers: Array<Record<string, unknown>>, worldSize: number): MapOverlayMarker[] {
+  return [
+    ...liveMarkers.flatMap((marker, index) => mapOverlayMarker(marker, worldSize, "player", index)),
+    ...eventMarkers.flatMap((marker, index) => mapOverlayMarker(marker, worldSize, "event", index)),
+  ].slice(0, 80);
+}
+
+function mapOverlayMarker(marker: Record<string, unknown>, worldSize: number, kind: "player" | "event", index: number): MapOverlayMarker[] {
+  const point = markerOverlayPoint(marker, worldSize);
+  if (!point) return [];
+  const label = compactText(marker.label || marker.raw_type || marker.event_type || marker.steam_id || kind);
+  const subtitle = mapMarkerPositionLabel(marker);
+  return [{
+    id: `${kind}-${compactText(marker.id || marker.steam_id || marker.event_type || kind)}-${index}`,
+    label,
+    subtitle,
+    title: `${label} / ${subtitle} / ${compactText(marker.source)}`,
+    kind,
+    variant: kind === "event" ? stringFromUnknown(marker.event_type) : stringFromUnknown(marker.risk_level) || (booleanFromRecord(marker, "watched") ? "watch" : ""),
+    left: point.left,
+    top: point.top,
+    playerId: stringFromUnknown(marker.player_id),
+  }];
+}
+
+function markerOverlayPoint(marker: Record<string, unknown>, worldSize: number) {
+  const position = objectFrom(marker.position);
+  const x = optionalNumberFromUnknown(position.x ?? marker.x ?? marker.position_x);
+  const z = optionalNumberFromUnknown(position.z ?? marker.z ?? marker.position_z);
+  if (worldSize > 0 && x !== undefined && z !== undefined) {
+    return {
+      left: clampPercent(normalizeWorldCoordinate(x, worldSize) * 100),
+      top: clampPercent((1 - normalizeWorldCoordinate(z, worldSize)) * 100),
+    };
+  }
+  return gridOverlayPoint(stringFromUnknown(marker.map_grid));
+}
+
+function normalizeWorldCoordinate(value: number, worldSize: number) {
+  if (value >= 0 && value <= worldSize) return value / worldSize;
+  const half = worldSize / 2;
+  if (value >= -half && value <= half) return (value + half) / worldSize;
+  return Math.max(0, Math.min(1, value / worldSize));
+}
+
+function gridOverlayPoint(grid: string) {
+  const match = grid.trim().toUpperCase().match(/^([A-Z]+)\s*(\d{1,2})/);
+  if (!match) return undefined;
+  const letters = match[1];
+  const row = Number(match[2]);
+  let col = 0;
+  for (const letter of letters) {
+    col = col * 26 + (letter.charCodeAt(0) - 64);
+  }
+  if (!col || !Number.isFinite(row) || row <= 0) return undefined;
+  const columns = Math.max(26, col);
+  const rows = Math.max(26, row);
+  return {
+    left: clampPercent(((col - 0.5) / columns) * 100),
+    top: clampPercent(((row - 0.5) / rows) * 100),
+  };
+}
+
+function clampPercent(value: number) {
+  return Math.max(1, Math.min(99, value));
+}
+
+function mapOverlayMarkerClass(marker: MapOverlayMarker) {
+  if (marker.kind === "player") {
+    if (marker.variant === "hostile" || marker.variant === "suspect" || marker.variant === "watch") return "h-4 w-4 bg-destructive ring-4 ring-destructive/25";
+    return "h-3.5 w-3.5 bg-primary ring-4 ring-primary/20";
+  }
+  if (["raid", "combat", "heli", "bradley"].includes(String(marker.variant ?? "").toLowerCase())) return "h-3.5 w-3.5 bg-amber-300 ring-4 ring-amber-300/20";
+  return "h-3 w-3 bg-secondary ring-4 ring-secondary/20";
 }
 
 function ServerActivityTab({ items, loading }: { items: Array<Record<string, unknown>>; loading?: boolean }) {
