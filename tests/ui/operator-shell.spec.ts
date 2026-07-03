@@ -505,6 +505,7 @@ test("player detail sends managed rcon action for current server", async ({ page
   const consoleProblems: string[] = [];
   let rconPath = "";
   let rconPayload: { action?: string; target?: string; reason?: string } | undefined;
+  const positionTrailRequests: string[] = [];
   const timelineRequests: string[] = [];
   const steamId = "76561198000000003";
   const player = {
@@ -596,7 +597,44 @@ test("player detail sends managed rcon action for current server", async ({ page
       return;
     }
     if (path.endsWith("/position-trail")) {
-      await detailEnvelope({ player, items: [], heat_cells: [], counts: { samples: 0 }, source_status: "ok" });
+      const pageNumber = Number(url.searchParams.get("page") ?? "1");
+      const perPage = Number(url.searchParams.get("per_page") ?? "40");
+      positionTrailRequests.push(url.search);
+      const allSamples = Array.from({ length: 45 }, (_, index) => ({
+        id: `position-${index + 1}`,
+        display_name: player.display_name,
+        steam_id: steamId,
+        server_id: currentServer.id,
+        server_name: currentServer.name,
+        battlemetrics_server_id: currentServer.battlemetrics_server_id,
+        position: { x: 1000 + index * 5, y: 35, z: 900 + index * 4 },
+        map_grid: `PX${index + 1}`,
+        health: 100 - (index % 20),
+        source: "plugin",
+        observed_at: `2026-07-03T11:${String(Math.max(0, 59 - index)).padStart(2, "0")}:00Z`,
+      }));
+      const start = (pageNumber - 1) * perPage;
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          data: {
+            target: { player },
+            items: allSamples.slice(start, start + perPage),
+            heat_cells: [
+              {
+                server: currentServer,
+                map_grid: "PX1",
+                sample_count: allSamples.length,
+                avg_position: { x: 1100, y: 35, z: 980 },
+                last_observed_at: "2026-07-03T12:00:00Z",
+              },
+            ],
+            counts: { samples: allSamples.length, grids: allSamples.length, servers: 1, heat_cells: 1 },
+            source_status: "ok",
+          },
+          meta: { total: allSamples.length, page: pageNumber, per_page: perPage, count: allSamples.slice(start, start + perPage).length },
+        }),
+      });
       return;
     }
     if (path.endsWith("/timeline")) {
@@ -690,6 +728,14 @@ test("player detail sends managed rcon action for current server", async ({ page
   await expect.poll(() => rconPayload?.target).toBe(steamId);
   await expect.poll(() => rconPayload?.reason).toBe("Smoke mute from player detail");
   await expect(page.getByText("mute 76561198000000003")).toBeVisible();
+  await page.locator("main").getByRole("button", { name: "Live", exact: true }).click();
+  await expect(page.getByTestId("player-position-trail-page")).toContainText("45 position samples / page 1 of 2");
+  await expect(page.getByText("PX1", { exact: true }).first()).toBeVisible();
+  await page.getByTestId("player-position-trail-page-next").click();
+  await expect.poll(() => positionTrailRequests.some((search) => search.includes("page=2") && search.includes("per_page=40"))).toBeTruthy();
+  await expect(page.getByTestId("player-position-trail-page")).toContainText("45 position samples / page 2 of 2");
+  await expect(page.getByText("PX41", { exact: true })).toBeVisible();
+  expect(positionTrailRequests.some((search) => search.includes("page=1") && search.includes("per_page=40"))).toBeTruthy();
   await page.getByRole("button", { name: "History" }).click();
   await expect(page.getByTestId("player-timeline-page")).toContainText("55 timeline events / page 1 of 2");
   await expect(page.getByText("Timeline Event 1", { exact: true })).toBeVisible();

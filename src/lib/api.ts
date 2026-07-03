@@ -538,6 +538,7 @@ export type PlayerPositionTrail = {
     live_player?: LivePlayer | null;
   };
   items: PlayerPositionTrailItem[];
+  meta?: ApiEnvelope<unknown>["meta"];
   heat_cells: Array<Record<string, unknown>>;
   counts?: Record<string, number>;
   source_status?: string;
@@ -1065,8 +1066,11 @@ export function createApiClient(baseUrl: string, token?: string) {
     playerServerHistory(id: string) {
       return request<PlayerServerHistory>(`/api/admin/rustcontrol/players/${encodeURIComponent(id)}/server-history`);
     },
-    playerPositionTrail(id: string) {
-      return request<PlayerPositionTrail>(`/api/admin/rustcontrol/players/${encodeURIComponent(id)}/position-trail`);
+    playerPositionTrail(id: string, query?: ServerDetailListQuery) {
+      return requestEnvelope<Omit<PlayerPositionTrail, "meta">>(withQuery(`/api/admin/rustcontrol/players/${encodeURIComponent(id)}/position-trail`, query)).then((envelope) => ({
+        ...(envelope.data ?? { target: { player: {} as PlayerIntel }, items: [], heat_cells: [] }),
+        meta: envelope.meta,
+      }));
     },
     teamEvidence(id: string) {
       return request<{ items: Array<Record<string, unknown>>; source_status: string }>(

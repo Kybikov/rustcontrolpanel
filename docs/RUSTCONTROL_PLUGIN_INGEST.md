@@ -260,7 +260,7 @@ Player Intelligence also renders a Risk Evidence Digest from `watch`, `team_evid
 
 `GET /api/admin/rustcontrol/players/:id/server-history` returns a server-centric history for a local player: current server context, top cached servers, recent cached sessions, repeated companions from session overlap, and evidence grouped by server.
 
-`GET /api/admin/rustcontrol/players/:id/position-trail` returns realtime movement history captured from plugin/Rust+ position snapshots: recent coordinates, grid/server metadata, heat cells, and sample counts.
+`GET /api/admin/rustcontrol/players/:id/position-trail` returns realtime movement history captured from plugin/Rust+ position snapshots: recent coordinates, grid/server metadata, heat cells, and sample counts. It accepts `page`/`per_page` and returns pagination metadata so older movement samples remain reachable during long live sessions.
 
 `GET /api/admin/rustcontrol/players/:id/timeline` returns a chronological operator timeline for a local player: latest live snapshot, cached BattleMetrics sessions, activity events, and team evidence events merged into one feed. It accepts `page`/`per_page` and returns pagination metadata so older timeline rows remain reachable. The Player Intelligence timeline UI adds local type filters (`live`, `session`, `evidence`, `activity`), full-text search across server/source/grid/team/related player/title/details, visible-item counters, and compact payload/session detail text for fast investigations.
 

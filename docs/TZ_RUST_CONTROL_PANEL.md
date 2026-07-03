@@ -584,6 +584,7 @@ Schema: `rustcontrol`.
 - `rustcontrol.player_position_snapshots` stores realtime position samples from plugin/Rust+ ingest when a player has coordinates or grid data.
 - `GET /api/admin/rustcontrol/players/:id/position-trail` returns recent movement samples and heat cells for a local player.
 - Player Intelligence now includes a Position Trail panel with mini-map dots, latest coordinates, grid history, server context, and heat cells.
+- Player Position Trail now preserves backend pagination metadata from `/players/:id/position-trail`, with compact refresh/Prev/Next controls in the Live tab so older movement samples remain reachable without adding a separate map/history surface.
 - `GET /api/admin/rustcontrol/realtime/health` returns realtime source health: overall status, live/event counts, source freshness, server feed status, watched live counts, and recent feed events.
 - Dashboard and Live now include a Realtime Health panel so operators can tell whether a missing player means "not online" or "feed stale/silent".
 - `GET /api/admin/rustcontrol/alerts` returns paginated realtime watched-player alerts for online/recent watched players, with response `meta` used by the frontend for accurate active totals, same-server-as-me detection, proximity status, and distance-to-me when the connected Steam account and target both have live positions.

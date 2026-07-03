@@ -2158,8 +2158,10 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
   const [selectedBattleMetricsId, setSelectedBattleMetricsId] = useState("");
   const [activePlayerTab, setActivePlayerTab] = useState<PlayerDetailTab>("overview");
   const [knownPage, setKnownPage] = useState(1);
+  const [positionTrailPage, setPositionTrailPage] = useState(1);
   const [timelinePage, setTimelinePage] = useState(1);
   const knownPerPage = 25;
+  const positionTrailPerPage = 40;
   const timelinePerPage = 50;
   const knownPlayersQuery = useMemo<PlayersQuery>(
     () => ({ page: String(knownPage), per_page: String(knownPerPage) }),
@@ -2168,6 +2170,10 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
   const timelineQuery = useMemo<ServerDetailListQuery>(
     () => ({ page: String(timelinePage), per_page: String(timelinePerPage) }),
     [timelinePage],
+  );
+  const positionTrailQuery = useMemo<ServerDetailListQuery>(
+    () => ({ page: String(positionTrailPage), per_page: String(positionTrailPerPage) }),
+    [positionTrailPage],
   );
   const resolve = useMutation({
     mutationFn: () => api.resolvePlayer(query),
@@ -2189,6 +2195,7 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
   const selectedLocalPlayer = localMatches.find((player) => player.id === selectedLocalPlayerId) ?? resolve.data?.local_player;
   const localPlayerId = selectedLocalPlayerId || resolve.data?.local_player?.id || "";
   useEffect(() => {
+    setPositionTrailPage(1);
     setTimelinePage(1);
   }, [localPlayerId]);
   const intel = useQuery({
@@ -2233,9 +2240,10 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
     refetchInterval: 10_000,
   });
   const positionTrail = useQuery({
-    queryKey: ["playerPositionTrail", localPlayerId],
-    queryFn: () => api.playerPositionTrail(localPlayerId),
+    queryKey: ["playerPositionTrail", localPlayerId, positionTrailQuery],
+    queryFn: () => api.playerPositionTrail(localPlayerId, positionTrailQuery),
     enabled: localPlayerId.length > 0,
+    placeholderData: (previousData) => previousData,
     refetchInterval: 10_000,
   });
   const timeline = useQuery({
@@ -2249,6 +2257,8 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
   const knownItems = knownPlayers.data?.items ?? [];
   const knownTotal = knownPlayers.data?.meta?.total ?? knownPlayers.data?.stats?.total ?? knownItems.length;
   const knownPageCount = Math.max(1, Math.ceil(Number(knownTotal || 0) / knownPerPage));
+  const positionTrailTotal = positionTrail.data?.meta?.total ?? positionTrail.data?.counts?.samples ?? positionTrail.data?.items.length ?? 0;
+  const positionTrailPageCount = Math.max(1, Math.ceil(Number(positionTrailTotal || 0) / positionTrailPerPage));
   const timelineTotal = timeline.data?.meta?.total ?? timeline.data?.counts?.total ?? timeline.data?.items.length ?? 0;
   const timelinePageCount = Math.max(1, Math.ceil(Number(timelineTotal || 0) / timelinePerPage));
   const profile = resolve.data?.steam_profile as Record<string, unknown> | null | undefined;
@@ -2656,7 +2666,16 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
               ) : (
                 <EmptyState label={intel.isFetching ? "Loading live context" : "Resolve a local player to inspect live context"} />
               )}
-              <PlayerPositionTrailPanel data={positionTrail.data} loading={positionTrail.isFetching} />
+              <PlayerPositionTrailPanel
+                data={positionTrail.data}
+                loading={positionTrail.isFetching}
+                total={Number(positionTrailTotal || 0)}
+                page={positionTrailPage}
+                pageCount={positionTrailPageCount}
+                onRefresh={() => positionTrail.refetch()}
+                onPrev={() => setPositionTrailPage((value) => Math.max(1, value - 1))}
+                onNext={() => setPositionTrailPage((value) => Math.min(positionTrailPageCount, value + 1))}
+              />
             </div>
           ) : null}
 
@@ -4067,7 +4086,25 @@ function NamedCountList({ title, items, nameKey }: { title: string; items: Array
   );
 }
 
-function PlayerPositionTrailPanel({ data, loading }: { data?: PlayerPositionTrail; loading: boolean }) {
+function PlayerPositionTrailPanel({
+  data,
+  loading,
+  total,
+  page,
+  pageCount,
+  onRefresh,
+  onPrev,
+  onNext,
+}: {
+  data?: PlayerPositionTrail;
+  loading: boolean;
+  total: number;
+  page: number;
+  pageCount: number;
+  onRefresh: () => void;
+  onPrev: () => void;
+  onNext: () => void;
+}) {
   const items = data?.items ?? [];
   const heatCells = data?.heat_cells ?? [];
   const counts = data?.counts ?? {};
@@ -4091,6 +4128,20 @@ function PlayerPositionTrailPanel({ data, loading }: { data?: PlayerPositionTrai
           <Badge variant={Number(counts.servers ?? 0) > 0 ? "success" : "outline"}>{compactText(counts.servers)} servers</Badge>
           <Badge variant={Number(counts.heat_cells ?? 0) > 0 ? "warning" : "outline"}>{compactText(counts.heat_cells)} heat</Badge>
         </div>
+      </div>
+      <div className="mb-3">
+        <PageStatusBar
+          total={total}
+          itemLabel="position samples"
+          page={page}
+          pageCount={pageCount}
+          sourceStatus={data?.source_status}
+          loading={loading}
+          onRefresh={onRefresh}
+          onPrev={onPrev}
+          onNext={onNext}
+          testId="player-position-trail-page"
+        />
       </div>
 
       <div className="grid gap-3 xl:grid-cols-[minmax(420px,1fr)_420px]">
