@@ -6613,8 +6613,10 @@ function ServerDetailView({
   const [activeTab, setActiveTab] = useState<ServerDetailTab>("overview");
   const [snapshotPage, setSnapshotPage] = useState(1);
   const [wipePage, setWipePage] = useState(1);
+  const [mapHistoryPage, setMapHistoryPage] = useState(1);
   const snapshotPerPage = 96;
   const wipePerPage = 25;
+  const mapHistoryPerPage = 6;
   const positionReplayPerPage = 160;
   const snapshotQuery = useMemo<ServerDetailListQuery>(
     () => ({ page: String(snapshotPage), per_page: String(snapshotPerPage) }),
@@ -6623,6 +6625,10 @@ function ServerDetailView({
   const serverWipesQuery = useMemo<ServerDetailListQuery>(
     () => ({ page: String(wipePage), per_page: String(wipePerPage) }),
     [wipePage],
+  );
+  const mapHistoryQuery = useMemo<ServerDetailListQuery>(
+    () => ({ page: String(mapHistoryPage), per_page: String(mapHistoryPerPage) }),
+    [mapHistoryPage],
   );
   const positionReplayQuery = useMemo<ServerDetailListQuery>(
     () => ({ page: "1", per_page: String(positionReplayPerPage) }),
@@ -6653,9 +6659,10 @@ function ServerDetailView({
     refetchInterval: 60_000,
   });
   const mapQuery = useQuery({
-    queryKey: ["serverMap", serverId],
-    queryFn: () => api.serverMap(serverId),
+    queryKey: ["serverMap", serverId, mapHistoryQuery],
+    queryFn: () => api.serverMap(serverId, mapHistoryQuery),
     enabled: serverId.length > 0 && activeTab === "map",
+    placeholderData: (previousData) => previousData,
     refetchInterval: 15_000,
   });
   const positionReplayQueryResult = useQuery({
@@ -6693,6 +6700,9 @@ function ServerDetailView({
   const snapshotPageCount = Math.max(1, Math.ceil(Number(snapshotTotal || 0) / snapshotPerPage));
   const wipeTotal = wipesQuery.data?.meta?.total ?? wipes.length;
   const wipePageCount = Math.max(1, Math.ceil(Number(wipeTotal || 0) / wipePerPage));
+  const mapHistoryMetaTotal = mapQuery.data?.map_history_meta?.total;
+  const mapHistoryTotal = Number(mapHistoryMetaTotal ?? (numberFromRecord(mapInfo, "stored_map_count") || mapQuery.data?.map_history?.length || 0));
+  const mapHistoryPageCount = Math.max(1, Math.ceil(Number(mapHistoryTotal || 0) / mapHistoryPerPage));
   const pageError = detail.error ?? liveContext.error ?? snapshotsQuery.error ?? wipesQuery.error ?? mapQuery.error ?? positionReplayQueryResult.error ?? sync.error;
 
   useEffect(() => {
@@ -6701,6 +6711,9 @@ function ServerDetailView({
   useEffect(() => {
     if (wipePage > wipePageCount) setWipePage(wipePageCount);
   }, [wipePage, wipePageCount]);
+  useEffect(() => {
+    setMapHistoryPage(1);
+  }, [serverId]);
 
   function refreshDetail() {
     void detail.refetch();
@@ -6835,6 +6848,12 @@ function ServerDetailView({
           positionReplayItems={positionReplayQueryResult.data?.items ?? []}
           positionReplayLoading={positionReplayQueryResult.isFetching}
           positionReplaySourceStatus={positionReplayQueryResult.data?.source_status}
+          mapHistoryTotal={mapHistoryTotal}
+          mapHistoryPage={mapHistoryPage}
+          mapHistoryPageCount={mapHistoryPageCount}
+          onRefreshMapHistory={() => mapQuery.refetch()}
+          onPrevMapHistory={() => setMapHistoryPage((value) => Math.max(1, value - 1))}
+          onNextMapHistory={() => setMapHistoryPage((value) => Math.min(mapHistoryPageCount, value + 1))}
           onOpenPlayer={onOpenPlayer}
         />
       ) : null}
@@ -7157,6 +7176,12 @@ function ServerMapTab({
   positionReplayItems = [],
   positionReplayLoading,
   positionReplaySourceStatus,
+  mapHistoryTotal = 0,
+  mapHistoryPage = 1,
+  mapHistoryPageCount = 1,
+  onRefreshMapHistory,
+  onPrevMapHistory,
+  onNextMapHistory,
   onOpenPlayer,
 }: {
   server?: ServerIntel | null;
@@ -7166,6 +7191,12 @@ function ServerMapTab({
   positionReplayItems?: ServerPositionSnapshotItem[];
   positionReplayLoading?: boolean;
   positionReplaySourceStatus?: string;
+  mapHistoryTotal?: number;
+  mapHistoryPage?: number;
+  mapHistoryPageCount?: number;
+  onRefreshMapHistory?: () => void;
+  onPrevMapHistory?: () => void;
+  onNextMapHistory?: () => void;
   onOpenPlayer: (playerId: string) => void;
 }) {
   const liveItems = context?.live_players?.length ? context.live_players : mapData?.live_players ?? [];
@@ -7232,7 +7263,19 @@ function ServerMapTab({
           {mapHistory.length ? (
             <DetailsBlock summary="Stored map history">
               <div className="grid gap-2">
-                {mapHistory.slice(0, 6).map((item, index) => (
+                <PageStatusBar
+                  total={mapHistoryTotal || storedMapCount}
+                  itemLabel="stored maps"
+                  page={mapHistoryPage}
+                  pageCount={mapHistoryPageCount}
+                  sourceStatus={mapData?.source_status}
+                  loading={loading}
+                  onRefresh={onRefreshMapHistory}
+                  onPrev={onPrevMapHistory ?? (() => undefined)}
+                  onNext={onNextMapHistory ?? (() => undefined)}
+                  testId="server-map-history-page"
+                />
+                {mapHistory.map((item, index) => (
                   <div key={String(item.id ?? `${item.map_signature ?? "map"}-${index}`)} className="grid gap-2 rounded-md border border-border bg-background/45 p-2 sm:grid-cols-[minmax(0,1fr)_120px]">
                     <div className="min-w-0">
                       <div className="truncate text-sm font-medium">{compactText(item.map_name || mapInfo.map || server?.rust_map)}</div>
@@ -7243,7 +7286,6 @@ function ServerMapTab({
                     <div className="text-xs text-muted-foreground sm:text-right">{formatRelativeTime(item.fetched_at)}</div>
                   </div>
                 ))}
-                {storedMapCount > mapHistory.length ? <div className="text-xs text-muted-foreground">+{storedMapCount - mapHistory.length} stored map records</div> : null}
               </div>
             </DetailsBlock>
           ) : null}

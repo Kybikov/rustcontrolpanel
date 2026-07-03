@@ -457,6 +457,7 @@ export type ServerMapDetail = {
   markers?: Array<Record<string, unknown>>;
   event_markers?: Array<Record<string, unknown>>;
   map_history?: Array<Record<string, unknown>>;
+  map_history_meta?: ApiEnvelope<unknown>["meta"];
   live_players?: ServerLivePlayerItem[];
   server_id?: string;
   battlemetrics_server_id?: string;
@@ -951,8 +952,8 @@ export function createApiClient(baseUrl: string, token?: string) {
       );
       return { ...(envelope.data ?? { items: [] }), meta: envelope.meta };
     },
-    serverMap(id: string) {
-      return request<ServerMapDetail>(`/api/admin/rustcontrol/servers/${encodeURIComponent(id)}/map`);
+    serverMap(id: string, query?: ServerDetailListQuery) {
+      return request<ServerMapDetail>(withQuery(`/api/admin/rustcontrol/servers/${encodeURIComponent(id)}/map`, query));
     },
     serverLiveContext(id: string) {
       return request<ServerLiveContext>(`/api/admin/rustcontrol/servers/${encodeURIComponent(id)}/live-context`);

@@ -724,6 +724,7 @@ test("known players table shows cached steam ban summary", async ({ page }) => {
 
 test("server settings expose read-only rcon readiness test", async ({ page }) => {
   const consoleProblems: string[] = [];
+  const mapRequests: string[] = [];
   page.on("console", (message) => {
     if (["error", "warning"].includes(message.type())) {
       consoleProblems.push(`${message.type()}: ${message.text()}`);
@@ -837,7 +838,22 @@ test("server settings expose read-only rcon readiness test", async ({ page }) =>
       }),
     });
   });
-  await page.route(`${apiBaseUrl}/api/admin/rustcontrol/servers/smoke-server/map`, async (route) => {
+  await page.route(`${apiBaseUrl}/api/admin/rustcontrol/servers/smoke-server/map**`, async (route) => {
+    const url = new URL(route.request().url());
+    mapRequests.push(url.search);
+    const pageNumber = Number(url.searchParams.get("page") ?? "1");
+    const perPage = Number(url.searchParams.get("per_page") ?? "6");
+    const allMaps = Array.from({ length: 8 }, (_, index) => ({
+      id: `map-${index + 1}`,
+      map_name: `Smoke Map ${index + 1}`,
+      map_seed: 12340 + index,
+      map_size: 4250,
+      map_hash: `hash-${index + 1}`,
+      map_signature: `seed:${12340 + index}:size:4250`,
+      source: "rustmaps",
+      fetched_at: `2026-07-0${Math.min(index + 1, 8)}T12:00:00Z`,
+    }));
+    const start = (pageNumber - 1) * perPage;
     await route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({
@@ -848,9 +864,11 @@ test("server settings expose read-only rcon readiness test", async ({ page }) =>
             battlemetrics_server_id: "12345678",
             rust_world_size: 4250,
           },
-          map: {},
+          map: { stored_map_count: allMaps.length },
           markers: [],
           event_markers: [],
+          map_history: allMaps.slice(start, start + perPage),
+          map_history_meta: { total: allMaps.length, count: allMaps.slice(start, start + perPage).length, page: pageNumber, per_page: perPage },
           live_players: [],
           source_status: "ok",
         },
@@ -936,6 +954,16 @@ test("server settings expose read-only rcon readiness test", async ({ page }) =>
   await expect(page.getByTestId("server-position-replay-slider")).toBeVisible();
   await expect(page.getByText("2 samples")).toBeVisible();
   await expect(page.getByText("Replay Known").first()).toBeVisible();
+  await page.getByText("Stored map history").click();
+  await expect(page.getByTestId("server-map-history-page")).toBeVisible();
+  await expect(page.getByTestId("server-map-history-page")).toContainText("8 stored maps / page 1 of 2");
+  await expect(page.getByText("Smoke Map 1")).toBeVisible();
+  await page.getByTestId("server-map-history-page-next").click();
+  await expect.poll(() => mapRequests.some((search) => search.includes("page=2") && search.includes("per_page=6"))).toBeTruthy();
+  await expect(page.getByTestId("server-map-history-page")).toContainText("8 stored maps / page 2 of 2");
+  await expect(page.getByText("Smoke Map 7")).toBeVisible();
+  expect(mapRequests.some((search) => search.includes("page=1") && search.includes("per_page=6"))).toBeTruthy();
+  expect(mapRequests.some((search) => search.includes("page=2") && search.includes("per_page=6"))).toBeTruthy();
   await page.getByRole("button", { name: "Settings" }).click();
   await expect(page.getByRole("heading", { name: "Readiness" })).toBeVisible();
 
