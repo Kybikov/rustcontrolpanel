@@ -4270,6 +4270,25 @@ function wipeCalendarDays(wipes: ServerWipe[], length = 14) {
   });
 }
 
+function mapEventVariant(value: unknown): BadgeVariant {
+  const type = stringFromUnknown(value).toLowerCase();
+  if (["combat", "raid", "heli", "bradley"].includes(type)) return "warning";
+  if (["wipe", "cargo", "chinook"].includes(type)) return "secondary";
+  return "outline";
+}
+
+function mapMarkerPositionLabel(marker: Record<string, unknown>) {
+  const grid = stringFromUnknown(marker.map_grid);
+  const position = objectFrom(marker.position);
+  const x = Number(position.x);
+  const z = Number(position.z);
+  if (Number.isFinite(x) && Number.isFinite(z)) {
+    const coords = `${Math.round(x)} / ${Math.round(z)}`;
+    return grid ? `${grid} / ${coords}` : coords;
+  }
+  return grid || "-";
+}
+
 function numberFromRecord(item: Record<string, unknown>, key: string) {
   const value = item[key];
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -5908,6 +5927,7 @@ function ServerMapTab({
   const monuments = Array.isArray(mapInfo.monuments) ? mapInfo.monuments : [];
   const rustmapsMarkers = Array.isArray(mapInfo.rustmaps_markers) ? mapInfo.rustmaps_markers : [];
   const liveMarkers = Array.isArray(mapInfo.live_markers) ? mapInfo.live_markers : mapData?.markers ?? [];
+  const eventMarkers = recordList(mapInfo.event_markers).length ? recordList(mapInfo.event_markers) : recordList(mapData?.event_markers);
   const rustmapsUrl = stringFromUnknown(mapInfo.url) || server?.rustmaps_url || liveItems.find((item) => item.live_player.rustmaps_url)?.live_player.rustmaps_url || "";
   const thumbnailUrl = stringFromUnknown(mapInfo.thumbnail_url) || server?.rustmaps_thumbnail_url || "";
 
@@ -5939,6 +5959,7 @@ function ServerMapTab({
             <Fact label="Positioned" value={positioned.length} />
             <Fact label="Live rows" value={liveItems.length} />
             <Fact label="Monuments" value={monuments.length} />
+            <Fact label="Events" value={eventMarkers.length} />
             <Fact label="World size" value={mapInfo.size ?? server?.rust_world_size} />
             <Fact label="World seed" value={mapInfo.seed ?? server?.rust_world_seed} />
             <Fact label="Rust map" value={mapInfo.map ?? server?.rust_map ?? server?.rust_type} wide />
@@ -5946,11 +5967,31 @@ function ServerMapTab({
           <DetailsBlock summary="Map data details">
             <div className="grid gap-2 sm:grid-cols-2">
               <Fact label="Live markers" value={liveMarkers.length} />
+              <Fact label="Event markers" value={eventMarkers.length} />
               <Fact label="RustMaps markers" value={rustmapsMarkers.length} />
               <Fact label="Source" value={mapData?.source_status ?? mapData?.source} />
               <Fact label="Updated" value={formatDateTime(server?.source_updated_at ?? server?.updated_at)} />
             </div>
           </DetailsBlock>
+          {eventMarkers.length ? (
+            <DetailsBlock summary="Recent map events">
+              <div className="grid gap-2">
+                {eventMarkers.slice(0, 8).map((marker, index) => (
+                  <div key={String(marker.id ?? `${marker.event_type ?? "event"}-${index}`)} className="grid gap-2 rounded-md border border-border bg-background/45 p-2 sm:grid-cols-[96px_minmax(0,1fr)_90px]">
+                    <Badge variant={mapEventVariant(marker.event_type)}>{compactText(marker.event_type)}</Badge>
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium">{compactText(marker.label ?? marker.raw_type)}</div>
+                      <div className="truncate text-xs text-muted-foreground">
+                        {mapMarkerPositionLabel(marker)} / {compactText(marker.source)}
+                      </div>
+                    </div>
+                    <div className="text-xs text-muted-foreground sm:text-right">{formatRelativeTime(marker.occurred_at)}</div>
+                  </div>
+                ))}
+                {eventMarkers.length > 8 ? <div className="text-xs text-muted-foreground">+{eventMarkers.length - 8} more recent map events</div> : null}
+              </div>
+            </DetailsBlock>
+          ) : null}
           {stringFromUnknown(mapInfo.settings_source) ? (
             <div className="rounded-md border border-border bg-background/50 p-3">
               <div className="text-xs uppercase tracking-normal text-muted-foreground">Settings source</div>
