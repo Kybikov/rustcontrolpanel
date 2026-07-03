@@ -88,3 +88,94 @@ test("operator shell command search and raid planner work in production build", 
 
   expect(consoleProblems).toEqual([]);
 });
+
+test("server settings expose read-only rcon readiness test", async ({ page }) => {
+  const consoleProblems: string[] = [];
+  page.on("console", (message) => {
+    if (["error", "warning"].includes(message.type())) {
+      consoleProblems.push(`${message.type()}: ${message.text()}`);
+    }
+  });
+  page.on("pageerror", (error) => consoleProblems.push(`pageerror: ${error.message}`));
+
+  await page.route(`${apiBaseUrl}/api/admin/rustcontrol/servers/smoke-server`, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          server: {
+            id: "smoke-server",
+            name: "Smoke Rust Server",
+            battlemetrics_server_id: "12345678",
+            ip: "127.0.0.1",
+            port: 28015,
+            players: 4,
+            max_players: 100,
+            status: "online",
+          },
+          snapshots: [],
+          wipes: [],
+          activity: [],
+          settings: {
+            battlemetrics_server_id: "12345678",
+            plugin_webhook_ready: true,
+            rcon_configured: true,
+            rcon_actions_enabled: false,
+            rcon_read_only: true,
+            rcon_status: "configured",
+          },
+          source_status: "ok",
+        },
+      }),
+    });
+  });
+  await page.route(`${apiBaseUrl}/api/admin/rustcontrol/servers/smoke-server/live-context`, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          server: {
+            id: "smoke-server",
+            name: "Smoke Rust Server",
+            battlemetrics_server_id: "12345678",
+            status: "online",
+          },
+          live_players: [],
+          activity: [],
+          counts: { online_players: 0 },
+          source_status: "ok",
+        },
+      }),
+    });
+  });
+  await page.route(`${apiBaseUrl}/api/admin/rustcontrol/integrations/rcon/test`, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          provider: "rcon",
+          status: "ok",
+          enabled: true,
+          checked_at: new Date().toISOString(),
+          checks: [
+            { name: "enabled", status: "ok", message: "RCON integration is enabled in workspace settings." },
+            { name: "websocket_serverinfo", status: "ok", message: "WebRCON serverinfo responded.", command: "serverinfo", players: 4, max_players: 100 },
+          ],
+          sync_run_id: "sync-smoke-rcon",
+        },
+      }),
+    });
+  });
+
+  await page.goto("/servers/smoke-server");
+  await expect(page.getByRole("heading", { name: "Server Detail" })).toBeVisible();
+  await page.getByRole("button", { name: "Settings" }).click();
+  await expect(page.getByRole("heading", { name: "Readiness" })).toBeVisible();
+
+  await page.getByTestId("server-rcon-test").click();
+  await expect(page.getByText("RCON test: ok")).toBeVisible();
+  await page.getByText("RCON test details").click();
+  await expect(page.getByText("WebRCON serverinfo responded.")).toBeVisible();
+
+  expect(consoleProblems).toEqual([]);
+});

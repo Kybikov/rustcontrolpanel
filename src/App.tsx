@@ -6830,12 +6830,23 @@ function ServerSettingsTab({
   syncing?: boolean;
   onSync: () => void;
 }) {
+  const queryClient = useQueryClient();
   const battleMetricsUrl = battleMetricsServerUrl(serverKey);
   const pluginReady = Boolean(settings.plugin_webhook_ready);
   const rconConfigured = Boolean(settings.rcon_configured);
   const rconActionsEnabled = Boolean(settings.rcon_actions_enabled);
   const rconReadOnly = Boolean(settings.rcon_read_only);
   const rconStatus = String(settings.rcon_status ?? (rconConfigured ? "configured" : "not_configured"));
+  const rconTest = useMutation({
+    mutationFn: () => api.testIntegration("rcon"),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["syncRuns"] });
+      queryClient.invalidateQueries({ queryKey: ["activity"] });
+      queryClient.invalidateQueries({ queryKey: ["serverDetail", serverId] });
+    },
+  });
+  const rconTestStatus = rconTest.data?.status;
+  const rconTestChecks = rconTest.data?.checks ?? [];
 
   return (
     <div className="grid gap-4 xl:grid-cols-[1fr_360px]">
@@ -6898,6 +6909,32 @@ function ServerSettingsTab({
           <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-background/50 p-3">
             <span className="text-sm">RCON actions</span>
             <Badge variant={rconActionsEnabled ? "success" : rconConfigured ? "warning" : "outline"}>{rconActionsEnabled ? "enabled" : compactText(rconStatus)}</Badge>
+          </div>
+          <div className="grid gap-2 rounded-md border border-border bg-background/50 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium">RCON serverinfo</div>
+                <div className="truncate text-xs text-muted-foreground">Read-only WebRCON readiness test</div>
+              </div>
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <Badge variant={integrationCheckVariant(rconTestStatus ?? rconStatus)}>{compactText(rconTestStatus ?? rconStatus)}</Badge>
+                <Button data-testid="server-rcon-test" size="sm" variant="secondary" onClick={() => rconTest.mutate()} disabled={rconTest.isPending}>
+                  <RefreshCw className={`h-4 w-4 ${rconTest.isPending ? "animate-spin" : ""}`} />
+                  Test RCON
+                </Button>
+              </div>
+            </div>
+            {rconTest.error ? <StatusLine tone="bad" text={rconTest.error.message} /> : null}
+            {rconTest.data ? <StatusLine tone={rconTest.data.status === "error" ? "bad" : "ok"} text={`RCON test: ${compactText(rconTest.data.status)}`} /> : null}
+            {rconTestChecks.length ? (
+              <DetailsBlock summary="RCON test details">
+                <div className="grid gap-2">
+                  {rconTestChecks.map((check, index) => (
+                    <IntegrationTestCheck key={`server-rcon-${index}`} check={check} />
+                  ))}
+                </div>
+              </DetailsBlock>
+            ) : null}
           </div>
         </CardContent>
       </Card>
