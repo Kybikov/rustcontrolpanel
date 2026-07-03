@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 import {
   createApiClient,
+  type ActivityQuery,
   type ActivityFeedResult,
   type CommandSearchItem,
   type CommandSearchResult,
@@ -6974,14 +6975,30 @@ function ProfileView({
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<ProfileTab>(initialTab);
   const [steamQuery, setSteamQuery] = useState("");
+  const [historyPage, setHistoryPage] = useState(1);
   useEffect(() => setActiveTab(initialTab), [initialTab]);
   const claims = useMemo(() => decodeJwtPayload(accessToken), [accessToken]);
+  const historyPerPage = 25;
+  const profileActivityQuery = useMemo<ActivityQuery>(
+    () => ({ page: String(historyPage), per_page: String(historyPerPage) }),
+    [historyPage],
+  );
+  const profileWatchlistQuery = useMemo<WatchlistQuery>(() => ({ page: "1", per_page: "50" }), []);
   const myContext = useQuery({ queryKey: ["myLiveContext"], queryFn: api.myLiveContext, refetchInterval: 5_000 });
   const overview = useQuery({ queryKey: ["overview"], queryFn: api.overview, refetchInterval: 30_000 });
   const health = useQuery({ queryKey: ["realtimeHealth"], queryFn: api.realtimeHealth, refetchInterval: 5_000 });
   const alerts = useQuery({ queryKey: ["rustAlerts"], queryFn: api.alerts, refetchInterval: 5_000 });
-  const watchlist = useQuery({ queryKey: ["watchlist"], queryFn: api.watchlist, refetchInterval: 10_000 });
-  const activity = useQuery({ queryKey: ["activity"], queryFn: api.activity, refetchInterval: 10_000 });
+  const watchlist = useQuery({
+    queryKey: ["watchlist", "profile", profileWatchlistQuery],
+    queryFn: () => api.watchlistPage(profileWatchlistQuery),
+    refetchInterval: 10_000,
+  });
+  const activity = useQuery({
+    queryKey: ["activity", "profile", profileActivityQuery],
+    queryFn: () => api.activityFeed(profileActivityQuery),
+    refetchInterval: 10_000,
+    retry: false,
+  });
   const integrations = useQuery({ queryKey: ["integrations"], queryFn: api.integrations });
   const connectSteam = useMutation({
     mutationFn: () => api.connectMySteam(steamQuery),
@@ -6997,10 +7014,13 @@ function ProfileView({
   });
   const steam = objectFrom(myContext.data?.steam);
   const live = myContext.data?.live_player;
-  const activityItems = activity.data ?? [];
-  const watchItems = watchlist.data ?? [];
+  const activityItems = activity.data?.items ?? [];
+  const watchItems = watchlist.data?.items ?? [];
   const alertItems = alerts.data?.items ?? [];
   const counts = health.data?.counts ?? {};
+  const watchStats = useMemo(() => watchlistStatsFromResult(watchlist.data?.stats, watchItems), [watchlist.data?.stats, watchItems]);
+  const activityTotal = activity.data?.meta?.total ?? activity.data?.stats?.total ?? activityItems.length;
+  const activityPageCount = Math.max(1, Math.ceil(Number(activityTotal || 0) / historyPerPage));
   const accountName = compactText(
     steam.persona_name ?? live?.display_name ?? profileClaim(claims, ["email", "name", "preferred_username", "sub", "user_id"]) ?? "Operator",
   );
@@ -7081,14 +7101,30 @@ function ProfileView({
         <ProfileStatsTab
           overview={overview.data}
           health={health.data}
-          watchlist={watchItems}
+          watchStats={watchStats}
           alerts={alertItems}
           activity={activityItems}
+          activityFeed={activity.data}
           loading={overview.isFetching || health.isFetching}
         />
       )}
       {activeTab === "history" && (
-        <ProfileHistoryTab activity={activityItems} watchlist={watchItems} alerts={alertItems} loading={activity.isFetching} onOpenPlayer={onOpenPlayer} />
+        <ProfileHistoryTab
+          activity={activityItems}
+          watchlist={watchItems}
+          watchlistTotal={watchlist.data?.meta?.total ?? watchStats.total}
+          alerts={alertItems}
+          loading={activity.isFetching}
+          activityTotal={Number(activityTotal || 0)}
+          activityPage={historyPage}
+          activityPageCount={activityPageCount}
+          activitySourceStatus={activity.data?.source_status}
+          activityError={activity.error?.message}
+          onActivityRefresh={() => activity.refetch()}
+          onActivityPrev={() => setHistoryPage((value) => Math.max(1, value - 1))}
+          onActivityNext={() => setHistoryPage((value) => Math.min(activityPageCount, value + 1))}
+          onOpenPlayer={onOpenPlayer}
+        />
       )}
       {activeTab === "security" && <ProfileSecurityTab claims={claims} baseUrl={baseUrl} health={health.data} />}
     </section>
@@ -7248,23 +7284,24 @@ function ProfileSteamTab({
 function ProfileStatsTab({
   overview,
   health,
-  watchlist,
+  watchStats,
   alerts,
   activity,
+  activityFeed,
   loading,
 }: {
   overview?: Record<string, unknown>;
   health?: RealtimeHealth;
-  watchlist: WatchlistItem[];
+  watchStats: ReturnType<typeof watchlistStats>;
   alerts: RustAlertItem[];
   activity: Array<Record<string, unknown>>;
+  activityFeed?: ActivityFeedResult;
   loading: boolean;
 }) {
   const counts = health?.counts ?? {};
-  const watchStats = watchlistStats(watchlist);
-  const activitySummary = activityStats(activity);
-  const sourceOptions = activityOptionCounts(activity, "source");
-  const typeOptions = activityOptionCounts(activity, "event_type");
+  const activitySummary = activityStatsFromFeed(activityFeed, activity);
+  const sourceOptions = activityFeed?.sources?.length ? activityFeed.sources : activityOptionCounts(activity, "source");
+  const typeOptions = activityFeed?.event_types?.length ? activityFeed.event_types : activityOptionCounts(activity, "event_type");
   return (
     <div className="grid gap-4">
       <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
@@ -7307,17 +7344,35 @@ function ProfileStatsTab({
 function ProfileHistoryTab({
   activity,
   watchlist,
+  watchlistTotal,
   alerts,
   loading,
+  activityTotal,
+  activityPage,
+  activityPageCount,
+  activitySourceStatus,
+  activityError,
+  onActivityRefresh,
+  onActivityPrev,
+  onActivityNext,
   onOpenPlayer,
 }: {
   activity: Array<Record<string, unknown>>;
   watchlist: WatchlistItem[];
+  watchlistTotal?: number;
   alerts: RustAlertItem[];
   loading: boolean;
+  activityTotal: number;
+  activityPage: number;
+  activityPageCount: number;
+  activitySourceStatus?: string;
+  activityError?: string;
+  onActivityRefresh: () => void;
+  onActivityPrev: () => void;
+  onActivityNext: () => void;
   onOpenPlayer: (playerId: string) => void;
 }) {
-  const recentActivity = activity.slice(0, 12);
+  const recentActivity = activity;
   const recentWatchlist = [...watchlist].sort((a, b) => dateMs(b.watch.updated_at) - dateMs(a.watch.updated_at)).slice(0, 8);
   return (
     <div className="grid gap-4 xl:grid-cols-[1fr_420px]">
@@ -7326,6 +7381,7 @@ function ProfileHistoryTab({
           <div className="text-sm font-medium">Recent Account Feed</div>
           <Badge variant={loading ? "secondary" : "outline"}>{loading ? "loading" : `${recentActivity.length} rows`}</Badge>
         </div>
+        {activityError ? <div className="mb-3"><StatusLine tone="bad" text={activityError} /></div> : null}
         <div className="overflow-auto rounded-md border border-border">
           <Table>
             <thead>
@@ -7358,13 +7414,28 @@ function ProfileHistoryTab({
           </Table>
           {!recentActivity.length ? <EmptyState label={loading ? "Loading history" : "No account activity yet"} /> : null}
         </div>
+        <div className="mt-3">
+          <PageStatusBar
+            total={activityTotal}
+            itemLabel="profile events"
+            page={activityPage}
+            pageCount={activityPageCount}
+            sourceStatus={activitySourceStatus}
+            loading={loading}
+            onRefresh={onActivityRefresh}
+            onPrev={onActivityPrev}
+            onNext={onActivityNext}
+          />
+        </div>
       </div>
 
       <div className="grid gap-4">
         <div className="rounded-md border border-border bg-background/45 p-3">
           <div className="mb-3 flex items-center justify-between gap-2">
             <div className="text-sm font-medium">Recent Watch Changes</div>
-            <Badge variant={recentWatchlist.length ? "warning" : "outline"}>{recentWatchlist.length}</Badge>
+            <Badge variant={recentWatchlist.length ? "warning" : "outline"}>
+              {recentWatchlist.length} / {compactText(watchlistTotal ?? recentWatchlist.length)}
+            </Badge>
           </div>
           <div className="grid gap-2">
             {recentWatchlist.map((item) => (

@@ -637,3 +637,4 @@ Schema: `rustcontrol`.
 - Watchlist filters now run on the backend (`q`, `risk_level`, `live`, pagination) and return total/online/hostile/suspect/watch stats for the filtered set, so the UI no longer searches or counts only the currently loaded page.
 
 - Live players feed now supports backend `q/search`, pagination metadata, and filtered stats (`total`, `online`, `positioned`, `servers`); Live Control explicitly requests a 100-row live feed and removes duplicated radar/counter blocks from the main roster surface.
+- Operator Profile now uses backend-backed `activityFeed` and `watchlistPage` metadata/stats for account history and statistics; the History tab has compact page status/refresh/Prev/Next controls instead of treating the first loaded slice as complete history.
