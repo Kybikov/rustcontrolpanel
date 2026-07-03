@@ -7389,18 +7389,29 @@ function ProfileView({
   const [activeTab, setActiveTab] = useState<ProfileTab>(initialTab);
   const [steamQuery, setSteamQuery] = useState("");
   const [historyPage, setHistoryPage] = useState(1);
+  const [watchHistoryPage, setWatchHistoryPage] = useState(1);
+  const [alertHistoryPage, setAlertHistoryPage] = useState(1);
   useEffect(() => setActiveTab(initialTab), [initialTab]);
   const claims = useMemo(() => decodeJwtPayload(accessToken), [accessToken]);
   const historyPerPage = 25;
+  const watchHistoryPerPage = 8;
+  const alertHistoryPerPage = 6;
   const profileActivityQuery = useMemo<ActivityQuery>(
     () => ({ page: String(historyPage), per_page: String(historyPerPage) }),
     [historyPage],
   );
-  const profileWatchlistQuery = useMemo<WatchlistQuery>(() => ({ page: "1", per_page: "50" }), []);
+  const profileWatchlistQuery = useMemo<WatchlistQuery>(
+    () => ({ page: String(watchHistoryPage), per_page: String(watchHistoryPerPage) }),
+    [watchHistoryPage],
+  );
+  const profileAlertsQuery = useMemo<AlertsQuery>(
+    () => ({ page: String(alertHistoryPage), per_page: String(alertHistoryPerPage) }),
+    [alertHistoryPage],
+  );
   const myContext = useQuery({ queryKey: ["myLiveContext"], queryFn: api.myLiveContext, refetchInterval: 5_000 });
   const overview = useQuery({ queryKey: ["overview"], queryFn: api.overview, refetchInterval: 30_000 });
   const health = useQuery({ queryKey: ["realtimeHealth"], queryFn: api.realtimeHealth, refetchInterval: 5_000 });
-  const alerts = useQuery({ queryKey: ["rustAlerts", activeAlertsQuery], queryFn: () => api.alertsPage(activeAlertsQuery), refetchInterval: 5_000 });
+  const alerts = useQuery({ queryKey: ["rustAlerts", "profile", profileAlertsQuery], queryFn: () => api.alertsPage(profileAlertsQuery), refetchInterval: 5_000 });
   const watchlist = useQuery({
     queryKey: ["watchlist", "profile", profileWatchlistQuery],
     queryFn: () => api.watchlistPage(profileWatchlistQuery),
@@ -7435,6 +7446,9 @@ function ProfileView({
   const watchStats = useMemo(() => watchlistStatsFromResult(watchlist.data?.stats, watchItems), [watchlist.data?.stats, watchItems]);
   const activityTotal = activity.data?.meta?.total ?? activity.data?.stats?.total ?? activityItems.length;
   const activityPageCount = Math.max(1, Math.ceil(Number(activityTotal || 0) / historyPerPage));
+  const watchlistTotal = watchlist.data?.meta?.total ?? watchStats.total;
+  const watchlistPageCount = Math.max(1, Math.ceil(Number(watchlistTotal || 0) / watchHistoryPerPage));
+  const alertPageCount = Math.max(1, Math.ceil(Number(alertTotal || 0) / alertHistoryPerPage));
   const accountName = compactText(
     steam.persona_name ?? live?.display_name ?? profileClaim(claims, ["email", "name", "preferred_username", "sub", "user_id"]) ?? "Operator",
   );
@@ -7526,18 +7540,32 @@ function ProfileView({
         <ProfileHistoryTab
           activity={activityItems}
           watchlist={watchItems}
-          watchlistTotal={watchlist.data?.meta?.total ?? watchStats.total}
+          watchlistTotal={Number(watchlistTotal || 0)}
           alerts={alertItems}
           alertTotal={alertTotal}
           loading={activity.isFetching}
+          watchlistLoading={watchlist.isFetching}
+          alertsLoading={alerts.isFetching}
           activityTotal={Number(activityTotal || 0)}
           activityPage={historyPage}
           activityPageCount={activityPageCount}
           activitySourceStatus={activity.data?.source_status}
+          watchlistPage={watchHistoryPage}
+          watchlistPageCount={watchlistPageCount}
+          watchlistSourceStatus={watchlist.data?.source_status}
+          alertPage={alertHistoryPage}
+          alertPageCount={alertPageCount}
+          alertSourceStatus={alerts.data?.source_status}
           activityError={activity.error?.message}
           onActivityRefresh={() => activity.refetch()}
           onActivityPrev={() => setHistoryPage((value) => Math.max(1, value - 1))}
           onActivityNext={() => setHistoryPage((value) => Math.min(activityPageCount, value + 1))}
+          onWatchlistRefresh={() => watchlist.refetch()}
+          onWatchlistPrev={() => setWatchHistoryPage((value) => Math.max(1, value - 1))}
+          onWatchlistNext={() => setWatchHistoryPage((value) => Math.min(watchlistPageCount, value + 1))}
+          onAlertsRefresh={() => alerts.refetch()}
+          onAlertsPrev={() => setAlertHistoryPage((value) => Math.max(1, value - 1))}
+          onAlertsNext={() => setAlertHistoryPage((value) => Math.min(alertPageCount, value + 1))}
           onOpenPlayer={onOpenPlayer}
         />
       )}
@@ -7763,14 +7791,28 @@ function ProfileHistoryTab({
   alerts,
   alertTotal,
   loading,
+  watchlistLoading,
+  alertsLoading,
   activityTotal,
   activityPage,
   activityPageCount,
   activitySourceStatus,
+  watchlistPage,
+  watchlistPageCount,
+  watchlistSourceStatus,
+  alertPage,
+  alertPageCount,
+  alertSourceStatus,
   activityError,
   onActivityRefresh,
   onActivityPrev,
   onActivityNext,
+  onWatchlistRefresh,
+  onWatchlistPrev,
+  onWatchlistNext,
+  onAlertsRefresh,
+  onAlertsPrev,
+  onAlertsNext,
   onOpenPlayer,
 }: {
   activity: Array<Record<string, unknown>>;
@@ -7779,18 +7821,32 @@ function ProfileHistoryTab({
   alerts: RustAlertItem[];
   alertTotal: number;
   loading: boolean;
+  watchlistLoading: boolean;
+  alertsLoading: boolean;
   activityTotal: number;
   activityPage: number;
   activityPageCount: number;
   activitySourceStatus?: string;
+  watchlistPage: number;
+  watchlistPageCount: number;
+  watchlistSourceStatus?: string;
+  alertPage: number;
+  alertPageCount: number;
+  alertSourceStatus?: string;
   activityError?: string;
   onActivityRefresh: () => void;
   onActivityPrev: () => void;
   onActivityNext: () => void;
+  onWatchlistRefresh: () => void;
+  onWatchlistPrev: () => void;
+  onWatchlistNext: () => void;
+  onAlertsRefresh: () => void;
+  onAlertsPrev: () => void;
+  onAlertsNext: () => void;
   onOpenPlayer: (playerId: string) => void;
 }) {
   const recentActivity = activity;
-  const recentWatchlist = [...watchlist].sort((a, b) => dateMs(b.watch.updated_at) - dateMs(a.watch.updated_at)).slice(0, 8);
+  const recentWatchlist = [...watchlist].sort((a, b) => dateMs(b.watch.updated_at) - dateMs(a.watch.updated_at));
   return (
     <div className="grid gap-4 xl:grid-cols-[1fr_420px]">
       <div className="rounded-md border border-border bg-background/45 p-3">
@@ -7842,6 +7898,7 @@ function ProfileHistoryTab({
             onRefresh={onActivityRefresh}
             onPrev={onActivityPrev}
             onNext={onActivityNext}
+            testId="profile-activity-pager"
           />
         </div>
       </div>
@@ -7873,6 +7930,20 @@ function ProfileHistoryTab({
             ))}
             {!recentWatchlist.length ? <EmptyState label="No watchlist changes yet" /> : null}
           </div>
+          <div className="mt-3">
+            <PageStatusBar
+              total={Number(watchlistTotal ?? recentWatchlist.length)}
+              itemLabel="watch changes"
+              page={watchlistPage}
+              pageCount={watchlistPageCount}
+              sourceStatus={watchlistSourceStatus}
+              loading={watchlistLoading}
+              onRefresh={onWatchlistRefresh}
+              onPrev={onWatchlistPrev}
+              onNext={onWatchlistNext}
+              testId="profile-watchlist-pager"
+            />
+          </div>
         </div>
 
         <div className="rounded-md border border-border bg-background/45 p-3">
@@ -7881,7 +7952,7 @@ function ProfileHistoryTab({
             <Badge variant={alertTotal ? "danger" : "outline"}>{formatNumber(alertTotal)}</Badge>
           </div>
           <div className="grid gap-2">
-            {alerts.slice(0, 6).map((alert) => {
+            {alerts.map((alert) => {
               const player = alert.player ?? {};
               const playerId = player.id ?? alert.watch?.player_id;
               return (
@@ -7900,6 +7971,20 @@ function ProfileHistoryTab({
               );
             })}
             {!alerts.length ? <EmptyState label="No active watched-player alerts" /> : null}
+          </div>
+          <div className="mt-3">
+            <PageStatusBar
+              total={alertTotal}
+              itemLabel="active alerts"
+              page={alertPage}
+              pageCount={alertPageCount}
+              sourceStatus={alertSourceStatus}
+              loading={alertsLoading}
+              onRefresh={onAlertsRefresh}
+              onPrev={onAlertsPrev}
+              onNext={onAlertsNext}
+              testId="profile-alerts-pager"
+            />
           </div>
         </div>
       </div>
@@ -9721,6 +9806,7 @@ function PageStatusBar({
   onRefresh,
   onPrev,
   onNext,
+  testId,
 }: {
   total: number;
   itemLabel: string;
@@ -9731,24 +9817,25 @@ function PageStatusBar({
   onRefresh?: () => void;
   onPrev: () => void;
   onNext: () => void;
+  testId?: string;
 }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-background/45 px-3 py-2 text-xs text-muted-foreground">
+    <div data-testid={testId} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-background/45 px-3 py-2 text-xs text-muted-foreground">
       <span>
         {formatNumber(total)} {itemLabel} / page {page} of {pageCount}
       </span>
       <div className="flex flex-wrap items-center gap-2">
         {sourceStatus ? <Badge variant={sourceStatus === "ok" ? "success" : "outline"}>{compactText(sourceStatus)}</Badge> : null}
         {onRefresh ? (
-          <Button size="sm" variant="secondary" onClick={onRefresh}>
+          <Button data-testid={testId ? `${testId}-refresh` : undefined} size="sm" variant="secondary" onClick={onRefresh}>
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
             Refresh
           </Button>
         ) : null}
-        <Button size="sm" variant="secondary" onClick={onPrev} disabled={page <= 1}>
+        <Button data-testid={testId ? `${testId}-prev` : undefined} size="sm" variant="secondary" onClick={onPrev} disabled={page <= 1}>
           Prev
         </Button>
-        <Button size="sm" variant="secondary" onClick={onNext} disabled={page >= pageCount}>
+        <Button data-testid={testId ? `${testId}-next` : undefined} size="sm" variant="secondary" onClick={onNext} disabled={page >= pageCount}>
           Next
         </Button>
       </div>

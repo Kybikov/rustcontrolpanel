@@ -179,3 +179,152 @@ test("server settings expose read-only rcon readiness test", async ({ page }) =>
 
   expect(consoleProblems).toEqual([]);
 });
+
+test("operator profile history pages watch changes and alerts", async ({ page }) => {
+  const consoleProblems: string[] = [];
+  page.on("console", (message) => {
+    if (["error", "warning"].includes(message.type())) {
+      consoleProblems.push(`${message.type()}: ${message.text()}`);
+    }
+  });
+  page.on("pageerror", (error) => consoleProblems.push(`pageerror: ${error.message}`));
+
+  await page.route(`${apiBaseUrl}/api/admin/rustcontrol/overview`, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          tracked_servers: 2,
+          known_players: 18,
+          team_edges: 4,
+        },
+      }),
+    });
+  });
+  await page.route(`${apiBaseUrl}/api/admin/rustcontrol/realtime/health`, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          status: "ok",
+          counts: { live_online: 3 },
+        },
+      }),
+    });
+  });
+  await page.route(`${apiBaseUrl}/api/admin/rustcontrol/integrations`, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          providers: [],
+          recent_sync_runs: [],
+        },
+      }),
+    });
+  });
+  await page.route(`${apiBaseUrl}/api/admin/rustcontrol/activity**`, async (route) => {
+    const url = new URL(route.request().url());
+    const pageNumber = Number(url.searchParams.get("page") ?? "1");
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          items: [
+            {
+              id: `activity-${pageNumber}`,
+              occurred_at: "2026-07-03T12:00:00Z",
+              severity: "info",
+              source: "admin",
+              event_type: `profile_activity_page_${pageNumber}`,
+              payload: { message: "profile smoke" },
+            },
+          ],
+          source_status: "ok",
+          stats: { total: 40, warning: 0, error: 0, operator_notes: 1 },
+        },
+        meta: { total: 40, page: pageNumber, per_page: 25, count: 1 },
+      }),
+    });
+  });
+  await page.route(`${apiBaseUrl}/api/admin/rustcontrol/watchlist**`, async (route) => {
+    const url = new URL(route.request().url());
+    const pageNumber = Number(url.searchParams.get("page") ?? "1");
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          items: [
+            {
+              watch: {
+                id: `watch-${pageNumber}`,
+                player_id: `player-${pageNumber}`,
+                watched: true,
+                risk_level: pageNumber === 1 ? "hostile" : "suspect",
+                reason: `watch page ${pageNumber}`,
+                updated_at: "2026-07-03T12:00:00Z",
+              },
+              player: {
+                id: `player-${pageNumber}`,
+                display_name: `Watched Player ${pageNumber}`,
+                steam_id: `7656119796028793${pageNumber}`,
+              },
+            },
+          ],
+          stats: { total: 10, hostile: 1, suspect: 1, online: 1 },
+          source_status: "ok",
+        },
+        meta: { total: 10, page: pageNumber, per_page: 8, count: 1 },
+      }),
+    });
+  });
+  await page.route(`${apiBaseUrl}/api/admin/rustcontrol/alerts**`, async (route) => {
+    const url = new URL(route.request().url());
+    const pageNumber = Number(url.searchParams.get("page") ?? "1");
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          items: [
+            {
+              alert_type: `same_server_page_${pageNumber}`,
+              severity: pageNumber === 1 ? "critical" : "warning",
+              player: {
+                id: `alert-player-${pageNumber}`,
+                display_name: `Alert Player ${pageNumber}`,
+              },
+              watch: {
+                id: `alert-watch-${pageNumber}`,
+                player_id: `alert-player-${pageNumber}`,
+                watched: true,
+                risk_level: "hostile",
+              },
+              current_server: {
+                name: `Alert Server ${pageNumber}`,
+              },
+            },
+          ],
+          source_status: "ok",
+        },
+        meta: { total: 12, page: pageNumber, per_page: 6, count: 1 },
+      }),
+    });
+  });
+
+  await page.goto("/profile/history");
+  await expect(page.getByRole("heading", { name: "Operator Profile" })).toBeVisible();
+  await expect(page.getByText("Recent Account Feed")).toBeVisible();
+  await expect(page.getByTestId("profile-activity-pager")).toContainText("40 profile events / page 1 of 2");
+  await expect(page.getByTestId("profile-watchlist-pager")).toContainText("10 watch changes / page 1 of 2");
+  await expect(page.getByTestId("profile-alerts-pager")).toContainText("12 active alerts / page 1 of 2");
+
+  await page.getByTestId("profile-watchlist-pager-next").click();
+  await expect(page.getByText("Watched Player 2")).toBeVisible();
+  await expect(page.getByTestId("profile-watchlist-pager")).toContainText("page 2 of 2");
+
+  await page.getByTestId("profile-alerts-pager-next").click();
+  await expect(page.getByText("Alert Player 2")).toBeVisible();
+  await expect(page.getByTestId("profile-alerts-pager")).toContainText("page 2 of 2");
+
+  expect(consoleProblems).toEqual([]);
+});
