@@ -9398,6 +9398,7 @@ function WipesView({ api }: { api: ReturnType<typeof createApiClient> }) {
 }
 
 function ActivityView({ api }: { api: ReturnType<typeof createApiClient> }) {
+  const navigate = useNavigate();
   const [searchText, setSearchText] = useState("");
   const [severityFilter, setSeverityFilter] = useState<ActivitySeverityFilter>("all");
   const [sourceFilter, setSourceFilter] = useState("all");
@@ -9613,6 +9614,7 @@ function ActivityView({ api }: { api: ReturnType<typeof createApiClient> }) {
                 <tr>
                   <Th>Time</Th>
                   <Th>Event</Th>
+                  <Th>Entity</Th>
                   <Th>Signal</Th>
                 </tr>
               </thead>
@@ -9629,6 +9631,13 @@ function ActivityView({ api }: { api: ReturnType<typeof createApiClient> }) {
                       <DetailsBlock summary="Payload">
                         <div className="whitespace-pre-wrap text-xs leading-5 text-muted-foreground">{activityPayloadSummary(event.payload)}</div>
                       </DetailsBlock>
+                    </Td>
+                    <Td>
+                      <ActivityEntityCell
+                        event={event}
+                        onOpenServer={(serverId) => navigate(`/servers/${encodeURIComponent(serverId)}`)}
+                        onOpenPlayer={(playerId) => navigate(`/players/${encodeURIComponent(playerId)}`)}
+                      />
                     </Td>
                     <Td>
                       <div className="flex flex-wrap gap-1">
@@ -9653,6 +9662,44 @@ function ActivityView({ api }: { api: ReturnType<typeof createApiClient> }) {
         </CardContent>
       </Card>
     </section>
+  );
+}
+
+function ActivityEntityCell({
+  event,
+  onOpenServer,
+  onOpenPlayer,
+}: {
+  event: Record<string, unknown>;
+  onOpenServer: (serverId: string) => void;
+  onOpenPlayer: (playerId: string) => void;
+}) {
+  const server = objectFrom(event.server);
+  const player = objectFrom(event.player);
+  const serverId = stringFromUnknown(event.server_id || server.id);
+  const playerId = stringFromUnknown(event.player_id || player.id);
+  const serverLabel = compactText(server.name || server.battlemetrics_server_id || serverId);
+  const playerLabel = compactText(player.display_name || player.steam_id || player.battlemetrics_player_id || playerId);
+
+  if (!serverId && !playerId) {
+    return <span className="text-xs text-muted-foreground">-</span>;
+  }
+
+  return (
+    <div className="flex min-w-[180px] max-w-[280px] flex-wrap gap-1">
+      {playerId ? (
+        <Button size="sm" variant="secondary" onClick={() => onOpenPlayer(playerId)} title={playerLabel}>
+          <UserCircle className="h-4 w-4" />
+          <span className="max-w-[150px] truncate">{playerLabel}</span>
+        </Button>
+      ) : null}
+      {serverId ? (
+        <Button size="sm" variant="secondary" onClick={() => onOpenServer(serverId)} title={serverLabel}>
+          <Server className="h-4 w-4" />
+          <span className="max-w-[150px] truncate">{serverLabel}</span>
+        </Button>
+      ) : null}
+    </div>
   );
 }
 
