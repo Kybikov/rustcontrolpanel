@@ -22,6 +22,15 @@ type ApiListData<T> = T[] | {
   raw_available?: boolean;
 };
 
+export type ApiListResult<T> = {
+  items: T[];
+  meta?: ApiEnvelope<unknown>["meta"];
+  source?: string;
+  source_status?: string;
+  stale?: boolean;
+  raw_available?: boolean;
+};
+
 export type AuthTokens = {
   access_token: string;
   refresh_token: string;
@@ -317,11 +326,15 @@ export type WipesQuery = {
   from?: string;
   to?: string;
   window?: "all" | string;
+  page?: string;
+  per_page?: string;
 };
 
 export type WipeRemindersQuery = {
   server_id?: string;
   status?: string;
+  page?: string;
+  per_page?: string;
 };
 
 export type ActivityQuery = {
@@ -725,6 +738,22 @@ export function createApiClient(baseUrl: string, token?: string) {
     return data?.items ?? [];
   }
 
+  async function requestList<T>(path: string, options: RequestOptions = {}): Promise<ApiListResult<T>> {
+    const envelope = await requestEnvelope<ApiListData<T>>(path, options);
+    const data = envelope.data;
+    if (Array.isArray(data)) {
+      return { items: data, meta: envelope.meta };
+    }
+    return {
+      items: data?.items ?? [],
+      meta: envelope.meta,
+      source: data?.source,
+      source_status: data?.source_status,
+      stale: data?.stale,
+      raw_available: data?.raw_available,
+    };
+  }
+
   function withQuery(path: string, query?: Record<string, string | undefined>) {
     const params = new URLSearchParams();
     Object.entries(query ?? {}).forEach(([key, value]) => {
@@ -791,6 +820,9 @@ export function createApiClient(baseUrl: string, token?: string) {
         `/api/admin/rustcontrol/servers?q=${encodeURIComponent(query)}`,
       );
     },
+    trackedServersPage(query?: ServersQuery) {
+      return requestList<ServerIntel>(withQuery("/api/admin/rustcontrol/servers", query));
+    },
     trackedServers(query?: ServersQuery) {
       return requestItems<ServerIntel>(withQuery("/api/admin/rustcontrol/servers", query));
     },
@@ -817,6 +849,9 @@ export function createApiClient(baseUrl: string, token?: string) {
     },
     watchlist() {
       return requestItems<WatchlistItem>("/api/admin/rustcontrol/watchlist");
+    },
+    watchlistPage(query?: { page?: string; per_page?: string }) {
+      return requestList<WatchlistItem>(withQuery("/api/admin/rustcontrol/watchlist", query));
     },
     updatePlayerWatch(
       id: string,
@@ -922,6 +957,9 @@ export function createApiClient(baseUrl: string, token?: string) {
     livePlayers() {
       return request<{ items: LivePlayer[]; source_status: string }>("/api/admin/rustcontrol/live/players");
     },
+    livePlayersPage(query?: { battlemetrics_server_id?: string; online?: string; page?: string; per_page?: string }) {
+      return requestList<LivePlayer>(withQuery("/api/admin/rustcontrol/live/players", query));
+    },
     myLiveContext() {
       return request<MyLiveContext>("/api/admin/rustcontrol/me/live-context");
     },
@@ -934,6 +972,9 @@ export function createApiClient(baseUrl: string, token?: string) {
     wipes(query?: WipesQuery) {
       return requestItems<ServerWipe>(withQuery("/api/admin/rustcontrol/wipes", query));
     },
+    wipesPage(query?: WipesQuery) {
+      return requestList<ServerWipe>(withQuery("/api/admin/rustcontrol/wipes", query));
+    },
     createWipe(payload: WipeOverrideInput) {
       return request<{ item: ServerWipe }>("/api/admin/rustcontrol/wipes", {
         method: "POST",
@@ -942,6 +983,9 @@ export function createApiClient(baseUrl: string, token?: string) {
     },
     wipeReminders(query?: WipeRemindersQuery) {
       return requestItems<WipeReminder>(withQuery("/api/admin/rustcontrol/wipes/reminders", query));
+    },
+    wipeRemindersPage(query?: WipeRemindersQuery) {
+      return requestList<WipeReminder>(withQuery("/api/admin/rustcontrol/wipes/reminders", query));
     },
     createWipeReminder(payload: WipeReminderInput) {
       return request<{ item: WipeReminder }>("/api/admin/rustcontrol/wipes/reminders", {

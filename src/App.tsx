@@ -6711,9 +6711,11 @@ function ServersView({
   const [maxOnlineFilter, setMaxOnlineFilter] = useState("");
   const [minSizeFilter, setMinSizeFilter] = useState("");
   const [maxSizeFilter, setMaxSizeFilter] = useState("");
+  const [trackedPage, setTrackedPage] = useState(1);
   const [selectedServerId, setSelectedServerId] = useState("");
   const deferredTrackedSearch = useDeferredValue(trackedSearch);
-  const trackedFilters = useMemo(
+  const trackedPerPage = 25;
+  const trackedFilterQuery = useMemo(
     () => ({
       tracked_q: deferredTrackedSearch.trim() || undefined,
       status: statusFilter === "all" ? undefined : statusFilter,
@@ -6726,13 +6728,23 @@ function ServersView({
       max_online: maxOnlineFilter.trim() || undefined,
       min_size: minSizeFilter.trim() || undefined,
       max_size: maxSizeFilter.trim() || undefined,
-      per_page: "100",
     }),
     [countryFilter, deferredTrackedSearch, freshnessFilter, maxOnlineFilter, maxSizeFilter, minOnlineFilter, minSizeFilter, serverTypeFilter, statusFilter, tagFilter, wipeWindowFilter],
   );
+  useEffect(() => {
+    setTrackedPage(1);
+  }, [trackedFilterQuery]);
+  const trackedFilters = useMemo(
+    () => ({
+      ...trackedFilterQuery,
+      page: String(trackedPage),
+      per_page: String(trackedPerPage),
+    }),
+    [trackedFilterQuery, trackedPage],
+  );
   const tracked = useQuery({
     queryKey: ["trackedServers", trackedFilters],
-    queryFn: () => api.trackedServers(trackedFilters),
+    queryFn: () => api.trackedServersPage(trackedFilters),
     refetchInterval: 30_000,
   });
   const search = useMutation({ mutationFn: () => api.searchServers(query) });
@@ -6745,6 +6757,12 @@ function ServersView({
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["trackedServers"] }),
   });
   const searchItems = search.data?.items ?? [];
+  const trackedItems = tracked.data?.items ?? [];
+  const trackedTotal = tracked.data?.meta?.total ?? trackedItems.length;
+  const trackedPageCount = Math.max(1, Math.ceil(Number(trackedTotal || 0) / trackedPerPage));
+  useEffect(() => {
+    if (trackedPage > trackedPageCount) setTrackedPage(trackedPageCount);
+  }, [trackedPage, trackedPageCount]);
   const hasTrackedFilters = Boolean(
     trackedSearch.trim() ||
       statusFilter !== "all" ||
@@ -6784,6 +6802,7 @@ function ServersView({
     setMaxOnlineFilter("");
     setMinSizeFilter("");
     setMaxSizeFilter("");
+    setTrackedPage(1);
   }
 
   return (
@@ -6859,11 +6878,22 @@ function ServersView({
 
       <ServerTable
         title="Tracked Servers"
-        items={tracked.data ?? []}
+        items={trackedItems}
         actionLabel="Sync"
         onAction={(server) => sync.mutate(server.id ?? server.battlemetrics_server_id)}
         onOpen={openServer}
         loading={tracked.isFetching}
+      />
+      <PageStatusBar
+        total={trackedTotal}
+        itemLabel="tracked servers"
+        page={trackedPage}
+        pageCount={trackedPageCount}
+        sourceStatus={tracked.data?.source_status}
+        loading={tracked.isFetching}
+        onRefresh={() => tracked.refetch()}
+        onPrev={() => setTrackedPage((value) => Math.max(1, value - 1))}
+        onNext={() => setTrackedPage((value) => Math.min(trackedPageCount, value + 1))}
       />
 
       {selectedServerId ? (
@@ -7518,6 +7548,8 @@ function WipesView({ api }: { api: ReturnType<typeof createApiClient> }) {
   const [filterType, setFilterType] = useState("all");
   const [range, setRange] = useState<WipeRangeFilter>("60");
   const [mode, setMode] = useState<WipeCalendarMode>("calendar");
+  const [wipePage, setWipePage] = useState(1);
+  const [reminderPage, setReminderPage] = useState(1);
   const [wipeType, setWipeType] = useState("map_wipe");
   const [wipeAt, setWipeAt] = useState(() => datetimeLocalValue(new Date()));
   const [confidence, setConfidence] = useState("75");
@@ -7527,7 +7559,9 @@ function WipesView({ api }: { api: ReturnType<typeof createApiClient> }) {
   const [reminderWipeAt, setReminderWipeAt] = useState(() => datetimeLocalValue(new Date()));
   const [reminderMinutes, setReminderMinutes] = useState("60");
   const [reminderNote, setReminderNote] = useState("");
-  const wipesQuery = useMemo(
+  const wipePerPage = 50;
+  const reminderPerPage = 20;
+  const wipesFilterQuery = useMemo(
     () => ({
       ...wipeRangeQuery(range),
       server_id: filterServerId === "all" ? undefined : filterServerId,
@@ -7535,16 +7569,38 @@ function WipesView({ api }: { api: ReturnType<typeof createApiClient> }) {
     }),
     [filterServerId, filterType, range],
   );
-  const remindersQuery = useMemo(
+  const remindersFilterQuery = useMemo(
     () => ({
       status: "active",
       server_id: filterServerId === "all" ? undefined : filterServerId,
     }),
     [filterServerId],
   );
-  const wipes = useQuery({ queryKey: ["wipes", wipesQuery], queryFn: () => api.wipes(wipesQuery), refetchInterval: 60_000 });
-  const reminders = useQuery({ queryKey: ["wipeReminders", remindersQuery], queryFn: () => api.wipeReminders(remindersQuery), refetchInterval: 60_000 });
-  const servers = useQuery({ queryKey: ["trackedServers"], queryFn: () => api.trackedServers(), refetchInterval: 60_000 });
+  useEffect(() => {
+    setWipePage(1);
+  }, [wipesFilterQuery]);
+  useEffect(() => {
+    setReminderPage(1);
+  }, [remindersFilterQuery]);
+  const wipesQuery = useMemo(
+    () => ({
+      ...wipesFilterQuery,
+      page: String(wipePage),
+      per_page: String(wipePerPage),
+    }),
+    [wipePage, wipesFilterQuery],
+  );
+  const remindersQuery = useMemo(
+    () => ({
+      ...remindersFilterQuery,
+      page: String(reminderPage),
+      per_page: String(reminderPerPage),
+    }),
+    [reminderPage, remindersFilterQuery],
+  );
+  const wipes = useQuery({ queryKey: ["wipes", wipesQuery], queryFn: () => api.wipesPage(wipesQuery), refetchInterval: 60_000 });
+  const reminders = useQuery({ queryKey: ["wipeReminders", remindersQuery], queryFn: () => api.wipeRemindersPage(remindersQuery), refetchInterval: 60_000 });
+  const servers = useQuery({ queryKey: ["trackedServers", "select"], queryFn: () => api.trackedServers({ per_page: "100" }), refetchInterval: 60_000 });
   const createWipe = useMutation({
     mutationFn: () =>
       api.createWipe({
@@ -7583,8 +7639,18 @@ function WipesView({ api }: { api: ReturnType<typeof createApiClient> }) {
       queryClient.invalidateQueries({ queryKey: ["activity"] });
     },
   });
-  const wipeItems = wipes.data ?? [];
-  const reminderItems = reminders.data ?? [];
+  const wipeItems = wipes.data?.items ?? [];
+  const reminderItems = reminders.data?.items ?? [];
+  const wipeTotal = wipes.data?.meta?.total ?? wipeItems.length;
+  const reminderTotal = reminders.data?.meta?.total ?? reminderItems.length;
+  const wipePageCount = Math.max(1, Math.ceil(Number(wipeTotal || 0) / wipePerPage));
+  const reminderPageCount = Math.max(1, Math.ceil(Number(reminderTotal || 0) / reminderPerPage));
+  useEffect(() => {
+    if (wipePage > wipePageCount) setWipePage(wipePageCount);
+  }, [wipePage, wipePageCount]);
+  useEffect(() => {
+    if (reminderPage > reminderPageCount) setReminderPage(reminderPageCount);
+  }, [reminderPage, reminderPageCount]);
   const summary = useMemo(() => wipeCalendarSummary(wipeItems), [wipeItems]);
   const reminderStats = useMemo(() => wipeReminderSummary(reminderItems), [reminderItems]);
   const days = useMemo(() => wipeCalendarDays(wipeItems), [wipeItems]);
@@ -7669,6 +7735,18 @@ function WipesView({ api }: { api: ReturnType<typeof createApiClient> }) {
               </Button>
             </div>
           </div>
+
+          <PageStatusBar
+            total={wipeTotal}
+            itemLabel="wipe records"
+            page={wipePage}
+            pageCount={wipePageCount}
+            sourceStatus={wipes.data?.source_status}
+            loading={wipes.isFetching}
+            onRefresh={() => wipes.refetch()}
+            onPrev={() => setWipePage((value) => Math.max(1, value - 1))}
+            onNext={() => setWipePage((value) => Math.min(wipePageCount, value + 1))}
+          />
 
           <div className="grid gap-2 md:grid-cols-5">
             <WatchlistSummaryPill label="Shown" value={summary.total} variant="secondary" />
@@ -7851,6 +7929,19 @@ function WipesView({ api }: { api: ReturnType<typeof createApiClient> }) {
                 {!reminderItems.length ? <EmptyState label={reminders.isFetching ? "Loading active reminders" : "No active wipe reminders"} /> : null}
               </div>
               {cancelReminder.error ? <StatusLine tone="bad" text={cancelReminder.error.message} /> : null}
+              {reminderTotal > reminderPerPage || reminderPage > 1 ? (
+                <PageStatusBar
+                  total={reminderTotal}
+                  itemLabel="active reminders"
+                  page={reminderPage}
+                  pageCount={reminderPageCount}
+                  sourceStatus={reminders.data?.source_status}
+                  loading={reminders.isFetching}
+                  onRefresh={() => reminders.refetch()}
+                  onPrev={() => setReminderPage((value) => Math.max(1, value - 1))}
+                  onNext={() => setReminderPage((value) => Math.min(reminderPageCount, value + 1))}
+                />
+              ) : null}
             </div>
           </DetailsBlock>
         </CardContent>
@@ -9177,6 +9268,51 @@ function NavButton({ active, icon, label, onClick }: { active: boolean; icon: Re
       <span className="[&>svg]:h-4 [&>svg]:w-4">{icon}</span>
       {label}
     </button>
+  );
+}
+
+function PageStatusBar({
+  total,
+  itemLabel,
+  page,
+  pageCount,
+  sourceStatus,
+  loading,
+  onRefresh,
+  onPrev,
+  onNext,
+}: {
+  total: number;
+  itemLabel: string;
+  page: number;
+  pageCount: number;
+  sourceStatus?: string;
+  loading?: boolean;
+  onRefresh?: () => void;
+  onPrev: () => void;
+  onNext: () => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-background/45 px-3 py-2 text-xs text-muted-foreground">
+      <span>
+        {formatNumber(total)} {itemLabel} / page {page} of {pageCount}
+      </span>
+      <div className="flex flex-wrap items-center gap-2">
+        {sourceStatus ? <Badge variant={sourceStatus === "ok" ? "success" : "outline"}>{compactText(sourceStatus)}</Badge> : null}
+        {onRefresh ? (
+          <Button size="sm" variant="secondary" onClick={onRefresh}>
+            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+        ) : null}
+        <Button size="sm" variant="secondary" onClick={onPrev} disabled={page <= 1}>
+          Prev
+        </Button>
+        <Button size="sm" variant="secondary" onClick={onNext} disabled={page >= pageCount}>
+          Next
+        </Button>
+      </div>
+    </div>
   );
 }
 
