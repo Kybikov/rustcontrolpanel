@@ -199,6 +199,27 @@ const rustFieldGuides: Array<{
     ],
   },
 ];
+const localCommandItems: CommandSearchItem[] = [
+  { id: "overview", type: "command", title: "Overview", subtitle: "Servers, players, realtime and source health", href: "/", badges: ["view"] },
+  { id: "live", type: "command", title: "Live Control", subtitle: "Current server, map, watched-player alerts and live feed", href: "/live", badges: ["view", "live"] },
+  { id: "players", type: "command", title: "Player Intelligence", subtitle: "Resolve players, inspect Intel, relations and history", href: "/players", badges: ["view"] },
+  { id: "watchlist", type: "command", title: "Watchlist", subtitle: "Flagged players, risk queue and operator notes", href: "/watchlist", badges: ["view"] },
+  { id: "servers", type: "command", title: "Servers", subtitle: "Tracked servers, live roster, maps and settings", href: "/servers", badges: ["view"] },
+  { id: "wipes", type: "command", title: "Wipe Calendar", subtitle: "Tracked wipes, manual overrides and reminders", href: "/wipes", badges: ["view"] },
+  { id: "activity", type: "command", title: "Activity", subtitle: "Filtered investigation log and operator notes", href: "/activity", badges: ["view"] },
+  { id: "tools-raid", type: "tool", title: "Raid Planner", subtitle: "Calculate boom, sulfur reserve, nodes and farm time", href: "/tools?tab=raid", badges: ["tool", "local"] },
+  { id: "tools-guides", type: "tool", title: "Field Guides", subtitle: "Local Rust checklists for raids, wipe start, live hunt and plugin smoke", href: "/tools?tab=guides", badges: ["tool", "local"] },
+  { id: "integrations", type: "command", title: "Integrations", subtitle: "BattleMetrics, Steam, RustMaps and Rust+ intake", href: "/integrations", badges: ["view"] },
+  { id: "profile", type: "command", title: "Operator Profile", subtitle: "Account binding, Steam link, stats, history and security", href: "/profile", badges: ["view"] },
+  ...rustFieldGuides.map((guide) => ({
+    id: `field-guide-${guide.key}`,
+    type: "tool",
+    title: guide.title,
+    subtitle: `${guide.scope} field guide`,
+    href: `/tools?tab=guides&guide=${encodeURIComponent(guide.key)}`,
+    badges: ["guide", "local"],
+  })),
+];
 const profileTabValues: ProfileTab[] = ["account", "steam", "stats", "history", "security"];
 const playerDetailTabs: Array<{ value: PlayerDetailTab; label: string }> = [
   { value: "overview", label: "Overview" },
@@ -479,7 +500,8 @@ function CommandPalette({
   onSelect: (item: CommandSearchItem) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const items = result?.items ?? [];
+  const localItems = useMemo(() => localCommandSearchItems(query), [query]);
+  const items = useMemo(() => mergeCommandSearchItems(localItems, result?.items ?? []), [localItems, result?.items]);
 
   useEffect(() => {
     if (!open) return;
@@ -516,14 +538,16 @@ function CommandPalette({
           </Button>
         </div>
         <div className="max-h-[60vh] overflow-y-auto p-2">
-          {loading ? (
+          {loading && items.length === 0 ? (
             <div className="flex h-24 items-center justify-center text-sm text-muted-foreground">Searching...</div>
-          ) : error ? (
+          ) : error && items.length === 0 ? (
             <div className="flex h-24 items-center justify-center text-sm text-destructive">{error}</div>
           ) : items.length === 0 ? (
             <div className="flex h-24 items-center justify-center text-sm text-muted-foreground">No matches yet</div>
           ) : (
             <div className="grid gap-1">
+              {loading ? <div className="px-2 py-1 text-xs text-muted-foreground">Loading server/player matches...</div> : null}
+              {error ? <StatusLine tone="bad" text={error} /> : null}
               {items.map((item) => (
                 <button
                   type="button"
@@ -567,7 +591,31 @@ function CommandResultIcon({ type }: { type: string }) {
   if (type === "server") return <Server className={className} />;
   if (type === "player" || type === "live_player") return <Users className={className} />;
   if (type === "activity") return <Activity className={className} />;
+  if (type === "tool") return <Calculator className={className} />;
   return <SlidersHorizontal className={className} />;
+}
+
+function localCommandSearchItems(query: string) {
+  const search = query.trim().toLowerCase();
+  if (!search) return localCommandItems.slice(0, 8);
+  return localCommandItems.filter((item) =>
+    [
+      item.title,
+      item.subtitle ?? "",
+      item.href ?? "",
+      ...(item.badges ?? []),
+    ].some((value) => value.toLowerCase().includes(search)),
+  );
+}
+
+function mergeCommandSearchItems(localItems: CommandSearchItem[], remoteItems: CommandSearchItem[]) {
+  const seen = new Set<string>();
+  return [...localItems, ...remoteItems].filter((item) => {
+    const key = item.href || `${item.type}:${item.id}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function badgeVariantForLabel(label?: string): BadgeVariant {
@@ -575,7 +623,7 @@ function badgeVariantForLabel(label?: string): BadgeVariant {
   if (["critical", "error", "hostile", "offline", "failed"].includes(value)) return "danger";
   if (["warning", "suspect", "stale", "pending"].includes(value)) return "warning";
   if (["online", "ok", "success", "live", "tracked", "local", "steam", "battlemetrics"].includes(value)) return "success";
-  if (["view", "command", "event"].includes(value)) return "secondary";
+  if (["view", "command", "event", "tool", "guide"].includes(value)) return "secondary";
   return "outline";
 }
 
@@ -7994,20 +8042,33 @@ function ActivityFilterChips({
 }
 
 function ToolsView() {
-  const [activeTab, setActiveTab] = useState<ToolsTab>("raid");
+  const navigate = useNavigate();
+  const location = useLocation();
+  const urlTab = toolsTabFromSearch(location.search);
+  const guideKey = new URLSearchParams(location.search).get("guide") ?? "";
+  const [activeTab, setActiveTab] = useState<ToolsTab>(urlTab);
+
+  useEffect(() => {
+    setActiveTab(urlTab);
+  }, [urlTab]);
+
+  function openToolsTab(tab: ToolsTab) {
+    setActiveTab(tab);
+    navigate(`/tools?tab=${tab}`);
+  }
 
   return (
     <section className="grid gap-4">
       <Header title="Tools" subtitle="Local-first Rust calculators and field knowledge" />
       <div className="flex flex-wrap gap-2">
         {toolsTabs.map((tab) => (
-          <Button key={tab.value} size="sm" variant={activeTab === tab.value ? "default" : "secondary"} onClick={() => setActiveTab(tab.value)}>
+          <Button key={tab.value} size="sm" variant={activeTab === tab.value ? "default" : "secondary"} onClick={() => openToolsTab(tab.value)}>
             {tab.icon}
             {tab.label}
           </Button>
         ))}
       </div>
-      {activeTab === "raid" ? <RaidPlannerTool /> : <FieldGuidesTool />}
+      {activeTab === "raid" ? <RaidPlannerTool /> : <FieldGuidesTool guideKey={guideKey} />}
     </section>
   );
 }
@@ -8147,13 +8208,18 @@ function RaidPlannerTool() {
   );
 }
 
-function FieldGuidesTool() {
+function FieldGuidesTool({ guideKey }: { guideKey?: string }) {
   const [query, setQuery] = useState("");
+  const guideQuery = useMemo(() => fieldGuideQueryFromKey(guideKey), [guideKey]);
   const deferredQuery = useDeferredValue(query);
   const guides = useMemo(
     () => rustFieldGuides.filter((guide) => fieldGuideMatches(guide, deferredQuery)),
     [deferredQuery],
   );
+
+  useEffect(() => {
+    setQuery(guideQuery);
+  }, [guideQuery]);
 
   return (
     <Card>
@@ -8198,6 +8264,16 @@ function FieldGuidesTool() {
       </CardContent>
     </Card>
   );
+}
+
+function toolsTabFromSearch(search: string): ToolsTab {
+  const tab = new URLSearchParams(search).get("tab");
+  return tab === "guides" ? "guides" : "raid";
+}
+
+function fieldGuideQueryFromKey(key?: string) {
+  if (!key) return "";
+  return rustFieldGuides.find((guide) => guide.key === key)?.title ?? "";
 }
 
 function fieldGuideMatches(guide: (typeof rustFieldGuides)[number], value: string) {
