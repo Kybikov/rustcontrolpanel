@@ -16,6 +16,7 @@ export type ApiEnvelope<T> = {
 
 type ApiListData<T> = T[] | {
   items?: T[];
+  stats?: Record<string, number>;
   source?: string;
   source_status?: string;
   stale?: boolean;
@@ -25,6 +26,7 @@ type ApiListData<T> = T[] | {
 export type ApiListResult<T> = {
   items: T[];
   meta?: ApiEnvelope<unknown>["meta"];
+  stats?: Record<string, number>;
   source?: string;
   source_status?: string;
   stale?: boolean;
@@ -179,6 +181,14 @@ export type WatchlistItem = {
   player: PlayerIntel;
   live_player?: LivePlayer | null;
   current_server?: ServerIntel | null;
+};
+
+export type WatchlistQuery = {
+  q?: string;
+  risk_level?: string;
+  live?: string;
+  page?: string;
+  per_page?: string;
 };
 
 export type RustAlertItem = {
@@ -747,6 +757,7 @@ export function createApiClient(baseUrl: string, token?: string) {
     return {
       items: data?.items ?? [],
       meta: envelope.meta,
+      stats: data?.stats,
       source: data?.source,
       source_status: data?.source_status,
       stale: data?.stale,
@@ -850,7 +861,7 @@ export function createApiClient(baseUrl: string, token?: string) {
     watchlist() {
       return requestItems<WatchlistItem>("/api/admin/rustcontrol/watchlist");
     },
-    watchlistPage(query?: { page?: string; per_page?: string }) {
+    watchlistPage(query?: WatchlistQuery) {
       return requestList<WatchlistItem>(withQuery("/api/admin/rustcontrol/watchlist", query));
     },
     updatePlayerWatch(

@@ -70,6 +70,7 @@ import {
   type SyncRunsQuery,
   type TeamProbability,
   type WatchlistItem,
+  type WatchlistQuery,
   type WipeReminder,
 } from "@/lib/api";
 import { compactText, formatDateTime, formatNumber } from "@/lib/utils";
@@ -4919,36 +4920,15 @@ function watchlistStats(items: WatchlistItem[]) {
   );
 }
 
-function watchlistRiskMatches(item: WatchlistItem, filter: WatchlistRiskFilter) {
-  return filter === "all" || item.watch.risk_level === filter;
-}
-
-function watchlistLiveMatches(item: WatchlistItem, filter: WatchlistLiveFilter) {
-  if (filter === "all") return true;
-  return filter === "online" ? Boolean(item.live_player?.is_online) : !item.live_player?.is_online;
-}
-
-function watchlistSearchMatches(item: WatchlistItem, searchText: string) {
-  const query = searchText.trim().toLowerCase();
-  if (!query) return true;
-  return [
-    item.player.display_name,
-    item.player.name,
-    item.player.steam_id,
-    item.player.battlemetrics_player_id,
-    item.watch.reason,
-    item.watch.note,
-    ...normalizeLabels(item.watch.labels),
-    item.current_server?.name,
-    item.live_player?.server_name,
-    item.live_player?.map_grid,
-    item.live_player?.team_id,
-    item.live_player?.clan_tag,
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase()
-    .includes(query);
+function watchlistStatsFromResult(stats: Record<string, number> | undefined, fallbackItems: WatchlistItem[]) {
+  if (!stats) return watchlistStats(fallbackItems);
+  return {
+    total: Number(stats.total ?? 0),
+    online: Number(stats.online ?? 0),
+    hostile: Number(stats.hostile ?? 0),
+    suspect: Number(stats.suspect ?? 0),
+    watch: Number(stats.watch ?? 0),
+  };
 }
 
 function rosterStats(items: ServerLivePlayerItem[]) {
@@ -5074,18 +5054,56 @@ function WatchlistView({
   const [riskFilter, setRiskFilter] = useState<WatchlistRiskFilter>("all");
   const [liveFilter, setLiveFilter] = useState<WatchlistLiveFilter>("all");
   const [searchText, setSearchText] = useState("");
-  const watchlist = useQuery({ queryKey: ["watchlist"], queryFn: api.watchlist, refetchInterval: 5_000 });
+  const [page, setPage] = useState(1);
+  const deferredSearchText = useDeferredValue(searchText);
+  const perPage = 25;
+  const watchlistFilterQuery = useMemo(
+    () => ({
+      q: deferredSearchText.trim() || undefined,
+      risk_level: riskFilter === "all" ? undefined : riskFilter,
+      live: liveFilter === "all" ? undefined : liveFilter,
+    }),
+    [deferredSearchText, liveFilter, riskFilter],
+  );
+  useEffect(() => {
+    setPage(1);
+  }, [watchlistFilterQuery]);
+  const watchlistQuery: WatchlistQuery = useMemo(
+    () => ({
+      ...watchlistFilterQuery,
+      page: String(page),
+      per_page: String(perPage),
+    }),
+    [page, watchlistFilterQuery],
+  );
+  const watchlist = useQuery({ queryKey: ["watchlist", watchlistQuery], queryFn: () => api.watchlistPage(watchlistQuery), refetchInterval: 5_000 });
   const alerts = useQuery({ queryKey: ["rustAlerts"], queryFn: api.alerts, refetchInterval: 5_000 });
   const clearWatch = useMutation({
     mutationFn: (playerId: string) => api.updatePlayerWatch(playerId, { watched: false, risk_level: "ignored" }),
     onSuccess: () => invalidateWatchlist(),
   });
-  const items = watchlist.data ?? [];
-  const filteredItems = useMemo(
-    () => items.filter((item) => watchlistRiskMatches(item, riskFilter) && watchlistLiveMatches(item, liveFilter) && watchlistSearchMatches(item, searchText)),
-    [items, liveFilter, riskFilter, searchText],
-  );
-  const stats = useMemo(() => watchlistStats(items), [items]);
+  const items = watchlist.data?.items ?? [];
+  const stats = useMemo(() => watchlistStatsFromResult(watchlist.data?.stats, items), [watchlist.data?.stats, items]);
+  const total = watchlist.data?.meta?.total ?? stats.total ?? items.length;
+  const pageCount = Math.max(1, Math.ceil(Number(total || 0) / perPage));
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
+
+  function updateSearch(value: string) {
+    setSearchText(value);
+    setPage(1);
+  }
+
+  function updateRisk(level: WatchlistRiskFilter) {
+    setRiskFilter(level);
+    setPage(1);
+  }
+
+  function updateLive(state: WatchlistLiveFilter) {
+    setLiveFilter(state);
+    setPage(1);
+  }
 
   function invalidateWatchlist() {
     queryClient.invalidateQueries({ queryKey: ["watchlist"] });
@@ -5124,13 +5142,13 @@ function WatchlistView({
               </div>
               <div className="flex items-center gap-2 rounded-md border border-border bg-background/45 px-3 py-2 text-sm text-muted-foreground">
                 <SlidersHorizontal className="h-4 w-4" />
-                <span>{filteredItems.length} shown</span>
+                <span>{items.length} shown</span>
               </div>
             </div>
             <div className="grid gap-2 xl:grid-cols-[1fr_auto_auto]">
               <Input
                 value={searchText}
-                onChange={(event) => setSearchText(event.target.value)}
+                onChange={(event) => updateSearch(event.target.value)}
                 placeholder="Search player, SteamID, server, grid, team, note"
               />
               <div className="flex flex-wrap gap-1">
@@ -5139,7 +5157,7 @@ function WatchlistView({
                     key={level}
                     size="sm"
                     variant={riskFilter === level ? "default" : "secondary"}
-                    onClick={() => setRiskFilter(level)}
+                    onClick={() => updateRisk(level)}
                   >
                     {level === "all" ? "All risk" : riskActionLabel(level)}
                   </Button>
@@ -5151,7 +5169,7 @@ function WatchlistView({
                     key={state}
                     size="sm"
                     variant={liveFilter === state ? "default" : "secondary"}
-                    onClick={() => setLiveFilter(state)}
+                    onClick={() => updateLive(state)}
                   >
                     {state === "all" ? "All live" : state}
                   </Button>
@@ -5174,7 +5192,7 @@ function WatchlistView({
                 </tr>
               </thead>
               <tbody>
-                {filteredItems.map((item) => (
+                {items.map((item) => (
                   <WatchlistRow
                     key={item.watch.id}
                     api={api}
@@ -5188,8 +5206,18 @@ function WatchlistView({
               </tbody>
             </Table>
           </div>
-          {!items.length ? <EmptyState label={watchlist.isFetching ? "Loading watchlist" : "-"} /> : null}
-          {items.length && !filteredItems.length ? <EmptyState label="No players match current filters" /> : null}
+          {!items.length ? <EmptyState label={watchlist.isFetching ? "Loading watchlist" : "No players match current filters"} /> : null}
+          <PageStatusBar
+            total={total}
+            itemLabel="watchlist players"
+            page={page}
+            pageCount={pageCount}
+            sourceStatus={watchlist.data?.source_status}
+            loading={watchlist.isFetching}
+            onRefresh={() => watchlist.refetch()}
+            onPrev={() => setPage((value) => Math.max(1, value - 1))}
+            onNext={() => setPage((value) => Math.min(pageCount, value + 1))}
+          />
         </CardContent>
       </Card>
     </section>
