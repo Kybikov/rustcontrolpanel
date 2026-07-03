@@ -261,6 +261,14 @@ export type ServerWipesResult = {
   source_status?: string;
 };
 
+export type WipeOverrideInput = {
+  server_id: string;
+  wipe_type: string;
+  wipe_at: string;
+  confidence?: number;
+  note?: string;
+};
+
 export type ServerMapDetail = {
   server?: ServerIntel | null;
   map?: Record<string, unknown>;
@@ -725,7 +733,13 @@ export function createApiClient(baseUrl: string, token?: string) {
       });
     },
     wipes() {
-      return requestItems<Record<string, unknown>>("/api/admin/rustcontrol/wipes");
+      return requestItems<ServerWipe>("/api/admin/rustcontrol/wipes");
+    },
+    createWipe(payload: WipeOverrideInput) {
+      return request<{ item: ServerWipe }>("/api/admin/rustcontrol/wipes", {
+        method: "POST",
+        body: payload,
+      });
     },
     activity() {
       return requestItems<Record<string, unknown>>("/api/admin/rustcontrol/activity");

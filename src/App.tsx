@@ -4167,6 +4167,16 @@ function dateMs(value: unknown) {
   return Number.isFinite(time) ? time : 0;
 }
 
+function datetimeLocalValue(date: Date) {
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
+}
+
+function isoFromDatetimeLocal(value: string) {
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : "";
+}
+
 function numberFromRecord(item: Record<string, unknown>, key: string) {
   const value = item[key];
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -6713,10 +6723,74 @@ function ProfileStatPill({
 }
 
 function WipesView({ api }: { api: ReturnType<typeof createApiClient> }) {
+  const queryClient = useQueryClient();
+  const [serverId, setServerId] = useState("");
+  const [wipeType, setWipeType] = useState("map_wipe");
+  const [wipeAt, setWipeAt] = useState(() => datetimeLocalValue(new Date()));
+  const [confidence, setConfidence] = useState("75");
+  const [note, setNote] = useState("");
   const wipes = useQuery({ queryKey: ["wipes"], queryFn: api.wipes, refetchInterval: 60_000 });
+  const servers = useQuery({ queryKey: ["trackedServers"], queryFn: api.trackedServers, refetchInterval: 60_000 });
+  const createWipe = useMutation({
+    mutationFn: () =>
+      api.createWipe({
+        server_id: serverId,
+        wipe_type: wipeType,
+        wipe_at: isoFromDatetimeLocal(wipeAt),
+        confidence: Number(confidence) || 75,
+        note,
+      }),
+    onSuccess: () => {
+      setNote("");
+      queryClient.invalidateQueries({ queryKey: ["wipes"] });
+      queryClient.invalidateQueries({ queryKey: ["trackedServers"] });
+      queryClient.invalidateQueries({ queryKey: ["activity"] });
+    },
+  });
+  const canCreate = Boolean(serverId && wipeAt && wipeType && !createWipe.isPending);
+
   return (
     <section className="grid gap-4">
       <Header title="Wipe Calendar" subtitle="Tracked wipe windows and source confidence" />
+      <Card>
+        <CardHeader>
+          <CardTitle>Manual Wipe Override</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-3 lg:grid-cols-[minmax(220px,1.3fr)_160px_210px_110px_minmax(180px,1fr)_auto]">
+          <select
+            className="h-10 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+            value={serverId}
+            onChange={(event) => setServerId(event.target.value)}
+            disabled={servers.isFetching && !servers.data?.length}
+          >
+            <option value="">Tracked server</option>
+            {(servers.data ?? []).map((server) => (
+              <option key={server.id ?? server.battlemetrics_server_id} value={server.id ?? server.battlemetrics_server_id}>
+                {compactText(server.name)} / {compactText(server.battlemetrics_server_id)}
+              </option>
+            ))}
+          </select>
+          <select
+            className="h-10 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
+            value={wipeType}
+            onChange={(event) => setWipeType(event.target.value)}
+          >
+            <option value="map_wipe">Map wipe</option>
+            <option value="bp_wipe">BP wipe</option>
+            <option value="full_wipe">Full wipe</option>
+            <option value="manual_wipe">Manual</option>
+          </select>
+          <Input type="datetime-local" value={wipeAt} onChange={(event) => setWipeAt(event.target.value)} />
+          <Input type="number" min={1} max={100} value={confidence} onChange={(event) => setConfidence(event.target.value)} placeholder="Confidence" />
+          <Input value={note} onChange={(event) => setNote(event.target.value)} placeholder="Short note" />
+          <Button onClick={() => createWipe.mutate()} disabled={!canCreate}>
+            <Save className="h-4 w-4" />
+            Save
+          </Button>
+        </CardContent>
+      </Card>
+      {createWipe.error ? <StatusLine tone="bad" text={createWipe.error.message} /> : null}
+      {createWipe.data?.item ? <StatusLine tone="ok" text={`Manual wipe saved: ${compactText(createWipe.data.item.server_name)} / ${compactText(createWipe.data.item.wipe_type)}`} /> : null}
       <Card>
         <CardContent className="pt-4">
           {(wipes.data ?? []).map((wipe) => (
@@ -6724,7 +6798,7 @@ function WipesView({ api }: { api: ReturnType<typeof createApiClient> }) {
               <div className="text-sm font-medium">{formatDateTime(wipe.wipe_at)}</div>
               <div>
                 <div className="font-medium">{compactText(wipe.server_name)}</div>
-                <div className="text-xs text-muted-foreground">{compactText(wipe.source)}</div>
+                <div className="text-xs text-muted-foreground">{compactText(wipe.source)} / confidence {compactText(wipe.confidence)}</div>
               </div>
               <Badge>{compactText(wipe.wipe_type)}</Badge>
             </div>
