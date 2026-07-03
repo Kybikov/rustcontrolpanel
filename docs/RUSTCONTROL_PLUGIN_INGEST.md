@@ -103,7 +103,7 @@ Server-console command usage is disabled by default to keep the feed clean. Enab
 
 World events are throttled by `world_event_cooldown_seconds` and include `type`, `title`, `position`, and `map_grid`, so Server Map can render them as compact recent map markers without adding another noisy primary widget.
 
-Clan events are sent as ordinary activity events with `type: "clan"`, `clan_id`, member SteamID, and optional actor SteamID. They reuse the existing activity/player intelligence surfaces instead of adding a separate clan dashboard.
+Clan events are sent as ordinary activity events with `type: "clan"`, `clan_id`, member SteamID, and optional actor SteamID. Backend ingest also materializes active clan membership into `same_clan_membership` relation evidence, so Relations, Network, Timeline, and Activity can reuse the signal without adding a separate clan dashboard.
 
 The plugin `map_hash` is a stable `plugin:<map>:seed:<seed>:size:<size>` signature used by Rust Control Panel for local map history. BattleMetrics/RustMaps sync can later replace it with external RustMaps image/hash metadata when available.
 
