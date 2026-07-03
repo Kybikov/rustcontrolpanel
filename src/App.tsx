@@ -95,6 +95,7 @@ type BadgeVariant = "default" | "secondary" | "outline" | "danger" | "success" |
 const quickRiskLevels: QuickRiskLevel[] = ["watch", "suspect", "hostile"];
 const profileTabValues: ProfileTab[] = ["account", "steam", "stats", "history", "security"];
 const editableWipeTypes = ["map_wipe", "bp_wipe", "full_wipe", "manual_wipe"];
+const selectClassName = "h-10 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
 const wipeReminderMinuteOptions = [
   { value: 15, label: "15 min before" },
   { value: 30, label: "30 min before" },
@@ -113,6 +114,28 @@ const serverDetailTabs: Array<{ value: ServerDetailTab; label: string }> = [
   { value: "activity", label: "Activity" },
   { value: "settings", label: "Settings" },
 ];
+
+type LivePlayerLikeItem = {
+  live_player?: LivePlayer | null;
+  player?: PlayerIntel | null;
+};
+
+function hasLivePlayerItem<T extends LivePlayerLikeItem>(item: T | null | undefined): item is T & { live_player: LivePlayer } {
+  return Boolean(item?.live_player);
+}
+
+function liveItemActionId(item: LivePlayerLikeItem) {
+  return item.live_player?.id ?? "";
+}
+
+function liveItemCanAct(item: LivePlayerLikeItem) {
+  return Boolean(item.player?.id || liveItemActionId(item));
+}
+
+function liveItemKey(item: LivePlayerLikeItem, index: number, prefix = "live") {
+  const live = item.live_player;
+  return `${prefix}-${item.player?.id ?? live?.id ?? live?.steam_id ?? live?.battlemetrics_player_id ?? index}`;
+}
 
 function viewFromPath(pathname: string): View {
   const segment = pathname.split("/").filter(Boolean)[0] ?? "dashboard";
@@ -622,14 +645,14 @@ function LiveView({ api, onOpenPlayer }: { api: ReturnType<typeof createApiClien
   });
   const serverDetail = serverContext.data?.server;
   const liveMapItems = serverContext.data?.live_players?.length
-    ? serverContext.data.live_players
+    ? serverContext.data.live_players.filter(hasLivePlayerItem)
     : mapPlayers.map((player) => ({ live_player: player }));
   const detectedTeamItems = teammates.map((player) => {
     const enriched = serverContext.data?.live_players?.find(
       (item) =>
-        item.live_player.id === player.id ||
-        (player.steam_id && item.live_player.steam_id === player.steam_id) ||
-        (player.battlemetrics_player_id && item.live_player.battlemetrics_player_id === player.battlemetrics_player_id),
+        item.live_player?.id === player.id ||
+        (player.steam_id && item.live_player?.steam_id === player.steam_id) ||
+        (player.battlemetrics_player_id && item.live_player?.battlemetrics_player_id === player.battlemetrics_player_id),
     );
     return enriched ?? { live_player: player };
   });
@@ -648,7 +671,7 @@ function LiveView({ api, onOpenPlayer }: { api: ReturnType<typeof createApiClien
   }
 
   function liveMapCanAct(item: ServerLivePlayerItem) {
-    return Boolean(item.player?.id || item.live_player.steam_id || item.live_player.battlemetrics_player_id);
+    return liveItemCanAct(item);
   }
 
   function openOrPromoteFromLiveMap(item: ServerLivePlayerItem) {
@@ -656,8 +679,9 @@ function LiveView({ api, onOpenPlayer }: { api: ReturnType<typeof createApiClien
       onOpenPlayer(item.player.id);
       return;
     }
-    if (liveMapCanAct(item)) {
-      promoteLiveMap.mutate({ liveId: item.live_player.id, open: true });
+    const liveId = liveItemActionId(item);
+    if (liveId && liveMapCanAct(item)) {
+      promoteLiveMap.mutate({ liveId, open: true });
     }
   }
 
@@ -666,8 +690,9 @@ function LiveView({ api, onOpenPlayer }: { api: ReturnType<typeof createApiClien
       watchLiveMap.mutate({ playerId: item.player.id, riskLevel });
       return;
     }
-    if (liveMapCanAct(item)) {
-      promoteLiveMap.mutate({ liveId: item.live_player.id, riskLevel, open: false });
+    const liveId = liveItemActionId(item);
+    if (liveId && liveMapCanAct(item)) {
+      promoteLiveMap.mutate({ liveId, riskLevel, open: false });
     }
   }
 
@@ -676,8 +701,9 @@ function LiveView({ api, onOpenPlayer }: { api: ReturnType<typeof createApiClien
       onOpenPlayer(item.player.id);
       return;
     }
-    if (liveMapCanAct(item)) {
-      promoteDetectedTeam.mutate({ liveId: item.live_player.id, open: true });
+    const liveId = liveItemActionId(item);
+    if (liveId && liveMapCanAct(item)) {
+      promoteDetectedTeam.mutate({ liveId, open: true });
     }
   }
 
@@ -686,8 +712,9 @@ function LiveView({ api, onOpenPlayer }: { api: ReturnType<typeof createApiClien
       watchDetectedTeam.mutate({ playerId: item.player.id, riskLevel });
       return;
     }
-    if (liveMapCanAct(item)) {
-      promoteDetectedTeam.mutate({ liveId: item.live_player.id, riskLevel, open: false });
+    const liveId = liveItemActionId(item);
+    if (liveId && liveMapCanAct(item)) {
+      promoteDetectedTeam.mutate({ liveId, riskLevel, open: false });
     }
   }
 
@@ -749,9 +776,9 @@ function LiveView({ api, onOpenPlayer }: { api: ReturnType<typeof createApiClien
           <CardContent>
             {teammates.length ? (
               <div className="grid gap-2 md:grid-cols-2">
-                {detectedTeamItems.map((item) => (
+                {detectedTeamItems.map((item, index) => (
                   <ServerPlayerCard
-                    key={item.live_player.id}
+                    key={liveItemKey(item, index, "detected-team")}
                     item={item}
                     busy={detectedTeamActionBusy}
                     canAct={liveMapCanAct(item)}
@@ -1725,8 +1752,9 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
       setSelectedBattleMetricsId(item.player.battlemetrics_player_id ?? "");
       return;
     }
-    if (item.live_player.steam_id || item.live_player.battlemetrics_player_id) {
-      promoteLiveSearch.mutate({ liveId: item.live_player.id, open: true });
+    const liveId = liveItemActionId(item);
+    if (liveId) {
+      promoteLiveSearch.mutate({ liveId, open: true });
     }
   }
 
@@ -1735,8 +1763,9 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
       watchLiveSearch.mutate({ playerId: item.player.id, riskLevel });
       return;
     }
-    if (item.live_player.steam_id || item.live_player.battlemetrics_player_id) {
-      promoteLiveSearch.mutate({ liveId: item.live_player.id, riskLevel, open: false });
+    const liveId = liveItemActionId(item);
+    if (liveId) {
+      promoteLiveSearch.mutate({ liveId, riskLevel, open: false });
     }
   }
 
@@ -2666,10 +2695,11 @@ function PlayerRealtimeContextPanel({
   onChanged: () => void;
 }) {
   const counts = context?.counts ?? {};
-  const watched = context?.watched_players ?? [];
-  const sameGrid = context?.same_grid_players ?? [];
-  const teammates = context?.teammates ?? [];
-  const hasData = nearbyPlayers.length > 0 || watched.length > 0 || sameGrid.length > 0 || teammates.length > 0;
+  const safeNearbyPlayers = nearbyPlayers.filter(hasLivePlayerItem);
+  const watched = (context?.watched_players ?? []).filter(hasLivePlayerItem);
+  const sameGrid = (context?.same_grid_players ?? []).filter(hasLivePlayerItem);
+  const teammates = (context?.teammates ?? []).filter(hasLivePlayerItem);
+  const hasData = safeNearbyPlayers.length > 0 || watched.length > 0 || sameGrid.length > 0 || teammates.length > 0;
   const promote = useMutation({
     mutationFn: ({ liveId, riskLevel }: { liveId: string; riskLevel?: QuickRiskLevel; open: boolean }) =>
       api.promoteLivePlayer(liveId, {
@@ -2699,7 +2729,7 @@ function PlayerRealtimeContextPanel({
   const actionError = promote.error ?? watchPlayer.error;
 
   function canAct(item: PlayerRealtimeNearbyItem) {
-    return Boolean(item.player?.id || item.live_player.id || item.live_player.steam_id || item.live_player.battlemetrics_player_id);
+    return liveItemCanAct(item);
   }
 
   function openOrPromote(item: PlayerRealtimeNearbyItem) {
@@ -2707,8 +2737,9 @@ function PlayerRealtimeContextPanel({
       onOpenPlayer?.(item.player);
       return;
     }
-    if (canAct(item)) {
-      promote.mutate({ liveId: item.live_player.id, open: true });
+    const liveId = liveItemActionId(item);
+    if (liveId && canAct(item)) {
+      promote.mutate({ liveId, open: true });
     }
   }
 
@@ -2717,8 +2748,9 @@ function PlayerRealtimeContextPanel({
       watchPlayer.mutate({ playerId: item.player.id, riskLevel });
       return;
     }
-    if (canAct(item)) {
-      promote.mutate({ liveId: item.live_player.id, riskLevel, open: false });
+    const liveId = liveItemActionId(item);
+    if (liveId && canAct(item)) {
+      promote.mutate({ liveId, riskLevel, open: false });
     }
   }
 
@@ -2754,10 +2786,10 @@ function PlayerRealtimeContextPanel({
                 </tr>
               </thead>
               <tbody>
-                {nearbyPlayers.slice(0, 14).map((item) => {
+                {safeNearbyPlayers.slice(0, 14).map((item, index) => {
                   const live = item.live_player;
                   return (
-                    <tr key={live.id}>
+                    <tr key={liveItemKey(item, index, "nearby")}>
                       <Td>
                         <div className="max-w-[220px] truncate font-medium">{compactText(item.player?.display_name ?? live.display_name)}</div>
                         <div className="text-xs text-muted-foreground">{compactText(live.steam_id ?? live.battlemetrics_player_id)}</div>
@@ -2854,9 +2886,9 @@ function RealtimeContextMiniList({
       </div>
       {items.length ? (
         <div className="grid max-h-36 gap-2 overflow-auto">
-          {items.slice(0, 6).map((item) => (
+          {items.filter(hasLivePlayerItem).slice(0, 6).map((item, index) => (
             <div
-              key={`${title}-${item.live_player.id}`}
+              key={liveItemKey(item, index, title)}
               className="grid grid-cols-[1fr_auto] items-center gap-2 rounded-md border border-border bg-background/55 px-2 py-1 text-xs"
             >
               <span className="min-w-0">
@@ -5105,8 +5137,8 @@ function ServerContextPanel({
   const [rosterSearch, setRosterSearch] = useState("");
   const [rosterFilter, setRosterFilter] = useState<ServerRosterFilter>("all");
   const [teamFilter, setTeamFilter] = useState("all");
-  const liveItems = context?.live_players ?? fallbackPlayers.map((player) => ({ live_player: player }));
-  const watched = context?.watched_players ?? [];
+  const liveItems = (context?.live_players ?? fallbackPlayers.map((player) => ({ live_player: player }))).filter(hasLivePlayerItem);
+  const watched = (context?.watched_players ?? []).filter(hasLivePlayerItem);
   const teams = context?.team_clusters ?? [];
   const activity = context?.activity ?? [];
   const rosterStatsValue = useMemo(() => rosterStats(liveItems), [liveItems]);
@@ -5150,7 +5182,7 @@ function ServerContextPanel({
   const actionError = promote.error ?? watchPlayer.error;
 
   function hasActionIdentity(item: ServerLivePlayerItem) {
-    return Boolean(item.player?.id || item.live_player.steam_id || item.live_player.battlemetrics_player_id);
+    return liveItemCanAct(item);
   }
 
   function openOrPromote(item: ServerLivePlayerItem) {
@@ -5158,8 +5190,9 @@ function ServerContextPanel({
       onOpenPlayer(item.player.id);
       return;
     }
-    if (hasActionIdentity(item)) {
-      promote.mutate({ liveId: item.live_player.id, open: true });
+    const liveId = liveItemActionId(item);
+    if (liveId && hasActionIdentity(item)) {
+      promote.mutate({ liveId, open: true });
     }
   }
 
@@ -5168,8 +5201,9 @@ function ServerContextPanel({
       watchPlayer.mutate({ playerId: item.player.id, riskLevel });
       return;
     }
-    if (hasActionIdentity(item)) {
-      promote.mutate({ liveId: item.live_player.id, riskLevel, open: false });
+    const liveId = liveItemActionId(item);
+    if (liveId && hasActionIdentity(item)) {
+      promote.mutate({ liveId, riskLevel, open: false });
     }
   }
 
@@ -5187,9 +5221,9 @@ function ServerContextPanel({
         <div className="rounded-md border border-destructive/35 bg-destructive/10 p-3">
           <div className="mb-2 text-sm font-medium">Watched On This Server</div>
           <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-            {watched.map((item) => (
+            {watched.map((item, index) => (
               <ServerPlayerCard
-                key={item.live_player.id}
+                key={liveItemKey(item, index, "watched-server")}
                 item={item}
                 busy={actionBusy}
                 canAct={hasActionIdentity(item)}
@@ -5239,9 +5273,9 @@ function ServerContextPanel({
                   {Number(summary.friendly ?? 0) > 0 ? <Badge variant="success">friendly {summary.friendly}</Badge> : null}
                 </div>
                 <div className="mt-3 grid max-h-[260px] gap-2 overflow-auto">
-                  {(team.members ?? []).slice(0, 8).map((member) => (
+                  {(team.members ?? []).filter(hasLivePlayerItem).slice(0, 8).map((member, memberIndex) => (
                     <TeamClusterMemberRow
-                      key={member.live_player.id}
+                      key={liveItemKey(member, memberIndex, `team-${team.team_id}`)}
                       item={member}
                       busy={actionBusy}
                       canAct={hasActionIdentity(member)}
@@ -5339,9 +5373,9 @@ function ServerContextPanel({
             </tr>
           </thead>
           <tbody>
-            {filteredRoster.map((item) => (
+            {filteredRoster.map((item, index) => (
               <ServerRosterRow
-                key={item.live_player.id}
+                key={liveItemKey(item, index, "server-roster")}
                 item={item}
                 busy={actionBusy}
                 canAct={hasActionIdentity(item)}
@@ -6422,8 +6456,41 @@ function ServersView({
 }) {
   const queryClient = useQueryClient();
   const [query, setQuery] = useState("");
+  const [trackedSearch, setTrackedSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [wipeWindowFilter, setWipeWindowFilter] = useState("all");
+  const [serverTypeFilter, setServerTypeFilter] = useState("all");
+  const [freshnessFilter, setFreshnessFilter] = useState("all");
+  const [countryFilter, setCountryFilter] = useState("");
+  const [tagFilter, setTagFilter] = useState("");
+  const [minOnlineFilter, setMinOnlineFilter] = useState("");
+  const [maxOnlineFilter, setMaxOnlineFilter] = useState("");
+  const [minSizeFilter, setMinSizeFilter] = useState("");
+  const [maxSizeFilter, setMaxSizeFilter] = useState("");
   const [selectedServerId, setSelectedServerId] = useState("");
-  const tracked = useQuery({ queryKey: ["trackedServers"], queryFn: api.trackedServers, refetchInterval: 30_000 });
+  const deferredTrackedSearch = useDeferredValue(trackedSearch);
+  const trackedFilters = useMemo(
+    () => ({
+      tracked_q: deferredTrackedSearch.trim() || undefined,
+      status: statusFilter === "all" ? undefined : statusFilter,
+      wipe_window: wipeWindowFilter === "all" ? undefined : wipeWindowFilter,
+      server_type: serverTypeFilter === "all" ? undefined : serverTypeFilter,
+      freshness: freshnessFilter === "all" ? undefined : freshnessFilter,
+      country: countryFilter.trim() || undefined,
+      tag: tagFilter.trim() || undefined,
+      min_online: minOnlineFilter.trim() || undefined,
+      max_online: maxOnlineFilter.trim() || undefined,
+      min_size: minSizeFilter.trim() || undefined,
+      max_size: maxSizeFilter.trim() || undefined,
+      per_page: "100",
+    }),
+    [countryFilter, deferredTrackedSearch, freshnessFilter, maxOnlineFilter, maxSizeFilter, minOnlineFilter, minSizeFilter, serverTypeFilter, statusFilter, tagFilter, wipeWindowFilter],
+  );
+  const tracked = useQuery({
+    queryKey: ["trackedServers", trackedFilters],
+    queryFn: () => api.trackedServers(trackedFilters),
+    refetchInterval: 30_000,
+  });
   const search = useMutation({ mutationFn: () => api.searchServers(query) });
   const track = useMutation({
     mutationFn: (id: string) => api.trackServer(id),
@@ -6434,6 +6501,19 @@ function ServersView({
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["trackedServers"] }),
   });
   const searchItems = search.data?.items ?? [];
+  const hasTrackedFilters = Boolean(
+    trackedSearch.trim() ||
+      statusFilter !== "all" ||
+      wipeWindowFilter !== "all" ||
+      serverTypeFilter !== "all" ||
+      freshnessFilter !== "all" ||
+      countryFilter.trim() ||
+      tagFilter.trim() ||
+      minOnlineFilter.trim() ||
+      maxOnlineFilter.trim() ||
+      minSizeFilter.trim() ||
+      maxSizeFilter.trim(),
+  );
   const selectedServerContext = useQuery({
     queryKey: ["serverLiveContext", selectedServerId],
     queryFn: () => api.serverLiveContext(selectedServerId),
@@ -6448,17 +6528,77 @@ function ServersView({
     }
     setSelectedServerId(serverId);
   };
+  function clearTrackedFilters() {
+    setTrackedSearch("");
+    setStatusFilter("all");
+    setWipeWindowFilter("all");
+    setServerTypeFilter("all");
+    setFreshnessFilter("all");
+    setCountryFilter("");
+    setTagFilter("");
+    setMinOnlineFilter("");
+    setMaxOnlineFilter("");
+    setMinSizeFilter("");
+    setMaxSizeFilter("");
+  }
 
   return (
     <section className="grid gap-4">
       <Header title="Servers" subtitle="BattleMetrics search, tracking, wipes and map metadata" />
       <Card>
-        <CardContent className="grid gap-3 pt-4 md:grid-cols-[1fr_auto]">
-          <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="server name, IP, tag" />
-          <Button onClick={() => search.mutate()} disabled={!query || search.isPending}>
-            <Search className="h-4 w-4" />
-            Search
-          </Button>
+        <CardContent className="grid gap-3 pt-4">
+          <div className="grid gap-2 md:grid-cols-[1fr_auto]">
+            <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="BattleMetrics server name, IP, tag" />
+            <Button onClick={() => search.mutate()} disabled={!query || search.isPending}>
+              <Search className="h-4 w-4" />
+              Search
+            </Button>
+          </div>
+          <div className="grid gap-2 border-t border-border pt-3 xl:grid-cols-[1fr_130px_140px_140px_120px_auto]">
+            <Input value={trackedSearch} onChange={(event) => setTrackedSearch(event.target.value)} placeholder="Filter tracked servers" />
+            <select className={selectClassName} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+              <option value="all">Any status</option>
+              <option value="online">Online</option>
+              <option value="offline">Offline</option>
+              <option value="dead">Dead</option>
+              <option value="unknown">Unknown</option>
+            </select>
+            <select className={selectClassName} value={wipeWindowFilter} onChange={(event) => setWipeWindowFilter(event.target.value)}>
+              <option value="all">Any wipe</option>
+              <option value="24h">24h</option>
+              <option value="7d">7d</option>
+              <option value="30d">30d</option>
+              <option value="overdue">Overdue</option>
+              <option value="missing">Missing</option>
+            </select>
+            <select className={selectClassName} value={serverTypeFilter} onChange={(event) => setServerTypeFilter(event.target.value)}>
+              <option value="all">Any type</option>
+              <option value="official">Official</option>
+              <option value="modded">Modded</option>
+              <option value="pve">PvE</option>
+              <option value="pvp">PvP</option>
+            </select>
+            <select className={selectClassName} value={freshnessFilter} onChange={(event) => setFreshnessFilter(event.target.value)}>
+              <option value="all">Any age</option>
+              <option value="fresh">Fresh</option>
+              <option value="stale">Stale</option>
+              <option value="missing">Missing</option>
+            </select>
+            <Button size="sm" variant="secondary" onClick={clearTrackedFilters} disabled={!hasTrackedFilters}>
+              <X className="h-4 w-4" />
+              Clear
+            </Button>
+          </div>
+          <DetailsBlock summary="Advanced tracked filters">
+            <div className="grid gap-2 md:grid-cols-3 xl:grid-cols-6">
+              <Input value={countryFilter} onChange={(event) => setCountryFilter(event.target.value)} placeholder="Country" />
+              <Input value={tagFilter} onChange={(event) => setTagFilter(event.target.value)} placeholder="Tag/type text" />
+              <Input type="number" min={0} value={minOnlineFilter} onChange={(event) => setMinOnlineFilter(event.target.value)} placeholder="Min online" />
+              <Input type="number" min={0} value={maxOnlineFilter} onChange={(event) => setMaxOnlineFilter(event.target.value)} placeholder="Max online" />
+              <Input type="number" min={0} value={minSizeFilter} onChange={(event) => setMinSizeFilter(event.target.value)} placeholder="Min size" />
+              <Input type="number" min={0} value={maxSizeFilter} onChange={(event) => setMaxSizeFilter(event.target.value)} placeholder="Max size" />
+            </div>
+          </DetailsBlock>
         </CardContent>
       </Card>
       {search.error || track.error || sync.error ? <StatusLine tone="bad" text={(search.error ?? track.error ?? sync.error)?.message ?? "Request failed"} /> : null}
@@ -6689,13 +6829,6 @@ function ProfileView({
                   {tab.label}
                 </Button>
               ))}
-            </div>
-            <div className="text-sm text-muted-foreground">
-              {activeTab === "account" ? "Account identity and provider readiness" : null}
-              {activeTab === "steam" ? "Steam binding, current live identity and detected teammates" : null}
-              {activeTab === "stats" ? "Operational counts without duplicated raw feed details" : null}
-              {activeTab === "history" ? "Recent activity, watchlist changes and alerts" : null}
-              {activeTab === "security" ? "Session and permission-sensitive account details" : null}
             </div>
           </div>
         </div>
@@ -7167,7 +7300,7 @@ function WipesView({ api }: { api: ReturnType<typeof createApiClient> }) {
   );
   const wipes = useQuery({ queryKey: ["wipes", wipesQuery], queryFn: () => api.wipes(wipesQuery), refetchInterval: 60_000 });
   const reminders = useQuery({ queryKey: ["wipeReminders", remindersQuery], queryFn: () => api.wipeReminders(remindersQuery), refetchInterval: 60_000 });
-  const servers = useQuery({ queryKey: ["trackedServers"], queryFn: api.trackedServers, refetchInterval: 60_000 });
+  const servers = useQuery({ queryKey: ["trackedServers"], queryFn: () => api.trackedServers(), refetchInterval: 60_000 });
   const createWipe = useMutation({
     mutationFn: () =>
       api.createWipe({

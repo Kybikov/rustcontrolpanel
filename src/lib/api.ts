@@ -59,6 +59,22 @@ export type ServerIntel = {
   updated_at?: string;
 };
 
+export type ServersQuery = {
+  tracked_q?: string;
+  status?: string;
+  country?: string;
+  server_type?: string;
+  tag?: string;
+  wipe_window?: string;
+  freshness?: string;
+  min_online?: string;
+  max_online?: string;
+  min_size?: string;
+  max_size?: string;
+  page?: string;
+  per_page?: string;
+};
+
 export type PlayerIntel = {
   id?: string;
   battlemetrics_player_id?: string;
@@ -719,8 +735,8 @@ export function createApiClient(baseUrl: string, token?: string) {
         `/api/admin/rustcontrol/servers?q=${encodeURIComponent(query)}`,
       );
     },
-    trackedServers() {
-      return requestItems<ServerIntel>("/api/admin/rustcontrol/servers");
+    trackedServers(query?: ServersQuery) {
+      return requestItems<ServerIntel>(withQuery("/api/admin/rustcontrol/servers", query));
     },
     serverDetail(id: string) {
       return request<ServerDetail>(`/api/admin/rustcontrol/servers/${encodeURIComponent(id)}`);
