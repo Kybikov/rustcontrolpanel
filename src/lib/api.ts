@@ -420,6 +420,7 @@ export type ActivityQuery = {
   event_type?: string;
   server_id?: string;
   player_id?: string;
+  actor_id?: string;
   from?: string;
   to?: string;
   page?: string;

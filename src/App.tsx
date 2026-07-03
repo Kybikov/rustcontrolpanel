@@ -8259,12 +8259,13 @@ function ProfileView({
   const [alertHistoryPage, setAlertHistoryPage] = useState(1);
   useEffect(() => setActiveTab(initialTab), [initialTab]);
   const claims = useMemo(() => decodeJwtPayload(accessToken), [accessToken]);
+  const accountActorId = profileClaim(claims, ["user_id", "sub"]);
   const historyPerPage = 25;
   const watchHistoryPerPage = 8;
   const alertHistoryPerPage = 6;
   const profileActivityQuery = useMemo<ActivityQuery>(
-    () => ({ page: String(historyPage), per_page: String(historyPerPage) }),
-    [historyPage],
+    () => ({ actor_id: accountActorId || undefined, page: String(historyPage), per_page: String(historyPerPage) }),
+    [accountActorId, historyPage],
   );
   const profileWatchlistQuery = useMemo<WatchlistQuery>(
     () => ({ page: String(watchHistoryPage), per_page: String(watchHistoryPerPage) }),

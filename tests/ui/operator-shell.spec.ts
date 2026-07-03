@@ -855,6 +855,7 @@ test("server settings expose read-only rcon readiness test", async ({ page }) =>
 
 test("operator profile history pages watch changes and alerts", async ({ page }) => {
   const consoleProblems: string[] = [];
+  const activityRequests: string[] = [];
   page.on("console", (message) => {
     if (["error", "warning"].includes(message.type())) {
       consoleProblems.push(`${message.type()}: ${message.text()}`);
@@ -898,6 +899,7 @@ test("operator profile history pages watch changes and alerts", async ({ page })
   });
   await page.route(`${apiBaseUrl}/api/admin/rustcontrol/activity**`, async (route) => {
     const url = new URL(route.request().url());
+    activityRequests.push(url.toString());
     const pageNumber = Number(url.searchParams.get("page") ?? "1");
     await route.fulfill({
       contentType: "application/json",
@@ -988,6 +990,9 @@ test("operator profile history pages watch changes and alerts", async ({ page })
   await expect(page.getByRole("heading", { name: "Operator Profile" })).toBeVisible();
   await expect(page.getByText("Recent Account Feed")).toBeVisible();
   await expect(page.getByTestId("profile-activity-pager")).toContainText("40 profile events / page 1 of 2");
+  await expect
+    .poll(() => activityRequests.some((requestUrl) => new URL(requestUrl).searchParams.get("actor_id") === "00000000-0000-0000-0000-000000000001"))
+    .toBe(true);
   await expect(page.getByTestId("profile-watchlist-pager")).toContainText("10 watch changes / page 1 of 2");
   await expect(page.getByTestId("profile-alerts-pager")).toContainText("12 active alerts / page 1 of 2");
 
