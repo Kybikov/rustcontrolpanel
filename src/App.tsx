@@ -273,12 +273,48 @@ const wipeReminderMinuteOptions = [
 ];
 const defaultPluginEventText = JSON.stringify(
   {
-    event_type: "plugin_smoke",
+    event_type: "online_snapshot",
     severity: "info",
-    source: "plugin",
+    source: "oxide-plugin",
+    server: {
+      id: "plugin:manual-admin-smoke",
+      name: "Manual Admin Smoke Server",
+      status: "online",
+      rust_map: "Procedural Map",
+      rust_world_seed: 12345,
+      rust_world_size: 4500,
+      map_hash: "plugin:manual-admin-smoke:seed:12345:size:4500",
+    },
+    player: {
+      steam_id: "76561198000000000",
+      battlemetrics_player_id: "manual-smoke-player",
+      name: "Manual Smoke Player",
+      clan_tag: "SMK",
+      team_id: "manual-smoke-team",
+      is_online: true,
+      position: { x: 1520, y: 31, z: 1710 },
+      map_grid: "K12",
+      health: 100,
+    },
+    players: [
+      {
+        steam_id: "76561198000000000",
+        battlemetrics_player_id: "manual-smoke-player",
+        name: "Manual Smoke Player",
+        clan_tag: "SMK",
+        team_id: "manual-smoke-team",
+        is_online: true,
+        position: { x: 1520, y: 31, z: 1710 },
+        map_grid: "K12",
+        health: 100,
+      },
+    ],
     payload: {
       title: "Manual admin plugin smoke",
-      message: "Local operator-triggered plugin event",
+      message: "Local operator-triggered online snapshot",
+      type: "manual_smoke",
+      position: { x: 1520, y: 31, z: 1710 },
+      map_grid: "K12",
     },
   },
   null,
@@ -10599,6 +10635,9 @@ function RustPlusIntakePanel({
       queryClient.invalidateQueries({ queryKey: ["realtimeHealth"] });
       queryClient.invalidateQueries({ queryKey: ["activity"] });
       queryClient.invalidateQueries({ queryKey: ["overview"] });
+      queryClient.invalidateQueries({ queryKey: ["livePlayers"] });
+      queryClient.invalidateQueries({ queryKey: ["servers"] });
+      queryClient.invalidateQueries({ queryKey: ["serverLiveContext"] });
     },
   });
   const integration = objectFrom(health?.integrations?.rust_plus);
