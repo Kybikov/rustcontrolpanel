@@ -97,7 +97,7 @@ The plugin streams:
 - `player_kicked`, `player_banned`, and `player_unbanned` moderation events when admin action events are enabled;
 - `clan_created`, `clan_disbanded`, `clan_member_added`, `clan_member_left`, and `clan_member_kicked` when the server exposes Rust clan hooks;
 - `wipe_detected` when the server reports a new save/wipe;
-- optional `player_chat` events when enabled in config.
+- optional `player_chat` events when enabled in config; chat events add only low-weight `same_team_chat_context` relation evidence for current live teammates, while strong `same_team_snapshot` evidence stays reserved for explicit team snapshots.
 
 Server-console command usage is disabled by default to keep the feed clean. Enable `send_server_command_events` only when you need full console/RCON command auditing from the plugin side; backend-managed RCON actions are already audited by the panel.
 

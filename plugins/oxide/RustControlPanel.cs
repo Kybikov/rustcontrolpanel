@@ -10,7 +10,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("RustControlPanel", "WaterMelon", "0.1.7")]
+    [Info("RustControlPanel", "WaterMelon", "0.1.8")]
     [Description("Streams Rust player, team, combat, world, command, and moderation telemetry into Rust Control Panel.")]
     public class RustControlPanel : RustPlugin
     {
@@ -343,7 +343,7 @@ namespace Oxide.Plugins
             SendPlayerEvent("player_chat", player, "info", new Dictionary<string, object>
             {
                 ["message"] = Truncate(message, 500)
-            });
+            }, true, "same_team_chat_context", "same live Rust team during chat activity", 6);
         }
 
         private void OnPlayerCommand(BasePlayer player, string command, string[] args)
@@ -1009,10 +1009,12 @@ namespace Oxide.Plugins
             });
         }
 
-        private void SendPlayerEvent(string eventType, BasePlayer player, string severity, Dictionary<string, object> payload = null, bool online = true)
+        private void SendPlayerEvent(string eventType, BasePlayer player, string severity, Dictionary<string, object> payload = null, bool online = true, string relatedEvidenceType = "", string relatedReason = "", int relatedScoreDelta = 0)
         {
             var snapshot = BuildPlayer(player, online);
-            var related = RelatedTeamPlayers(player, snapshot.TeamId, "same_team_snapshot", "same live Rust team", 40);
+            var related = string.IsNullOrEmpty(relatedEvidenceType)
+                ? new List<RelatedPlayer>()
+                : RelatedTeamPlayers(player, snapshot.TeamId, relatedEvidenceType, relatedReason, relatedScoreDelta);
             SendEvent(new EventEnvelope
             {
                 EventType = eventType,
