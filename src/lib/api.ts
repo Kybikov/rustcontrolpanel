@@ -14,6 +14,14 @@ export type ApiEnvelope<T> = {
   request_id?: string;
 };
 
+type ApiListData<T> = T[] | {
+  items?: T[];
+  source?: string;
+  source_status?: string;
+  stale?: boolean;
+  raw_available?: boolean;
+};
+
 export type AuthTokens = {
   access_token: string;
   refresh_token: string;
@@ -527,6 +535,12 @@ export function createApiClient(baseUrl: string, token?: string) {
     return envelope.data as T;
   }
 
+  async function requestItems<T>(path: string, options: RequestOptions = {}): Promise<T[]> {
+    const data = await request<ApiListData<T>>(path, options);
+    if (Array.isArray(data)) return data;
+    return data?.items ?? [];
+  }
+
   return {
     login(email: string, password: string, totpCode?: string) {
       return request<LoginResult>("/api/admin/auth/login", {
@@ -572,7 +586,7 @@ export function createApiClient(baseUrl: string, token?: string) {
       );
     },
     trackedServers() {
-      return request<ServerIntel[]>("/api/admin/rustcontrol/servers");
+      return requestItems<ServerIntel>("/api/admin/rustcontrol/servers");
     },
     serverDetail(id: string) {
       return request<ServerDetail>(`/api/admin/rustcontrol/servers/${encodeURIComponent(id)}`);
@@ -590,7 +604,7 @@ export function createApiClient(baseUrl: string, token?: string) {
       return request<ServerLiveContext>(`/api/admin/rustcontrol/servers/${encodeURIComponent(id)}/live-context`);
     },
     watchlist() {
-      return request<WatchlistItem[]>("/api/admin/rustcontrol/watchlist");
+      return requestItems<WatchlistItem>("/api/admin/rustcontrol/watchlist");
     },
     updatePlayerWatch(
       id: string,
@@ -706,10 +720,10 @@ export function createApiClient(baseUrl: string, token?: string) {
       });
     },
     wipes() {
-      return request<Array<Record<string, unknown>>>("/api/admin/rustcontrol/wipes");
+      return requestItems<Record<string, unknown>>("/api/admin/rustcontrol/wipes");
     },
     activity() {
-      return request<Array<Record<string, unknown>>>("/api/admin/rustcontrol/activity");
+      return requestItems<Record<string, unknown>>("/api/admin/rustcontrol/activity");
     },
     sendRustPlusTestEvent() {
       return request<Record<string, unknown>>("/api/admin/rustcontrol/integrations/rustplus/test-event", {
