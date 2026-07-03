@@ -6,6 +6,7 @@ import {
   BarChart3,
   Bell,
   CalendarClock,
+  Calculator,
   Crosshair,
   DatabaseZap,
   Gamepad2,
@@ -75,7 +76,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, Td, Th } from "@/components/ui/table";
 
-type View = "dashboard" | "live" | "players" | "watchlist" | "servers" | "wipes" | "activity" | "integrations" | "profile";
+type View = "dashboard" | "live" | "players" | "watchlist" | "servers" | "wipes" | "activity" | "tools" | "integrations" | "profile";
 type QuickRiskLevel = "watch" | "suspect" | "hostile";
 type WatchlistRiskFilter = "all" | QuickRiskLevel;
 type WatchlistLiveFilter = "all" | "online" | "offline";
@@ -85,6 +86,7 @@ type PlayerTimelineFilter = "all" | "live" | "session" | "evidence" | "activity"
 type ServerRosterFilter = "all" | "watched" | QuickRiskLevel | "online" | "clear";
 type LiveMapFilter = "all" | "watched" | QuickRiskLevel | "team" | "near150" | "near400" | "same_grid" | "online" | "clear";
 type ActivitySeverityFilter = "all" | "info" | "warning" | "error";
+type RaidToolKey = "best" | "rocket" | "c4" | "satchel" | "explosive_ammo";
 type WipeCalendarMode = "calendar" | "records";
 type WipeRangeFilter = "30" | "60" | "90" | "all";
 type RconActionType = RconActionInput["action"];
@@ -94,6 +96,25 @@ type ServerDetailTab = "overview" | "history" | "wipes" | "players" | "map" | "a
 type BadgeVariant = "default" | "secondary" | "outline" | "danger" | "success" | "warning";
 
 const quickRiskLevels: QuickRiskLevel[] = ["watch", "suspect", "hostile"];
+const raidTools: Array<{ key: Exclude<RaidToolKey, "best">; label: string; sulfur: number; unit: string }> = [
+  { key: "rocket", label: "Rocket", sulfur: 1400, unit: "rockets" },
+  { key: "c4", label: "C4", sulfur: 2200, unit: "C4" },
+  { key: "satchel", label: "Satchel", sulfur: 480, unit: "satchels" },
+  { key: "explosive_ammo", label: "Explosive ammo", sulfur: 25, unit: "ammo" },
+];
+const raidTargets: Array<{
+  key: string;
+  label: string;
+  group: string;
+  costs: Partial<Record<Exclude<RaidToolKey, "best">, number>>;
+}> = [
+  { key: "stone_wall", label: "Stone wall", group: "Walls", costs: { rocket: 4, c4: 2, explosive_ammo: 185 } },
+  { key: "metal_wall", label: "Sheet metal wall", group: "Walls", costs: { rocket: 8, c4: 4, explosive_ammo: 400 } },
+  { key: "armored_wall", label: "Armored wall", group: "Walls", costs: { rocket: 15, c4: 8, explosive_ammo: 799 } },
+  { key: "sheet_door", label: "Sheet metal door", group: "Doors", costs: { rocket: 2, c4: 1, satchel: 4, explosive_ammo: 63 } },
+  { key: "garage_door", label: "Garage door", group: "Doors", costs: { rocket: 3, c4: 2, satchel: 9, explosive_ammo: 150 } },
+  { key: "armored_door", label: "Armored door", group: "Doors", costs: { rocket: 5, c4: 3, explosive_ammo: 250 } },
+];
 const profileTabValues: ProfileTab[] = ["account", "steam", "stats", "history", "security"];
 const playerDetailTabs: Array<{ value: PlayerDetailTab; label: string }> = [
   { value: "overview", label: "Overview" },
@@ -153,6 +174,7 @@ function viewFromPath(pathname: string): View {
   if (segment === "servers") return "servers";
   if (segment === "wipes") return "wipes";
   if (segment === "activity") return "activity";
+  if (segment === "tools") return "tools";
   if (segment === "integrations") return "integrations";
   if (segment === "profile") return "profile";
   return "dashboard";
@@ -300,6 +322,7 @@ function AppShell() {
           <NavButton active={activeView === "servers"} icon={<Server />} label="Servers" onClick={() => navigate("/servers")} />
           <NavButton active={activeView === "wipes"} icon={<CalendarClock />} label="Wipes" onClick={() => navigate("/wipes")} />
           <NavButton active={activeView === "activity"} icon={<Activity />} label="Activity" onClick={() => navigate("/activity")} />
+          <NavButton active={activeView === "tools"} icon={<Calculator />} label="Tools" onClick={() => navigate("/tools")} />
           <NavButton active={activeView === "integrations"} icon={<DatabaseZap />} label="Integrations" onClick={() => navigate("/integrations")} />
         </nav>
         <SidebarProfileFooter api={api} active={activeView === "profile"} onOpen={() => navigate("/profile")} onLogout={logout} />
@@ -313,7 +336,7 @@ function AppShell() {
             className="flex h-11 min-w-0 flex-1 items-center gap-3 rounded-lg border border-border bg-card px-3 text-left shadow-sm transition hover:border-primary/45 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:max-w-xl"
           >
             <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <span className="min-w-0 truncate text-sm text-muted-foreground">Search players, servers, events</span>
+            <span className="min-w-0 truncate text-sm text-muted-foreground">Search players, servers, events, tools</span>
           </button>
           <div className="flex items-center gap-2">
             <Badge variant="outline" className="capitalize">
@@ -341,6 +364,7 @@ function AppShell() {
           <Route path="/servers/:serverId" element={<ServerRoute api={api} onOpenPlayer={openPlayer} />} />
           <Route path="/wipes" element={<WipesView api={api} />} />
           <Route path="/activity" element={<ActivityView api={api} />} />
+          <Route path="/tools" element={<ToolsView />} />
           <Route path="/integrations" element={<IntegrationsView api={api} baseUrl={baseUrl} />} />
           <Route path="/profile" element={<ProfileView api={api} baseUrl={baseUrl} accessToken={accessToken} onOpenPlayer={openPlayer} onOpenTab={(tab) => navigate(`/profile/${tab}`)} />} />
           <Route path="/profile/:tab" element={<ProfileRoute api={api} baseUrl={baseUrl} accessToken={accessToken} onOpenPlayer={openPlayer} />} />
@@ -400,7 +424,7 @@ function CommandPalette({
             value={query}
             data-testid="command-search-input"
             onChange={(event) => onQuery(event.target.value)}
-            placeholder="Search players, servers, events"
+            placeholder="Search players, servers, events, tools"
             className="h-12 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
           />
           <Button type="button" variant="ghost" size="icon" aria-label="Close search" onClick={onClose}>
@@ -7833,6 +7857,169 @@ function ActivityFilterChips({
       </div>
     </div>
   );
+}
+
+function ToolsView() {
+  const [targetKey, setTargetKey] = useState(raidTargets[0]?.key ?? "");
+  const [toolKey, setToolKey] = useState<RaidToolKey>("best");
+  const [quantity, setQuantity] = useState("1");
+  const [sulfurPerNode, setSulfurPerNode] = useState("300");
+  const [nodesPerHour, setNodesPerHour] = useState("40");
+  const [reservePercent, setReservePercent] = useState("10");
+  const target = raidTargets.find((item) => item.key === targetKey) ?? raidTargets[0];
+  const qty = Math.max(1, Math.floor(numberFromInput(quantity, 1)));
+  const reserve = Math.max(0, numberFromInput(reservePercent, 0));
+  const sulfurPerNodeValue = Math.max(1, numberFromInput(sulfurPerNode, 300));
+  const nodesPerHourValue = Math.max(1, numberFromInput(nodesPerHour, 40));
+  const options = useMemo(() => raidCostOptions(target, qty), [qty, target]);
+  const selectedOption = toolKey === "best"
+    ? options[0]
+    : options.find((option) => option.tool.key === toolKey) ?? options[0];
+  const totalSulfur = selectedOption ? Math.ceil(selectedOption.sulfur * (1 + reserve / 100)) : 0;
+  const reserveSulfur = selectedOption ? totalSulfur - selectedOption.sulfur : 0;
+  const nodesNeeded = Math.ceil(totalSulfur / sulfurPerNodeValue);
+  const farmMinutes = Math.ceil((nodesNeeded / nodesPerHourValue) * 60);
+
+  return (
+    <section className="grid gap-4">
+      <Header title="Tools" subtitle="Local-first Rust calculators for raid prep and farming" />
+      <Card>
+        <CardHeader>
+          <CardTitle>Raid Budget Planner</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4">
+          <div className="grid gap-3 lg:grid-cols-[1fr_150px_170px_140px_140px_140px]">
+            <select data-testid="raid-target-select" className={selectClassName} value={targetKey} onChange={(event) => setTargetKey(event.target.value)}>
+              {raidTargets.map((item) => (
+                <option key={item.key} value={item.key}>{item.label}</option>
+              ))}
+            </select>
+            <Input data-testid="raid-quantity-input" type="number" min={1} value={quantity} onChange={(event) => setQuantity(event.target.value)} placeholder="Targets" />
+            <select data-testid="raid-tool-select" className={selectClassName} value={toolKey} onChange={(event) => setToolKey(event.target.value as RaidToolKey)}>
+              <option value="best">Best sulfur</option>
+              {raidTools.map((tool) => (
+                <option key={tool.key} value={tool.key} disabled={!target?.costs[tool.key]}>
+                  {tool.label}
+                </option>
+              ))}
+            </select>
+            <Input data-testid="raid-reserve-input" type="number" min={0} value={reservePercent} onChange={(event) => setReservePercent(event.target.value)} placeholder="Reserve %" />
+            <Input data-testid="raid-sulfur-node-input" type="number" min={1} value={sulfurPerNode} onChange={(event) => setSulfurPerNode(event.target.value)} placeholder="Sulfur/node" />
+            <Input data-testid="raid-nodes-hour-input" type="number" min={1} value={nodesPerHour} onChange={(event) => setNodesPerHour(event.target.value)} placeholder="Nodes/hour" />
+          </div>
+
+          <div data-testid="raid-summary" className="grid gap-3 md:grid-cols-5">
+            <Fact label="Selected method" value={selectedOption ? selectedOption.tool.label : "-"} />
+            <Fact label="Boom count" value={selectedOption ? `${selectedOption.count} ${selectedOption.tool.unit}` : "-"} />
+            <Fact label="Total sulfur" value={formatNumber(totalSulfur)} />
+            <Fact label="Nodes needed" value={formatNumber(nodesNeeded)} />
+            <Fact label="Farm time" value={formatDurationMinutes(farmMinutes)} />
+          </div>
+
+          <DetailsBlock summary="Method comparison">
+            <div className="mb-3 grid gap-3 text-sm text-muted-foreground sm:grid-cols-2">
+              <div>Base sulfur: <span className="font-medium text-foreground">{formatNumber(selectedOption?.sulfur ?? 0)}</span></div>
+              <div>Reserve added: <span className="font-medium text-foreground">{formatNumber(reserveSulfur)}</span></div>
+            </div>
+            <div className="overflow-auto rounded-md border border-border bg-background/50">
+              <Table>
+                <thead>
+                  <tr>
+                    <Th>Method</Th>
+                    <Th>Count</Th>
+                    <Th>Sulfur</Th>
+                    <Th>Per target</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {options.map((option) => (
+                    <tr key={option.tool.key}>
+                      <Td>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium">{option.tool.label}</span>
+                          {options[0]?.tool.key === option.tool.key ? <Badge variant="success">cheapest</Badge> : null}
+                        </div>
+                      </Td>
+                      <Td>{formatNumber(option.count)} {option.tool.unit}</Td>
+                      <Td>{formatNumber(option.sulfur)}</Td>
+                      <Td>{formatNumber(option.baseCount)} / target</Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+              {!options.length ? <EmptyState label="No raid method for selected target" /> : null}
+            </div>
+          </DetailsBlock>
+
+          <DetailsBlock summary="Editable vanilla defaults">
+            <div className="mb-3 text-sm text-muted-foreground">Data version: <span className="font-medium text-foreground">local 2026.07</span></div>
+            <div className="grid gap-3 lg:grid-cols-[280px_1fr]">
+              <div className="rounded-md border border-border bg-background/50 p-3">
+                <div className="text-sm font-medium">Explosive sulfur</div>
+                <div className="mt-3 grid gap-2">
+                  {raidTools.map((tool) => (
+                    <div key={tool.key} className="flex items-center justify-between gap-3 text-sm">
+                      <span>{tool.label}</span>
+                      <span className="font-medium">{formatNumber(tool.sulfur)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="overflow-auto rounded-md border border-border bg-background/50">
+                <Table>
+                  <thead>
+                    <tr>
+                      <Th>Target</Th>
+                      <Th>Rocket</Th>
+                      <Th>C4</Th>
+                      <Th>Satchel</Th>
+                      <Th>Explo ammo</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {raidTargets.map((item) => (
+                      <tr key={item.key}>
+                        <Td>{item.label}</Td>
+                        <Td>{compactText(item.costs.rocket)}</Td>
+                        <Td>{compactText(item.costs.c4)}</Td>
+                        <Td>{compactText(item.costs.satchel)}</Td>
+                        <Td>{compactText(item.costs.explosive_ammo)}</Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+              </div>
+            </div>
+          </DetailsBlock>
+        </CardContent>
+      </Card>
+    </section>
+  );
+}
+
+function raidCostOptions(target: (typeof raidTargets)[number] | undefined, quantity: number) {
+  if (!target) return [];
+  return raidTools
+    .flatMap((tool) => {
+      const baseCount = target.costs[tool.key];
+      if (!baseCount) return [];
+      const count = Math.ceil(baseCount * quantity);
+      return [{ tool, baseCount, count, sulfur: count * tool.sulfur }];
+    })
+    .sort((a, b) => a.sulfur - b.sulfur || a.count - b.count);
+}
+
+function numberFromInput(value: string, fallback: number) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function formatDurationMinutes(minutes: number) {
+  if (!Number.isFinite(minutes) || minutes <= 0) return "-";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `${hours}h ${rest}m` : `${hours}h`;
 }
 
 function IntegrationsView({ api, baseUrl }: { api: ReturnType<typeof createApiClient>; baseUrl: string }) {
