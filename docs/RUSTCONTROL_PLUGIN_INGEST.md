@@ -262,7 +262,7 @@ Player Intelligence also renders a Risk Evidence Digest from `watch`, `team_evid
 
 `GET /api/admin/rustcontrol/players/:id/position-trail` returns realtime movement history captured from plugin/Rust+ position snapshots: recent coordinates, grid/server metadata, heat cells, and sample counts.
 
-`GET /api/admin/rustcontrol/players/:id/timeline` returns a chronological operator timeline for a local player: latest live snapshot, cached BattleMetrics sessions, activity events, and team evidence events merged into one feed. The Player Intelligence timeline UI adds local type filters (`live`, `session`, `evidence`, `activity`), full-text search across server/source/grid/team/related player/title/details, visible-item counters, and compact payload/session detail text for fast investigations.
+`GET /api/admin/rustcontrol/players/:id/timeline` returns a chronological operator timeline for a local player: latest live snapshot, cached BattleMetrics sessions, activity events, and team evidence events merged into one feed. It accepts `page`/`per_page` and returns pagination metadata so older timeline rows remain reachable. The Player Intelligence timeline UI adds local type filters (`live`, `session`, `evidence`, `activity`), full-text search across server/source/grid/team/related player/title/details, visible-item counters, and compact payload/session detail text for fast investigations.
 
 `POST /api/admin/rustcontrol/players/:id/notes` stores an operator note as `rustcontrol.activity_events` with `event_type = operator_note`, `source = admin`, optional title/labels, and `info` or `warning` severity. These notes appear automatically in Activity and the player timeline.
 

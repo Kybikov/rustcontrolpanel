@@ -607,6 +607,7 @@ Schema: `rustcontrol`.
 - Realtime rows across Live Search, Player Intelligence, Live/Servers roster, and server radar now expose quick `Watch`, `Suspect`, and `Hostile` actions so the first risk level can be set without opening the full watch editor.
 - `GET /api/admin/rustcontrol/players/:id/timeline` returns a merged chronological player timeline from live snapshot, cached sessions, activity events, and team evidence.
 - Player Intelligence now includes an Activity Timeline panel with type counts, type filters, full-text search across server/source/grid/team/related player/title/details, shown counters, source/severity badges, compact payload/session details, server context, related player, score deltas, and timestamps.
+- Player Intelligence timeline now preserves backend pagination metadata from `/players/:id/timeline`, with compact refresh/Prev/Next controls in the History tab so older sessions, evidence, and activity are reachable without cluttering the main player overview.
 - `POST /api/admin/rustcontrol/players/:id/notes` stores manual operator notes in `rustcontrol.activity_events` as `operator_note` events with title, note, labels, severity, and admin source.
 - Player Intelligence now includes an Operator Note form; saved notes immediately flow into Activity Timeline and global Activity after refetch.
 - Global Activity now acts as a filtered investigation log with total/warning/error/operator-note counters, full-text payload search, severity filters, source chips, event-type chips, relative timestamps, and compact payload summaries.

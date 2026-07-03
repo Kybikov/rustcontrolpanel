@@ -2158,10 +2158,16 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
   const [selectedBattleMetricsId, setSelectedBattleMetricsId] = useState("");
   const [activePlayerTab, setActivePlayerTab] = useState<PlayerDetailTab>("overview");
   const [knownPage, setKnownPage] = useState(1);
+  const [timelinePage, setTimelinePage] = useState(1);
   const knownPerPage = 25;
+  const timelinePerPage = 50;
   const knownPlayersQuery = useMemo<PlayersQuery>(
     () => ({ page: String(knownPage), per_page: String(knownPerPage) }),
     [knownPage],
+  );
+  const timelineQuery = useMemo<ServerDetailListQuery>(
+    () => ({ page: String(timelinePage), per_page: String(timelinePerPage) }),
+    [timelinePage],
   );
   const resolve = useMutation({
     mutationFn: () => api.resolvePlayer(query),
@@ -2182,6 +2188,9 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
   const liveMatches = search.data?.live_items ?? [];
   const selectedLocalPlayer = localMatches.find((player) => player.id === selectedLocalPlayerId) ?? resolve.data?.local_player;
   const localPlayerId = selectedLocalPlayerId || resolve.data?.local_player?.id || "";
+  useEffect(() => {
+    setTimelinePage(1);
+  }, [localPlayerId]);
   const intel = useQuery({
     queryKey: ["playerIntel", localPlayerId],
     queryFn: () => api.playerIntel(localPlayerId),
@@ -2230,15 +2239,18 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
     refetchInterval: 10_000,
   });
   const timeline = useQuery({
-    queryKey: ["playerTimeline", localPlayerId],
-    queryFn: () => api.playerTimeline(localPlayerId),
+    queryKey: ["playerTimeline", localPlayerId, timelineQuery],
+    queryFn: () => api.playerTimeline(localPlayerId, timelineQuery),
     enabled: localPlayerId.length > 0,
+    placeholderData: (previousData) => previousData,
     refetchInterval: 10_000,
   });
   const players = resolve.data?.battlemetrics ?? search.data?.items ?? [];
   const knownItems = knownPlayers.data?.items ?? [];
   const knownTotal = knownPlayers.data?.meta?.total ?? knownPlayers.data?.stats?.total ?? knownItems.length;
   const knownPageCount = Math.max(1, Math.ceil(Number(knownTotal || 0) / knownPerPage));
+  const timelineTotal = timeline.data?.meta?.total ?? timeline.data?.counts?.total ?? timeline.data?.items.length ?? 0;
+  const timelinePageCount = Math.max(1, Math.ceil(Number(timelineTotal || 0) / timelinePerPage));
   const profile = resolve.data?.steam_profile as Record<string, unknown> | null | undefined;
   const likelyTeammates = intel.data?.likely_teammates ?? [];
   const teamEvidence = intel.data?.team_evidence ?? [];
@@ -2679,7 +2691,16 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
                 }}
               />
               <PlayerServerHistoryPanel data={serverHistory.data} loading={serverHistory.isFetching} onOpenPlayer={selectLocalPlayer} />
-              <PlayerTimelinePanel data={timeline.data} loading={timeline.isFetching} />
+              <PlayerTimelinePanel
+                data={timeline.data}
+                loading={timeline.isFetching}
+                total={Number(timelineTotal || 0)}
+                page={timelinePage}
+                pageCount={timelinePageCount}
+                onRefresh={() => timeline.refetch()}
+                onPrev={() => setTimelinePage((value) => Math.max(1, value - 1))}
+                onNext={() => setTimelinePage((value) => Math.min(timelinePageCount, value + 1))}
+              />
             </div>
           ) : null}
         </CardContent>
@@ -4719,7 +4740,25 @@ function PlayerServerHistoryPanel({
   );
 }
 
-function PlayerTimelinePanel({ data, loading }: { data?: PlayerTimeline; loading: boolean }) {
+function PlayerTimelinePanel({
+  data,
+  loading,
+  total,
+  page,
+  pageCount,
+  onRefresh,
+  onPrev,
+  onNext,
+}: {
+  data?: PlayerTimeline;
+  loading: boolean;
+  total: number;
+  page: number;
+  pageCount: number;
+  onRefresh: () => void;
+  onPrev: () => void;
+  onNext: () => void;
+}) {
   const [typeFilter, setTypeFilter] = useState<PlayerTimelineFilter>("all");
   const [searchText, setSearchText] = useState("");
   const items = data?.items ?? [];
@@ -4757,8 +4796,22 @@ function PlayerTimelinePanel({ data, loading }: { data?: PlayerTimeline; loading
         </div>
         <div className="flex items-center gap-2 rounded-md border border-border bg-background/45 px-3 py-2 text-sm text-muted-foreground">
           <SlidersHorizontal className="h-4 w-4" />
-          <span>{filteredItems.length} / {items.length} shown</span>
+          <span>{filteredItems.length} / {items.length} shown on page</span>
         </div>
+      </div>
+      <div className="mb-3">
+        <PageStatusBar
+          total={total}
+          itemLabel="timeline events"
+          page={page}
+          pageCount={pageCount}
+          sourceStatus={data?.source_status}
+          loading={loading}
+          onRefresh={onRefresh}
+          onPrev={onPrev}
+          onNext={onNext}
+          testId="player-timeline-page"
+        />
       </div>
       <div className="max-h-[460px] overflow-auto rounded-md border border-border">
         {filteredItems.map((item) => (

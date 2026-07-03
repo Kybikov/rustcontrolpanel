@@ -565,6 +565,7 @@ export type PlayerTimeline = {
     live_player?: LivePlayer | null;
   };
   items: PlayerTimelineItem[];
+  meta?: ApiEnvelope<unknown>["meta"];
   counts?: Record<string, number>;
   source_status?: string;
 };
@@ -1041,8 +1042,11 @@ export function createApiClient(baseUrl: string, token?: string) {
     playerNetwork(id: string) {
       return request<PlayerNetwork>(`/api/admin/rustcontrol/players/${encodeURIComponent(id)}/network`);
     },
-    playerTimeline(id: string) {
-      return request<PlayerTimeline>(`/api/admin/rustcontrol/players/${encodeURIComponent(id)}/timeline`);
+    playerTimeline(id: string, query?: ServerDetailListQuery) {
+      return requestEnvelope<Omit<PlayerTimeline, "meta">>(withQuery(`/api/admin/rustcontrol/players/${encodeURIComponent(id)}/timeline`, query)).then((envelope) => ({
+        ...(envelope.data ?? { target: { player: {} as PlayerIntel }, items: [] }),
+        meta: envelope.meta,
+      }));
     },
     addPlayerNote(
       id: string,

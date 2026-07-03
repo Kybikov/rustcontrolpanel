@@ -505,6 +505,7 @@ test("player detail sends managed rcon action for current server", async ({ page
   const consoleProblems: string[] = [];
   let rconPath = "";
   let rconPayload: { action?: string; target?: string; reason?: string } | undefined;
+  const timelineRequests: string[] = [];
   const steamId = "76561198000000003";
   const player = {
     id: "player-managed",
@@ -599,7 +600,32 @@ test("player detail sends managed rcon action for current server", async ({ page
       return;
     }
     if (path.endsWith("/timeline")) {
-      await detailEnvelope({ player, items: [], counts: { total: 0 }, source_status: "ok" });
+      const pageNumber = Number(url.searchParams.get("page") ?? "1");
+      const perPage = Number(url.searchParams.get("per_page") ?? "50");
+      timelineRequests.push(url.search);
+      const allEvents = Array.from({ length: 55 }, (_, index) => ({
+        id: `timeline-${index + 1}`,
+        item_type: "activity",
+        title: `Timeline Event ${index + 1}`,
+        subtitle: "paged smoke",
+        source: "admin",
+        severity: "info",
+        occurred_at: `2026-07-03T12:${String(Math.max(0, 59 - index)).padStart(2, "0")}:00Z`,
+        server: currentServer,
+      }));
+      const start = (pageNumber - 1) * perPage;
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          data: {
+            target: { player },
+            items: allEvents.slice(start, start + perPage),
+            counts: { total: allEvents.length, activity: allEvents.length, live: 0, session: 0, evidence: 0 },
+            source_status: "ok",
+          },
+          meta: { total: allEvents.length, page: pageNumber, per_page: perPage, count: allEvents.slice(start, start + perPage).length },
+        }),
+      });
       return;
     }
 
@@ -664,6 +690,14 @@ test("player detail sends managed rcon action for current server", async ({ page
   await expect.poll(() => rconPayload?.target).toBe(steamId);
   await expect.poll(() => rconPayload?.reason).toBe("Smoke mute from player detail");
   await expect(page.getByText("mute 76561198000000003")).toBeVisible();
+  await page.getByRole("button", { name: "History" }).click();
+  await expect(page.getByTestId("player-timeline-page")).toContainText("55 timeline events / page 1 of 2");
+  await expect(page.getByText("Timeline Event 1", { exact: true })).toBeVisible();
+  await page.getByTestId("player-timeline-page-next").click();
+  await expect.poll(() => timelineRequests.some((search) => search.includes("page=2") && search.includes("per_page=50"))).toBeTruthy();
+  await expect(page.getByTestId("player-timeline-page")).toContainText("55 timeline events / page 2 of 2");
+  await expect(page.getByText("Timeline Event 51", { exact: true })).toBeVisible();
+  expect(timelineRequests.some((search) => search.includes("page=1") && search.includes("per_page=50"))).toBeTruthy();
   expect(consoleProblems).toEqual([]);
 });
 
