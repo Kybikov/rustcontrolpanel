@@ -103,6 +103,23 @@ export type PlayerIntel = {
   updated_at?: string;
 };
 
+export type KnownPlayerItem = {
+  player: PlayerIntel & {
+    first_seen_at?: string | null;
+    last_seen_at?: string | null;
+    visibility_state?: number | null;
+  };
+  watch?: PlayerWatchState | null;
+  live_player?: LivePlayer | null;
+  current_server?: ServerIntel | null;
+  stats?: {
+    sessions?: number;
+    playtime_seconds?: number;
+    probable_team_count?: number;
+  };
+  last_activity_at?: string;
+};
+
 export type PlayerAlias = {
   alias: string;
   source?: string;
@@ -196,6 +213,11 @@ export type LivePlayersQuery = {
   search?: string;
   battlemetrics_server_id?: string;
   online?: string;
+  page?: string;
+  per_page?: string;
+};
+
+export type PlayersQuery = {
   page?: string;
   per_page?: string;
 };
@@ -927,6 +949,9 @@ export function createApiClient(baseUrl: string, token?: string) {
       return request<{ items: PlayerIntel[]; local_items?: PlayerIntel[]; live_items?: ServerLivePlayerItem[]; source: string; battlemetrics_source_status?: string }>(
         `/api/admin/rustcontrol/players?q=${encodeURIComponent(query)}`,
       );
+    },
+    knownPlayersPage(query?: PlayersQuery) {
+      return requestList<KnownPlayerItem>(withQuery("/api/admin/rustcontrol/players", query));
     },
     resolvePlayer(query: string) {
       return request<ResolvePlayerResult>("/api/admin/rustcontrol/players/resolve", {

@@ -39,6 +39,7 @@ import {
   type CommandSearchResult,
   type IntegrationProvider,
   type IntegrationStatus,
+  type KnownPlayerItem,
   type LivePlayer,
   type LivePlayersQuery,
   type MyLiveContext,
@@ -58,6 +59,7 @@ import {
   type PlayerTimeline,
   type PlayerTimelineItem,
   type PlayerWatchState,
+  type PlayersQuery,
   type PluginEventInput,
   type RealtimeHealth,
   type RconActionInput,
@@ -1878,6 +1880,12 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
   const [selectedLocalPlayerId, setSelectedLocalPlayerId] = useState("");
   const [selectedBattleMetricsId, setSelectedBattleMetricsId] = useState("");
   const [activePlayerTab, setActivePlayerTab] = useState<PlayerDetailTab>("overview");
+  const [knownPage, setKnownPage] = useState(1);
+  const knownPerPage = 25;
+  const knownPlayersQuery = useMemo<PlayersQuery>(
+    () => ({ page: String(knownPage), per_page: String(knownPerPage) }),
+    [knownPage],
+  );
   const resolve = useMutation({
     mutationFn: () => api.resolvePlayer(query),
     onSuccess: (result) => {
@@ -1888,6 +1896,11 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
   });
   const search = useMutation({ mutationFn: () => api.searchPlayers(query) });
   const connect = useMutation({ mutationFn: () => api.connectMySteam(query) });
+  const knownPlayers = useQuery({
+    queryKey: ["knownPlayers", knownPlayersQuery],
+    queryFn: () => api.knownPlayersPage(knownPlayersQuery),
+    refetchInterval: 15_000,
+  });
   const localMatches = resolve.data?.local_matches ?? search.data?.local_items ?? [];
   const liveMatches = search.data?.live_items ?? [];
   const selectedLocalPlayer = localMatches.find((player) => player.id === selectedLocalPlayerId) ?? resolve.data?.local_player;
@@ -1946,6 +1959,9 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
     refetchInterval: 10_000,
   });
   const players = resolve.data?.battlemetrics ?? search.data?.items ?? [];
+  const knownItems = knownPlayers.data?.items ?? [];
+  const knownTotal = knownPlayers.data?.meta?.total ?? knownPlayers.data?.stats?.total ?? knownItems.length;
+  const knownPageCount = Math.max(1, Math.ceil(Number(knownTotal || 0) / knownPerPage));
   const profile = resolve.data?.steam_profile as Record<string, unknown> | null | undefined;
   const likelyTeammates = intel.data?.likely_teammates ?? [];
   const teamEvidence = intel.data?.team_evidence ?? [];
@@ -1986,6 +2002,7 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
   function invalidatePlayerSearchState(playerId?: string) {
     queryClient.invalidateQueries({ queryKey: ["rustAlerts"] });
     queryClient.invalidateQueries({ queryKey: ["watchlist"] });
+    queryClient.invalidateQueries({ queryKey: ["knownPlayers"] });
     queryClient.invalidateQueries({ queryKey: ["overview"] });
     queryClient.invalidateQueries({ queryKey: ["livePlayers"] });
     if (query) search.mutate();
@@ -2047,6 +2064,7 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
     queryClient.invalidateQueries({ queryKey: ["livePlayers"] });
     queryClient.invalidateQueries({ queryKey: ["rustAlerts"] });
     queryClient.invalidateQueries({ queryKey: ["watchlist"] });
+    queryClient.invalidateQueries({ queryKey: ["knownPlayers"] });
     queryClient.invalidateQueries({ queryKey: ["overview"] });
     if (localPlayerId) queryClient.invalidateQueries({ queryKey: ["playerDossier", localPlayerId] });
     if (localPlayerId) queryClient.invalidateQueries({ queryKey: ["playerRelations", localPlayerId] });
@@ -2085,6 +2103,10 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
     setSelectedLocalPlayerId(player.id ?? "");
     setSelectedBattleMetricsId(player.battlemetrics_player_id ?? "");
   }
+
+  useEffect(() => {
+    if (knownPage > knownPageCount) setKnownPage(knownPageCount);
+  }, [knownPage, knownPageCount]);
 
   return (
     <section className="grid gap-4">
@@ -2126,6 +2148,21 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
       {serverHistory.error ? <StatusLine tone="bad" text={serverHistory.error.message} /> : null}
       {positionTrail.error ? <StatusLine tone="bad" text={positionTrail.error.message} /> : null}
       {timeline.error ? <StatusLine tone="bad" text={timeline.error.message} /> : null}
+      {knownPlayers.error ? <StatusLine tone="bad" text={knownPlayers.error.message} /> : null}
+
+      <KnownPlayersTable
+        items={knownItems}
+        total={Number(knownTotal || 0)}
+        page={knownPage}
+        pageCount={knownPageCount}
+        loading={knownPlayers.isFetching}
+        sourceStatus={knownPlayers.data?.source_status}
+        selectedId={localPlayerId}
+        onRefresh={() => knownPlayers.refetch()}
+        onPrev={() => setKnownPage((value) => Math.max(1, value - 1))}
+        onNext={() => setKnownPage((value) => Math.min(knownPageCount, value + 1))}
+        onOpen={(item) => selectLocalPlayer(item.player)}
+      />
 
       {localMatches.length > 0 ? (
         <LocalMatchesTable
@@ -2352,6 +2389,128 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
         </CardContent>
       </Card>
     </section>
+  );
+}
+
+function KnownPlayersTable({
+  items,
+  total,
+  page,
+  pageCount,
+  loading,
+  sourceStatus,
+  selectedId,
+  onRefresh,
+  onPrev,
+  onNext,
+  onOpen,
+}: {
+  items: KnownPlayerItem[];
+  total: number;
+  page: number;
+  pageCount: number;
+  loading: boolean;
+  sourceStatus?: string;
+  selectedId: string;
+  onRefresh: () => void;
+  onPrev: () => void;
+  onNext: () => void;
+  onOpen: (item: KnownPlayerItem) => void;
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center justify-between gap-3">
+          <span>Known Players</span>
+          <Badge variant={total ? "secondary" : "outline"}>{formatNumber(total)}</Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="grid gap-3">
+        <div className="overflow-auto rounded-md border border-border">
+          <Table>
+            <thead>
+              <tr>
+                <Th>Player</Th>
+                <Th>Risk</Th>
+                <Th>Live</Th>
+                <Th>Server</Th>
+                <Th>Activity</Th>
+                <Th>Team</Th>
+                <Th></Th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((item) => {
+                const player = item.player;
+                const live = item.live_player;
+                const watch = item.watch;
+                const playerId = player.id ?? "";
+                return (
+                  <tr key={playerId || player.steam_id || player.battlemetrics_player_id}>
+                    <Td>
+                      <div className="flex min-w-[220px] items-center gap-2">
+                        {player.avatar_url ? (
+                          <img className="h-8 w-8 shrink-0 rounded-md border border-border object-cover" src={player.avatar_url} />
+                        ) : (
+                          <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-border bg-secondary">
+                            <UserCircle className="h-4 w-4 text-muted-foreground" />
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <div className="truncate font-medium">{compactText(player.display_name ?? player.name)}</div>
+                          <div className="truncate text-xs text-muted-foreground">{compactText(player.steam_id || player.battlemetrics_player_id)}</div>
+                        </div>
+                      </div>
+                    </Td>
+                    <Td>
+                      <Badge variant={watch ? riskBadgeVariant(watch.risk_level) : "outline"}>{compactText(watch?.risk_level ?? "clear")}</Badge>
+                    </Td>
+                    <Td>
+                      <Badge variant={live?.is_online ? "success" : live?.last_seen_at ? "outline" : "secondary"}>
+                        {live?.is_online ? "online" : live?.last_seen_at ? "recent" : "offline"}
+                      </Badge>
+                    </Td>
+                    <Td>
+                      <div className="min-w-[180px] max-w-[260px] truncate">{compactText(item.current_server?.name ?? live?.server_name)}</div>
+                      <div className="text-xs text-muted-foreground">{compactText(live?.map_grid || live?.team_id)}</div>
+                    </Td>
+                    <Td>
+                      <div className="text-sm">{formatDateTime(item.last_activity_at ?? live?.last_seen_at ?? player.last_seen_at ?? player.updated_at)}</div>
+                      <div className="text-xs text-muted-foreground">{formatSeconds(Number(item.stats?.playtime_seconds ?? 0))}</div>
+                    </Td>
+                    <Td>
+                      <div className="flex flex-wrap gap-1">
+                        <Badge variant={Number(item.stats?.probable_team_count ?? 0) ? "warning" : "outline"}>
+                          {compactText(item.stats?.probable_team_count)} links
+                        </Badge>
+                        <Badge variant="secondary">{compactText(item.stats?.sessions)} sessions</Badge>
+                      </div>
+                    </Td>
+                    <Td className="text-right">
+                      <Button size="sm" variant={selectedId === playerId ? "default" : "secondary"} onClick={() => onOpen(item)} disabled={!playerId}>
+                        Intel
+                      </Button>
+                    </Td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </Table>
+          {!items.length ? <EmptyState label={loading ? "Loading known players" : "No known players yet"} /> : null}
+        </div>
+        <PageStatusBar
+          total={total}
+          itemLabel="known players"
+          page={page}
+          pageCount={pageCount}
+          sourceStatus={sourceStatus}
+          loading={loading}
+          onRefresh={onRefresh}
+          onPrev={onPrev}
+          onNext={onNext}
+        />
+      </CardContent>
+    </Card>
   );
 }
 
