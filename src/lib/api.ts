@@ -269,6 +269,15 @@ export type WipeOverrideInput = {
   note?: string;
 };
 
+export type WipesQuery = {
+  server_id?: string;
+  wipe_type?: string;
+  source?: string;
+  from?: string;
+  to?: string;
+  window?: "all" | string;
+};
+
 export type ServerMapDetail = {
   server?: ServerIntel | null;
   map?: Record<string, unknown>;
@@ -572,6 +581,15 @@ export function createApiClient(baseUrl: string, token?: string) {
     return data?.items ?? [];
   }
 
+  function withQuery(path: string, query?: Record<string, string | undefined>) {
+    const params = new URLSearchParams();
+    Object.entries(query ?? {}).forEach(([key, value]) => {
+      if (value) params.set(key, value);
+    });
+    const suffix = params.toString();
+    return suffix ? `${path}?${suffix}` : path;
+  }
+
   return {
     login(email: string, password: string, totpCode?: string) {
       return request<LoginResult>("/api/admin/auth/login", {
@@ -756,8 +774,8 @@ export function createApiClient(baseUrl: string, token?: string) {
         body: { query },
       });
     },
-    wipes() {
-      return requestItems<ServerWipe>("/api/admin/rustcontrol/wipes");
+    wipes(query?: WipesQuery) {
+      return requestItems<ServerWipe>(withQuery("/api/admin/rustcontrol/wipes", query));
     },
     createWipe(payload: WipeOverrideInput) {
       return request<{ item: ServerWipe }>("/api/admin/rustcontrol/wipes", {

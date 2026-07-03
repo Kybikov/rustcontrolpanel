@@ -81,6 +81,8 @@ type PlayerTimelineFilter = "all" | "live" | "session" | "evidence" | "activity"
 type ServerRosterFilter = "all" | "watched" | QuickRiskLevel | "online" | "clear";
 type LiveMapFilter = "all" | "watched" | QuickRiskLevel | "team" | "near150" | "near400" | "same_grid" | "online" | "clear";
 type ActivitySeverityFilter = "all" | "info" | "warning" | "error";
+type WipeCalendarMode = "calendar" | "records";
+type WipeRangeFilter = "30" | "60" | "90" | "all";
 type RconActionType = RconActionInput["action"];
 type ProfileTab = "account" | "steam" | "stats" | "history" | "security";
 type ServerDetailTab = "overview" | "history" | "wipes" | "players" | "map" | "activity" | "settings";
@@ -4180,6 +4182,64 @@ function isoFromDatetimeLocal(value: string) {
   return Number.isFinite(date.getTime()) ? date.toISOString() : "";
 }
 
+function startOfLocalDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function addLocalDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function wipeRangeQuery(range: WipeRangeFilter) {
+  if (range === "all") return { window: "all" };
+  const days = Number(range);
+  const from = addLocalDays(startOfLocalDay(new Date()), -14);
+  const to = addLocalDays(startOfLocalDay(new Date()), Number.isFinite(days) ? days : 60);
+  to.setHours(23, 59, 59, 999);
+  return { from: from.toISOString(), to: to.toISOString() };
+}
+
+function localDateKey(value: unknown) {
+  const date = value instanceof Date ? value : new Date(String(value ?? ""));
+  if (!Number.isFinite(date.getTime())) return "";
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+function localDayLabel(date: Date) {
+  return new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "2-digit", month: "short" }).format(date);
+}
+
+function wipeTypeLabel(value: unknown) {
+  return compactText(value).replace(/_/g, " ");
+}
+
+function wipeCalendarSummary(wipes: ServerWipe[]) {
+  const now = Date.now();
+  const upcoming = wipes.filter((wipe) => dateMs(wipe.wipe_at) >= now).sort((a, b) => dateMs(a.wipe_at) - dateMs(b.wipe_at));
+  const recent = wipes.filter((wipe) => dateMs(wipe.wipe_at) < now).sort((a, b) => dateMs(b.wipe_at) - dateMs(a.wipe_at));
+  return {
+    total: wipes.length,
+    upcoming,
+    recent,
+    manual: wipes.filter((wipe) => wipe.source === "manual").length,
+    next: upcoming[0],
+  };
+}
+
+function wipeCalendarDays(wipes: ServerWipe[], length = 14) {
+  const start = startOfLocalDay(new Date());
+  return Array.from({ length }, (_, index) => {
+    const date = addLocalDays(start, index);
+    const key = localDateKey(date);
+    const items = wipes.filter((wipe) => localDateKey(wipe.wipe_at) === key).sort((a, b) => dateMs(a.wipe_at) - dateMs(b.wipe_at));
+    return { key, date, items };
+  });
+}
+
 function numberFromRecord(item: Record<string, unknown>, key: string) {
   const value = item[key];
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -6860,11 +6920,23 @@ function ProfileStatPill({
 function WipesView({ api }: { api: ReturnType<typeof createApiClient> }) {
   const queryClient = useQueryClient();
   const [serverId, setServerId] = useState("");
+  const [filterServerId, setFilterServerId] = useState("all");
+  const [filterType, setFilterType] = useState("all");
+  const [range, setRange] = useState<WipeRangeFilter>("60");
+  const [mode, setMode] = useState<WipeCalendarMode>("calendar");
   const [wipeType, setWipeType] = useState("map_wipe");
   const [wipeAt, setWipeAt] = useState(() => datetimeLocalValue(new Date()));
   const [confidence, setConfidence] = useState("75");
   const [note, setNote] = useState("");
-  const wipes = useQuery({ queryKey: ["wipes"], queryFn: api.wipes, refetchInterval: 60_000 });
+  const wipesQuery = useMemo(
+    () => ({
+      ...wipeRangeQuery(range),
+      server_id: filterServerId === "all" ? undefined : filterServerId,
+      wipe_type: filterType === "all" ? undefined : filterType,
+    }),
+    [filterServerId, filterType, range],
+  );
+  const wipes = useQuery({ queryKey: ["wipes", wipesQuery], queryFn: () => api.wipes(wipesQuery), refetchInterval: 60_000 });
   const servers = useQuery({ queryKey: ["trackedServers"], queryFn: api.trackedServers, refetchInterval: 60_000 });
   const createWipe = useMutation({
     mutationFn: () =>
@@ -6882,65 +6954,201 @@ function WipesView({ api }: { api: ReturnType<typeof createApiClient> }) {
       queryClient.invalidateQueries({ queryKey: ["activity"] });
     },
   });
+  const wipeItems = wipes.data ?? [];
+  const summary = useMemo(() => wipeCalendarSummary(wipeItems), [wipeItems]);
+  const days = useMemo(() => wipeCalendarDays(wipeItems), [wipeItems]);
+  const typeOptions = useMemo(() => {
+    const values = ["all", "map_wipe", "bp_wipe", "full_wipe", "manual_wipe"];
+    for (const wipe of wipeItems) {
+      if (wipe.wipe_type && !values.includes(wipe.wipe_type)) values.push(wipe.wipe_type);
+    }
+    return values;
+  }, [wipeItems]);
   const canCreate = Boolean(serverId && wipeAt && wipeType && !createWipe.isPending);
 
   return (
     <section className="grid gap-4">
-      <Header title="Wipe Calendar" subtitle="Tracked wipe windows and source confidence" />
+      <Header title="Wipe Calendar" subtitle="Server wipe windows, source confidence and manual overrides" />
       <Card>
-        <CardHeader>
-          <CardTitle>Manual Wipe Override</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-3 lg:grid-cols-[minmax(220px,1.3fr)_160px_210px_110px_minmax(180px,1fr)_auto]">
-          <select
-            className="h-10 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-            value={serverId}
-            onChange={(event) => setServerId(event.target.value)}
-            disabled={servers.isFetching && !servers.data?.length}
-          >
-            <option value="">Tracked server</option>
-            {(servers.data ?? []).map((server) => (
-              <option key={server.id ?? server.battlemetrics_server_id} value={server.id ?? server.battlemetrics_server_id}>
-                {compactText(server.name)} / {compactText(server.battlemetrics_server_id)}
-              </option>
-            ))}
-          </select>
-          <select
-            className="h-10 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
-            value={wipeType}
-            onChange={(event) => setWipeType(event.target.value)}
-          >
-            <option value="map_wipe">Map wipe</option>
-            <option value="bp_wipe">BP wipe</option>
-            <option value="full_wipe">Full wipe</option>
-            <option value="manual_wipe">Manual</option>
-          </select>
-          <Input type="datetime-local" value={wipeAt} onChange={(event) => setWipeAt(event.target.value)} />
-          <Input type="number" min={1} max={100} value={confidence} onChange={(event) => setConfidence(event.target.value)} placeholder="Confidence" />
-          <Input value={note} onChange={(event) => setNote(event.target.value)} placeholder="Short note" />
-          <Button onClick={() => createWipe.mutate()} disabled={!canCreate}>
-            <Save className="h-4 w-4" />
-            Save
-          </Button>
-        </CardContent>
-      </Card>
-      {createWipe.error ? <StatusLine tone="bad" text={createWipe.error.message} /> : null}
-      {createWipe.data?.item ? <StatusLine tone="ok" text={`Manual wipe saved: ${compactText(createWipe.data.item.server_name)} / ${compactText(createWipe.data.item.wipe_type)}`} /> : null}
-      <Card>
-        <CardContent className="pt-4">
-          {(wipes.data ?? []).map((wipe) => (
-            <div key={String(wipe.id)} className="grid grid-cols-[180px_1fr_auto] items-center gap-3 border-b border-border py-3 last:border-0">
-              <div className="text-sm font-medium">{formatDateTime(wipe.wipe_at)}</div>
-              <div>
-                <div className="font-medium">{compactText(wipe.server_name)}</div>
-                <div className="text-xs text-muted-foreground">{compactText(wipe.source)} / confidence {compactText(wipe.confidence)}</div>
-              </div>
-              <Badge>{compactText(wipe.wipe_type)}</Badge>
+        <CardContent className="grid gap-4 pt-4">
+          <div className="grid gap-2 lg:grid-cols-[minmax(220px,1.2fr)_160px_140px_auto]">
+            <select
+              className="h-10 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
+              value={filterServerId}
+              onChange={(event) => setFilterServerId(event.target.value)}
+            >
+              <option value="all">All tracked servers</option>
+              {(servers.data ?? []).map((server) => (
+                <option key={server.id ?? server.battlemetrics_server_id} value={server.id ?? server.battlemetrics_server_id}>
+                  {compactText(server.name)} / {compactText(server.battlemetrics_server_id)}
+                </option>
+              ))}
+            </select>
+            <select
+              className="h-10 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
+              value={filterType}
+              onChange={(event) => setFilterType(event.target.value)}
+            >
+              {typeOptions.map((type) => (
+                <option key={type} value={type}>
+                  {type === "all" ? "All wipe types" : wipeTypeLabel(type)}
+                </option>
+              ))}
+            </select>
+            <select
+              className="h-10 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
+              value={range}
+              onChange={(event) => setRange(event.target.value as WipeRangeFilter)}
+            >
+              <option value="30">Next 30d</option>
+              <option value="60">Next 60d</option>
+              <option value="90">Next 90d</option>
+              <option value="all">All records</option>
+            </select>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant={mode === "calendar" ? "default" : "secondary"} onClick={() => setMode("calendar")}>
+                <CalendarClock className="h-4 w-4" />
+                Calendar
+              </Button>
+              <Button size="sm" variant={mode === "records" ? "default" : "secondary"} onClick={() => setMode("records")}>
+                <History className="h-4 w-4" />
+                Records
+              </Button>
+              <Button size="sm" variant="secondary" onClick={() => wipes.refetch()} disabled={wipes.isFetching}>
+                <RefreshCw className={`h-4 w-4 ${wipes.isFetching ? "animate-spin" : ""}`} />
+                Refresh
+              </Button>
             </div>
-          ))}
-          {!wipes.data?.length ? <EmptyState label="-" /> : null}
+          </div>
+
+          <div className="grid gap-2 md:grid-cols-4">
+            <WatchlistSummaryPill label="Shown" value={summary.total} variant="secondary" />
+            <WatchlistSummaryPill label="Upcoming" value={summary.upcoming.length} variant={summary.upcoming.length ? "warning" : "outline"} />
+            <WatchlistSummaryPill label="Recent" value={summary.recent.length} variant="outline" />
+            <WatchlistSummaryPill label="Manual" value={summary.manual} variant={summary.manual ? "success" : "outline"} />
+          </div>
+
+          {summary.next ? (
+            <div className="grid gap-2 rounded-md border border-border bg-background/50 p-3 md:grid-cols-[180px_1fr_auto]">
+              <div>
+                <div className="text-xs text-muted-foreground">Next wipe</div>
+                <div className="text-sm font-semibold">{formatDateTime(summary.next.wipe_at)}</div>
+              </div>
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium">{compactText(summary.next.server_name)}</div>
+                <div className="text-xs text-muted-foreground">{compactText(summary.next.source)} / confidence {compactText(summary.next.confidence)}</div>
+              </div>
+              <Badge variant="warning">{wipeTypeLabel(summary.next.wipe_type)}</Badge>
+            </div>
+          ) : null}
+
+          <DetailsBlock summary="Manual wipe override">
+            <div className="grid gap-3 lg:grid-cols-[minmax(220px,1.3fr)_160px_210px_110px_minmax(180px,1fr)_auto]">
+              <select
+                className="h-10 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                value={serverId}
+                onChange={(event) => setServerId(event.target.value)}
+                disabled={servers.isFetching && !servers.data?.length}
+              >
+                <option value="">Tracked server</option>
+                {(servers.data ?? []).map((server) => (
+                  <option key={server.id ?? server.battlemetrics_server_id} value={server.id ?? server.battlemetrics_server_id}>
+                    {compactText(server.name)} / {compactText(server.battlemetrics_server_id)}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="h-10 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
+                value={wipeType}
+                onChange={(event) => setWipeType(event.target.value)}
+              >
+                <option value="map_wipe">Map wipe</option>
+                <option value="bp_wipe">BP wipe</option>
+                <option value="full_wipe">Full wipe</option>
+                <option value="manual_wipe">Manual</option>
+              </select>
+              <Input type="datetime-local" value={wipeAt} onChange={(event) => setWipeAt(event.target.value)} />
+              <Input type="number" min={1} max={100} value={confidence} onChange={(event) => setConfidence(event.target.value)} placeholder="Confidence" />
+              <Input value={note} onChange={(event) => setNote(event.target.value)} placeholder="Short note" />
+              <Button onClick={() => createWipe.mutate()} disabled={!canCreate}>
+                <Save className="h-4 w-4" />
+                Save
+              </Button>
+            </div>
+            {createWipe.error ? <div className="mt-3"><StatusLine tone="bad" text={createWipe.error.message} /></div> : null}
+            {createWipe.data?.item ? <div className="mt-3"><StatusLine tone="ok" text={`Manual wipe saved: ${compactText(createWipe.data.item.server_name)} / ${wipeTypeLabel(createWipe.data.item.wipe_type)}`} /></div> : null}
+          </DetailsBlock>
         </CardContent>
       </Card>
+
+      {mode === "calendar" ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Next 14 Days</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-7">
+              {days.map((day) => (
+                <div key={day.key} className="min-h-[132px] rounded-md border border-border bg-background/45 p-3">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <div className="text-sm font-medium">{localDayLabel(day.date)}</div>
+                    <Badge variant={day.items.length ? "warning" : "outline"}>{day.items.length}</Badge>
+                  </div>
+                  <div className="grid gap-2">
+                    {day.items.slice(0, 3).map((wipe) => (
+                      <div key={wipe.id} className="rounded-md border border-border bg-background/50 p-2">
+                        <div className="truncate text-xs font-medium">{compactText(wipe.server_name)}</div>
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          <Badge variant="secondary">{wipeTypeLabel(wipe.wipe_type)}</Badge>
+                          <Badge variant="outline">{formatDateTime(wipe.wipe_at)}</Badge>
+                        </div>
+                      </div>
+                    ))}
+                    {!day.items.length ? <div className="text-xs text-muted-foreground">No wipes</div> : null}
+                    {day.items.length > 3 ? <div className="text-xs text-muted-foreground">+{day.items.length - 3} more</div> : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {!wipeItems.length ? <div className="mt-3"><EmptyState label={wipes.isFetching ? "Loading wipe calendar" : "No wipe records match current filters"} /></div> : null}
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle>Wipe Records</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-auto rounded-md border border-border">
+              <Table>
+                <thead>
+                  <tr>
+                    <Th>When</Th>
+                    <Th>Server</Th>
+                    <Th>Type</Th>
+                    <Th>Source</Th>
+                    <Th>Confidence</Th>
+                    <Th>Stored</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {wipeItems.map((wipe) => (
+                    <tr key={wipe.id}>
+                      <Td>{formatDateTime(wipe.wipe_at)}</Td>
+                      <Td>{compactText(wipe.server_name)}</Td>
+                      <Td><Badge variant={dateMs(wipe.wipe_at) >= Date.now() ? "warning" : "secondary"}>{wipeTypeLabel(wipe.wipe_type)}</Badge></Td>
+                      <Td>{compactText(wipe.source)}</Td>
+                      <Td>{compactText(wipe.confidence)}</Td>
+                      <Td>{formatDateTime(wipe.created_at)}</Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+              {!wipeItems.length ? <EmptyState label={wipes.isFetching ? "Loading wipe records" : "No wipe records match current filters"} /> : null}
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </section>
   );
 }
