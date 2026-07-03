@@ -10426,7 +10426,7 @@ function IntegrationSyncRunsPanel({
   return (
     <DetailsBlock summary="Sync runs audit">
       <div className="grid gap-3">
-        <div className="grid gap-2 lg:grid-cols-[180px_180px_minmax(0,1fr)_auto_auto]">
+        <div className="grid gap-2 lg:grid-cols-[180px_180px_minmax(0,1fr)_auto]">
           <select className={selectClassName} value={providerFilter} onChange={(event) => updateProvider(event.target.value)}>
             <option value="all">All providers</option>
             {providerOptions.map((provider) => (
@@ -10444,20 +10444,22 @@ function IntegrationSyncRunsPanel({
             ))}
           </select>
           <Input value={targetIdFilter} onChange={(event) => updateTargetId(event.target.value)} placeholder="Target id" />
-          <Button size="sm" variant="secondary" onClick={() => runs.refetch()}>
-            <RefreshCw className={`h-4 w-4 ${runs.isFetching ? "animate-spin" : ""}`} />
-            Refresh
-          </Button>
           <Button size="sm" variant="secondary" onClick={clearFilters} disabled={!hasFilters}>
             Clear
           </Button>
         </div>
-        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-          <span>
-            {formatNumber(total)} runs / page {page} of {pageCount}
-          </span>
-          <Badge variant={runs.data?.source_status === "ok" ? "success" : "outline"}>{compactText(runs.data?.source_status ?? (effectiveLoading ? "loading" : "recent"))}</Badge>
-        </div>
+        <PageStatusBar
+          total={total}
+          itemLabel="sync runs"
+          page={page}
+          pageCount={pageCount}
+          sourceStatus={runs.data?.source_status ?? (hasFilters ? undefined : "recent")}
+          loading={effectiveLoading}
+          onRefresh={() => runs.refetch()}
+          onPrev={() => setPage((value) => Math.max(1, value - 1))}
+          onNext={() => setPage((value) => Math.min(pageCount, value + 1))}
+          testId="sync-runs-page"
+        />
         <div className="grid gap-2">
           {items.map((item) => {
             const target = [item.target_type, item.target_id].filter(Boolean).join(" / ");
@@ -10482,14 +10484,6 @@ function IntegrationSyncRunsPanel({
             );
           })}
           {!items.length ? <EmptyState label={effectiveLoading ? "Loading sync history" : "No sync runs match current filters"} /> : null}
-        </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <Button size="sm" variant="secondary" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={page <= 1}>
-            Prev
-          </Button>
-          <Button size="sm" variant="secondary" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={page >= pageCount}>
-            Next
-          </Button>
         </div>
       </div>
     </DetailsBlock>
@@ -11226,7 +11220,7 @@ function IntegrationCheck({ label, ready, detail }: { label: string; ready: bool
         <div className="truncate text-sm font-medium">{label}</div>
         <div className="mt-1 text-xs text-muted-foreground">{detail}</div>
       </div>
-      <Badge variant={ready ? "success" : "warning"}>{ready ? "ready" : "todo"}</Badge>
+      <Badge variant={ready ? "success" : "warning"}>{ready ? "ready" : "setup"}</Badge>
     </div>
   );
 }
