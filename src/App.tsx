@@ -502,16 +502,39 @@ function CommandPalette({
   const inputRef = useRef<HTMLInputElement>(null);
   const localItems = useMemo(() => localCommandSearchItems(query), [query]);
   const items = useMemo(() => mergeCommandSearchItems(localItems, result?.items ?? []), [localItems, result?.items]);
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [open, query, items.length]);
 
   useEffect(() => {
     if (!open) return;
     inputRef.current?.focus();
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (!items.length) return;
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setActiveIndex((current) => (current + 1) % items.length);
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setActiveIndex((current) => (current - 1 + items.length) % items.length);
+        return;
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        onSelect(items[Math.min(activeIndex, items.length - 1)]);
+      }
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose, open]);
+  }, [activeIndex, items, onClose, onSelect, open]);
 
   if (!open) return null;
 
@@ -548,13 +571,17 @@ function CommandPalette({
             <div className="grid gap-1">
               {loading ? <div className="px-2 py-1 text-xs text-muted-foreground">Loading server/player matches...</div> : null}
               {error ? <StatusLine tone="bad" text={error} /> : null}
-              {items.map((item) => (
+              {items.map((item, index) => (
                 <button
                   type="button"
                   key={`${item.type}:${item.id}`}
                   data-testid="command-search-result"
+                  aria-selected={activeIndex === index}
                   onClick={() => onSelect(item)}
-                  className="grid min-h-16 grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-3 rounded-md px-2 py-2 text-left transition hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onMouseEnter={() => setActiveIndex(index)}
+                  className={`grid min-h-16 grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-3 rounded-md px-2 py-2 text-left transition hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                    activeIndex === index ? "bg-accent" : ""
+                  }`}
                 >
                   <div className="flex h-10 w-10 items-center justify-center rounded-md border border-border bg-background">
                     <CommandResultIcon type={item.type} />
