@@ -412,6 +412,13 @@ function oneOf<T extends string>(value: string | undefined, allowed: readonly T[
   return value && (allowed as readonly string[]).includes(value) ? (value as T) : fallback;
 }
 
+function localDateTimeToApi(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const time = new Date(trimmed).getTime();
+  return Number.isFinite(time) ? new Date(time).toISOString() : undefined;
+}
+
 const savedBaseUrl = readStoredValue("rustcp.baseUrl", defaultApiBaseUrl());
 const savedToken = readStoredValue("rustcp.accessToken", "");
 
@@ -8961,6 +8968,8 @@ function ActivityView({ api }: { api: ReturnType<typeof createApiClient> }) {
   const [severityFilter, setSeverityFilter] = useState<ActivitySeverityFilter>("all");
   const [sourceFilter, setSourceFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
+  const [fromFilter, setFromFilter] = useState("");
+  const [toFilter, setToFilter] = useState("");
   const [page, setPage] = useState(1);
   const deferredSearchText = useDeferredValue(searchText);
   const perPage = 50;
@@ -8970,10 +8979,12 @@ function ActivityView({ api }: { api: ReturnType<typeof createApiClient> }) {
       severity: severityFilter === "all" ? undefined : severityFilter,
       source: sourceFilter === "all" ? undefined : sourceFilter,
       event_type: typeFilter === "all" ? undefined : typeFilter,
+      from: localDateTimeToApi(fromFilter),
+      to: localDateTimeToApi(toFilter),
       page: String(page),
       per_page: String(perPage),
     }),
-    [deferredSearchText, page, severityFilter, sourceFilter, typeFilter],
+    [deferredSearchText, fromFilter, page, severityFilter, sourceFilter, toFilter, typeFilter],
   );
   const activity = useQuery({
     queryKey: ["activity", activityQuery],
@@ -8987,15 +8998,17 @@ function ActivityView({ api }: { api: ReturnType<typeof createApiClient> }) {
   const typeOptions = activity.data?.event_types?.length ? activity.data.event_types : activityOptionCounts(items, "event_type");
   const total = activity.data?.meta?.total ?? stats.total ?? items.length;
   const pageCount = Math.max(1, Math.ceil(Number(total || 0) / perPage));
-  const hasFilters = Boolean(searchText.trim() || severityFilter !== "all" || sourceFilter !== "all" || typeFilter !== "all" || page > 1);
+  const hasFilters = Boolean(searchText.trim() || severityFilter !== "all" || sourceFilter !== "all" || typeFilter !== "all" || fromFilter.trim() || toFilter.trim() || page > 1);
   const activitySavedFilters = useMemo(
     () => ({
       q: searchText.trim(),
       severity: severityFilter === "all" ? "" : severityFilter,
       source: sourceFilter === "all" ? "" : sourceFilter,
       event_type: typeFilter === "all" ? "" : typeFilter,
+      from: fromFilter.trim(),
+      to: toFilter.trim(),
     }),
-    [searchText, severityFilter, sourceFilter, typeFilter],
+    [fromFilter, searchText, severityFilter, sourceFilter, toFilter, typeFilter],
   );
 
   function updateSearch(value: string) {
@@ -9018,11 +9031,23 @@ function ActivityView({ api }: { api: ReturnType<typeof createApiClient> }) {
     setPage(1);
   }
 
+  function updateFrom(value: string) {
+    setFromFilter(value);
+    setPage(1);
+  }
+
+  function updateTo(value: string) {
+    setToFilter(value);
+    setPage(1);
+  }
+
   function clearFilters() {
     setSearchText("");
     setSeverityFilter("all");
     setSourceFilter("all");
     setTypeFilter("all");
+    setFromFilter("");
+    setToFilter("");
     setPage(1);
   }
 
@@ -9031,6 +9056,8 @@ function ActivityView({ api }: { api: ReturnType<typeof createApiClient> }) {
     setSeverityFilter(oneOf(filters.severity, ["all", "info", "warning", "error"] as const, "all"));
     setSourceFilter(filters.source || "all");
     setTypeFilter(filters.event_type || "all");
+    setFromFilter(filters.from ?? "");
+    setToFilter(filters.to ?? "");
     setPage(1);
   }
 
@@ -9081,6 +9108,12 @@ function ActivityView({ api }: { api: ReturnType<typeof createApiClient> }) {
               onSelect={updateType}
             />
           </div>
+          <DetailsBlock summary="Time range" testId="activity-time-range">
+            <div className="grid gap-2 md:grid-cols-2">
+              <Input data-testid="activity-from-filter" type="datetime-local" value={fromFilter} onChange={(event) => updateFrom(event.target.value)} />
+              <Input data-testid="activity-to-filter" type="datetime-local" value={toFilter} onChange={(event) => updateTo(event.target.value)} />
+            </div>
+          </DetailsBlock>
           <SavedFilterBar
             summary="Saved activity filters"
             storageKey="rustcp.filters.activity"

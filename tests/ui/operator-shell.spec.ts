@@ -140,6 +140,52 @@ test("saved server filters persist and apply query presets", async ({ page }) =>
   expect(consoleProblems).toEqual([]);
 });
 
+test("activity time range sends backend filters", async ({ page }) => {
+  const consoleProblems: string[] = [];
+  const activityRequests: string[] = [];
+  page.on("console", (message) => {
+    if (["error", "warning"].includes(message.type())) {
+      consoleProblems.push(`${message.type()}: ${message.text()}`);
+    }
+  });
+  page.on("pageerror", (error) => consoleProblems.push(`pageerror: ${error.message}`));
+
+  await page.route(`${apiBaseUrl}/api/admin/rustcontrol/activity**`, async (route) => {
+    const url = new URL(route.request().url());
+    activityRequests.push(url.toString());
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          items: [],
+          stats: { total: 0, warning: 0, error: 0, operator_notes: 0 },
+          sources: [],
+          event_types: [],
+          source_status: "empty",
+        },
+        meta: { total: 0, page: Number(url.searchParams.get("page") ?? "1"), per_page: 50, count: 0 },
+      }),
+    });
+  });
+
+  await page.goto("/activity");
+  await expect(page.getByRole("heading", { name: "Realtime Activity" })).toBeVisible();
+  await page.getByTestId("activity-time-range").locator("summary").click();
+  await page.getByTestId("activity-from-filter").fill("2026-07-03T10:00");
+  await page.getByTestId("activity-to-filter").fill("2026-07-03T12:30");
+
+  await expect
+    .poll(() =>
+      activityRequests.some((requestUrl) => {
+        const params = new URL(requestUrl).searchParams;
+        return params.get("from")?.startsWith("2026-07-03T") && params.get("to")?.startsWith("2026-07-03T");
+      }),
+    )
+    .toBe(true);
+
+  expect(consoleProblems).toEqual([]);
+});
+
 test("server settings expose read-only rcon readiness test", async ({ page }) => {
   const consoleProblems: string[] = [];
   page.on("console", (message) => {
