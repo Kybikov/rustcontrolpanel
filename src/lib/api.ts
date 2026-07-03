@@ -228,6 +228,8 @@ export type PlayersQuery = {
 };
 
 export type AlertsQuery = {
+  severity?: string;
+  scope?: string;
   page?: string;
   per_page?: string;
 };

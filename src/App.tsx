@@ -770,7 +770,6 @@ function LiveView({ api, onOpenPlayer }: { api: ReturnType<typeof createApiClien
   const livePlayersQuery = useMemo<LivePlayersQuery>(() => ({ online: "true", page: "1", per_page: "100" }), []);
   const myContext = useQuery({ queryKey: ["myLiveContext"], queryFn: api.myLiveContext, refetchInterval: 5_000 });
   const livePlayers = useQuery({ queryKey: ["livePlayers", livePlayersQuery], queryFn: () => api.livePlayersPage(livePlayersQuery), refetchInterval: 5_000 });
-  const alerts = useQuery({ queryKey: ["rustAlerts"], queryFn: () => api.alertsPage(activeAlertsQuery), refetchInterval: 5_000 });
   const health = useQuery({ queryKey: ["realtimeHealth"], queryFn: api.realtimeHealth, refetchInterval: 5_000 });
   const connectSteam = useMutation({
     mutationFn: () => api.connectMySteam(steamConnectQuery),
@@ -940,9 +939,6 @@ function LiveView({ api, onOpenPlayer }: { api: ReturnType<typeof createApiClien
       <AlertsPanel
         api={api}
         title="Watched Player Alerts"
-        items={alerts.data?.items ?? []}
-        total={alerts.data?.meta?.total}
-        loading={alerts.isFetching}
         onOpenPlayer={onOpenPlayer}
       />
       <div className="grid gap-4 xl:grid-cols-[420px_1fr]">
@@ -1497,18 +1493,12 @@ function LoginScreen({
 function AlertsPanel({
   api,
   title,
-  items,
-  total,
-  loading,
   compact = false,
   maxItems,
   onOpenPlayer,
 }: {
   api: ReturnType<typeof createApiClient>;
   title: string;
-  items: RustAlertItem[];
-  total?: number;
-  loading: boolean;
   compact?: boolean;
   maxItems?: number;
   onOpenPlayer?: (playerId: string) => void;
@@ -1516,18 +1506,46 @@ function AlertsPanel({
   const queryClient = useQueryClient();
   const [severityFilter, setSeverityFilter] = useState<AlertSeverityFilter>("all");
   const [scopeFilter, setScopeFilter] = useState<AlertScopeFilter>("all");
-  const safeItems = useMemo(
-    () => items.filter((item): item is RustAlertItem => Boolean(item && typeof item === "object")),
-    [items],
+  const [page, setPage] = useState(1);
+  const perPage = compact ? 50 : 12;
+  const alertsQuery = useMemo<AlertsQuery>(
+    () => ({
+      severity: severityFilter === "all" ? undefined : severityFilter,
+      scope: scopeFilter === "all" ? undefined : scopeFilter,
+      page: String(compact ? 1 : page),
+      per_page: String(perPage),
+    }),
+    [compact, page, perPage, scopeFilter, severityFilter],
   );
-  const filteredItems = useMemo(
-    () => safeItems.filter((item) => alertSeverityMatches(item, severityFilter) && alertScopeMatches(item, scopeFilter)),
-    [safeItems, scopeFilter, severityFilter],
+  const alerts = useQuery({
+    queryKey: ["rustAlerts", alertsQuery],
+    queryFn: () => api.alertsPage(alertsQuery),
+    refetchInterval: 5_000,
+  });
+  const safeItems = useMemo(
+    () => (alerts.data?.items ?? []).filter((item): item is RustAlertItem => Boolean(item && typeof item === "object")),
+    [alerts.data?.items],
   );
   const stats = useMemo(() => alertStats(safeItems), [safeItems]);
-  const totalActive = total ?? safeItems.length;
-  const shownLimit = Math.max(1, maxItems ?? (compact ? 6 : 9));
-  const shownItems = filteredItems.slice(0, shownLimit);
+  const totalActive = alerts.data?.meta?.total ?? safeItems.length;
+  const pageCount = Math.max(1, Math.ceil(Number(totalActive || 0) / perPage));
+  const shownLimit = compact ? Math.max(1, maxItems ?? 6) : safeItems.length;
+  const shownItems = safeItems.slice(0, shownLimit);
+  const hasAlertFilters = severityFilter !== "all" || scopeFilter !== "all";
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
+
+  function updateSeverityFilter(filter: AlertSeverityFilter) {
+    setSeverityFilter(filter);
+    setPage(1);
+  }
+
+  function updateScopeFilter(filter: AlertScopeFilter) {
+    setScopeFilter(filter);
+    setPage(1);
+  }
+
   const updateRisk = useMutation({
     mutationFn: ({ playerId, riskLevel }: { playerId: string; riskLevel: QuickRiskLevel }) =>
       api.updatePlayerWatch(playerId, {
@@ -1562,10 +1580,11 @@ function AlertsPanel({
                 stats={stats}
                 severityFilter={severityFilter}
                 scopeFilter={scopeFilter}
-                onSeverityFilter={setSeverityFilter}
-                onScopeFilter={setScopeFilter}
+                onSeverityFilter={updateSeverityFilter}
+                onScopeFilter={updateScopeFilter}
               />
             ) : null}
+            {alerts.error ? <StatusLine tone="bad" text={alerts.error.message} /> : null}
             {updateRisk.error ? <StatusLine tone="bad" text={updateRisk.error.message} /> : null}
             <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
               {shownItems.map((item) => (
@@ -1581,11 +1600,25 @@ function AlertsPanel({
                 />
               ))}
             </div>
-            {!filteredItems.length ? <EmptyState label="No alerts match current filters" /> : null}
-            {filteredItems.length > shownItems.length ? (
+            {compact && totalActive > shownItems.length ? (
               <div className="text-xs text-muted-foreground">
-                Showing {shownItems.length} of {filteredItems.length} loaded alerts.
+                Showing {shownItems.length} of {formatNumber(totalActive)} matching alerts.
               </div>
+            ) : null}
+            {!compact ? (
+              <PageStatusBar
+                total={Number(totalActive || 0)}
+                itemLabel="matching alerts"
+                page={page}
+                pageCount={pageCount}
+                sourceStatus={alerts.data?.source_status}
+                loading={alerts.isFetching}
+                onRefresh={() => {
+                  void alerts.refetch();
+                }}
+                onPrev={() => setPage((value) => Math.max(1, value - 1))}
+                onNext={() => setPage((value) => Math.min(pageCount, value + 1))}
+              />
             ) : null}
             {compact ? (
               <DetailsBlock summary="Alert filters and counts">
@@ -1593,14 +1626,37 @@ function AlertsPanel({
                   stats={stats}
                   severityFilter={severityFilter}
                   scopeFilter={scopeFilter}
-                  onSeverityFilter={setSeverityFilter}
-                  onScopeFilter={setScopeFilter}
+                  onSeverityFilter={updateSeverityFilter}
+                  onScopeFilter={updateScopeFilter}
                 />
               </DetailsBlock>
             ) : null}
           </div>
         ) : (
-          <EmptyState label={loading ? "Loading alerts" : "No watched players online"} />
+          <div className="grid gap-3">
+            {!compact ? (
+              <AlertPanelControls
+                stats={stats}
+                severityFilter={severityFilter}
+                scopeFilter={scopeFilter}
+                onSeverityFilter={updateSeverityFilter}
+                onScopeFilter={updateScopeFilter}
+              />
+            ) : null}
+            {alerts.error ? <StatusLine tone="bad" text={alerts.error.message} /> : null}
+            <EmptyState label={alerts.isFetching ? "Loading alerts" : hasAlertFilters ? "No alerts match current filters" : "No watched players online"} />
+            {compact ? (
+              <DetailsBlock summary="Alert filters and counts">
+                <AlertPanelControls
+                  stats={stats}
+                  severityFilter={severityFilter}
+                  scopeFilter={scopeFilter}
+                  onSeverityFilter={updateSeverityFilter}
+                  onScopeFilter={updateScopeFilter}
+                />
+              </DetailsBlock>
+            ) : null}
+          </div>
         )}
       </CardContent>
     </Card>
@@ -1700,7 +1756,6 @@ function AlertCard({
 
 function Dashboard({ api, onOpenPlayer }: { api: ReturnType<typeof createApiClient>; onOpenPlayer: (playerId: string) => void }) {
   const overview = useQuery({ queryKey: ["overview"], queryFn: api.overview, refetchInterval: 30_000 });
-  const alerts = useQuery({ queryKey: ["rustAlerts"], queryFn: () => api.alertsPage(activeAlertsQuery), refetchInterval: 5_000 });
   const integrations = useQuery({ queryKey: ["integrations"], queryFn: api.integrations });
   const health = useQuery({ queryKey: ["realtimeHealth"], queryFn: api.realtimeHealth, refetchInterval: 5_000 });
   const data = overview.data ?? {};
@@ -1718,9 +1773,6 @@ function Dashboard({ api, onOpenPlayer }: { api: ReturnType<typeof createApiClie
       <AlertsPanel
         api={api}
         title="Realtime Alerts"
-        items={alerts.data?.items ?? []}
-        total={alerts.data?.meta?.total}
-        loading={alerts.isFetching}
         compact
         maxItems={6}
         onOpenPlayer={onOpenPlayer}
@@ -4993,17 +5045,6 @@ function alertStats(items: RustAlertItem[]) {
   );
 }
 
-function alertSeverityMatches(item: RustAlertItem, filter: AlertSeverityFilter) {
-  return filter === "all" || item.severity === filter;
-}
-
-function alertScopeMatches(item: RustAlertItem, filter: AlertScopeFilter) {
-  if (filter === "all") return true;
-  if (filter === "same_server") return Boolean(item.same_server_as_me);
-  if (filter === "near") return isNearbyAlert(item);
-  return Boolean(item.live_player?.is_online);
-}
-
 function isNearbyAlert(item: RustAlertItem) {
   return item.proximity_status === "near" || item.proximity_status === "close";
 }
@@ -5227,7 +5268,6 @@ function WatchlistView({
     [page, watchlistFilterQuery],
   );
   const watchlist = useQuery({ queryKey: ["watchlist", watchlistQuery], queryFn: () => api.watchlistPage(watchlistQuery), refetchInterval: 5_000 });
-  const alerts = useQuery({ queryKey: ["rustAlerts"], queryFn: () => api.alertsPage(activeAlertsQuery), refetchInterval: 5_000 });
   const clearWatch = useMutation({
     mutationFn: (playerId: string) => api.updatePlayerWatch(playerId, { watched: false, risk_level: "ignored" }),
     onSuccess: () => invalidateWatchlist(),
@@ -5271,9 +5311,6 @@ function WatchlistView({
       <AlertsPanel
         api={api}
         title="Active Watch Alerts"
-        items={alerts.data?.items ?? []}
-        total={alerts.data?.meta?.total}
-        loading={alerts.isFetching}
         compact
         maxItems={6}
         onOpenPlayer={(playerId) => onOpenPlayer(playerId)}
@@ -7278,7 +7315,7 @@ function ProfileView({
   const myContext = useQuery({ queryKey: ["myLiveContext"], queryFn: api.myLiveContext, refetchInterval: 5_000 });
   const overview = useQuery({ queryKey: ["overview"], queryFn: api.overview, refetchInterval: 30_000 });
   const health = useQuery({ queryKey: ["realtimeHealth"], queryFn: api.realtimeHealth, refetchInterval: 5_000 });
-  const alerts = useQuery({ queryKey: ["rustAlerts"], queryFn: () => api.alertsPage(activeAlertsQuery), refetchInterval: 5_000 });
+  const alerts = useQuery({ queryKey: ["rustAlerts", activeAlertsQuery], queryFn: () => api.alertsPage(activeAlertsQuery), refetchInterval: 5_000 });
   const watchlist = useQuery({
     queryKey: ["watchlist", "profile", profileWatchlistQuery],
     queryFn: () => api.watchlistPage(profileWatchlistQuery),
