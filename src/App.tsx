@@ -55,6 +55,7 @@ import {
   type PlayerTimeline,
   type PlayerTimelineItem,
   type PlayerWatchState,
+  type PluginEventInput,
   type RealtimeHealth,
   type RconActionInput,
   type RustAlertItem,
@@ -239,6 +240,19 @@ const wipeReminderMinuteOptions = [
   { value: 1440, label: "1d before" },
   { value: 2880, label: "2d before" },
 ];
+const defaultPluginEventText = JSON.stringify(
+  {
+    event_type: "plugin_smoke",
+    severity: "info",
+    source: "plugin",
+    payload: {
+      title: "Manual admin plugin smoke",
+      message: "Local operator-triggered plugin event",
+    },
+  },
+  null,
+  2,
+);
 const serverDetailTabs: Array<{ value: ServerDetailTab; label: string }> = [
   { value: "overview", label: "Overview" },
   { value: "history", label: "History" },
@@ -7298,8 +7312,8 @@ function ProfileStatsTab({
             <Fact label="Operator notes" value={activitySummary.operatorNotes} />
           </div>
           <div className="mt-3 grid gap-2 md:grid-cols-2">
-            <ActivityFilterChips title="Top Sources" allLabel="All sources" selected="all" items={sourceOptions} onSelect={() => undefined} />
-            <ActivityFilterChips title="Top Event Types" allLabel="All types" selected="all" items={typeOptions} onSelect={() => undefined} />
+            <ActivityFilterChips title="Top Sources" items={sourceOptions} />
+            <ActivityFilterChips title="Top Event Types" items={typeOptions} />
           </div>
         </div>
       </div>
@@ -8040,29 +8054,39 @@ function ActivityView({ api }: { api: ReturnType<typeof createApiClient> }) {
 
 function ActivityFilterChips({
   title,
-  allLabel,
-  selected,
+  allLabel = "All",
+  selected = "all",
   items,
   onSelect,
 }: {
   title: string;
-  allLabel: string;
-  selected: string;
+  allLabel?: string;
+  selected?: string;
   items: Array<{ value: string; count: number }>;
-  onSelect: (value: string) => void;
+  onSelect?: (value: string) => void;
 }) {
+  const interactive = Boolean(onSelect);
   return (
     <div className="rounded-md border border-border bg-background/45 p-3">
       <div className="mb-2 text-sm font-medium">{title}</div>
       <div className="flex flex-wrap gap-1">
-        <Button size="sm" variant={selected === "all" ? "default" : "secondary"} onClick={() => onSelect("all")}>
-          {allLabel}
-        </Button>
-        {items.slice(0, 8).map((item) => (
-          <Button key={item.value} size="sm" variant={selected === item.value ? "default" : "secondary"} onClick={() => onSelect(item.value)}>
-            {compactText(item.value)} ({item.count})
+        {interactive ? (
+          <Button size="sm" variant={selected === "all" ? "default" : "secondary"} onClick={() => onSelect?.("all")}>
+            {allLabel}
           </Button>
+        ) : null}
+        {items.slice(0, 8).map((item) => (
+          interactive ? (
+            <Button key={item.value} size="sm" variant={selected === item.value ? "default" : "secondary"} onClick={() => onSelect?.(item.value)}>
+              {compactText(item.value)} ({item.count})
+            </Button>
+          ) : (
+            <Badge key={item.value} variant="secondary">
+              {compactText(item.value)} ({item.count})
+            </Badge>
+          )
         ))}
+        {!items.length ? <Badge variant="outline">empty</Badge> : null}
       </div>
     </div>
   );
@@ -8606,6 +8630,35 @@ function parseIntegrationConfig(value: string): { config?: Record<string, unknow
   }
 }
 
+function parsePluginEventText(value: string): { payload: PluginEventInput; error?: string } {
+  try {
+    const parsed = JSON.parse(value || "{}") as unknown;
+    if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
+      return { payload: { event_type: "" }, error: "Plugin event must be a JSON object." };
+    }
+    const object = parsed as Record<string, unknown>;
+    if (typeof object.event_type !== "string" || !object.event_type.trim()) {
+      return { payload: { event_type: "" }, error: "Plugin event requires event_type." };
+    }
+    for (const key of ["severity", "source", "occurred_at"]) {
+      if (object[key] != null && typeof object[key] !== "string") {
+        return { payload: { event_type: "" }, error: `${key} must be a string when present.` };
+      }
+    }
+    return {
+      payload: {
+        event_type: object.event_type.trim(),
+        severity: typeof object.severity === "string" ? object.severity.trim() : undefined,
+        source: typeof object.source === "string" ? object.source.trim() : undefined,
+        occurred_at: typeof object.occurred_at === "string" ? object.occurred_at.trim() : undefined,
+        payload: object.payload,
+      },
+    };
+  } catch (error) {
+    return { payload: { event_type: "" }, error: error instanceof Error ? error.message : "Plugin event must be valid JSON." };
+  }
+}
+
 function IntegrationTestCheck({ check }: { check: Record<string, unknown> }) {
   const status = String(check.status ?? "unknown");
   const name = compactText(check.name);
@@ -8648,6 +8701,9 @@ function RustPlusIntakePanel({
 }) {
   const queryClient = useQueryClient();
   const apiRoot = baseUrl.replace(/\/+$/, "");
+  const [pluginSecret, setPluginSecret] = useState("");
+  const [pluginEventText, setPluginEventText] = useState(defaultPluginEventText);
+  const [pluginEventError, setPluginEventError] = useState("");
   const testEvent = useMutation({
     mutationFn: () => api.sendRustPlusTestEvent(),
     onSuccess: () => {
@@ -8670,6 +8726,15 @@ function RustPlusIntakePanel({
       queryClient.invalidateQueries({ queryKey: ["serverLiveContext"] });
     },
   });
+  const manualPluginEvent = useMutation({
+    mutationFn: ({ payload, secret }: { payload: PluginEventInput; secret: string }) => api.sendPluginEvent(payload, secret),
+    onSuccess: () => {
+      setPluginSecret("");
+      queryClient.invalidateQueries({ queryKey: ["realtimeHealth"] });
+      queryClient.invalidateQueries({ queryKey: ["activity"] });
+      queryClient.invalidateQueries({ queryKey: ["overview"] });
+    },
+  });
   const integration = objectFrom(health?.integrations?.rust_plus);
   const configured = Boolean(provider?.configured || integration.configured);
   const sources = (health?.sources ?? []).filter((source) => {
@@ -8684,6 +8749,21 @@ function RustPlusIntakePanel({
   const counts = health?.counts ?? {};
   const acceptedSources = ["rustplus", "oxide-plugin", "plugin", "live_team"];
   const mode = compactText(integration.mode ?? provider?.use ?? "webhook/plugin_feed");
+
+  function sendManualPluginEvent() {
+    const secret = pluginSecret.trim();
+    if (!secret) {
+      setPluginEventError("Webhook secret is required for admin plugin event smoke.");
+      return;
+    }
+    const parsed = parsePluginEventText(pluginEventText);
+    if (parsed.error) {
+      setPluginEventError(parsed.error);
+      return;
+    }
+    setPluginEventError("");
+    manualPluginEvent.mutate({ payload: parsed.payload, secret });
+  }
 
   return (
     <Card>
@@ -8721,6 +8801,8 @@ function RustPlusIntakePanel({
           />
         ) : null}
         {syntheticSnapshot.error ? <StatusLine tone="bad" text={syntheticSnapshot.error.message} /> : null}
+        {manualPluginEvent.data ? <StatusLine tone="ok" text="Manual admin plugin event accepted" /> : null}
+        {manualPluginEvent.error ? <StatusLine tone="bad" text={manualPluginEvent.error.message} /> : null}
 
         <div className="grid gap-2 md:grid-cols-4">
           <Fact label="Mode" value={mode} />
@@ -8758,6 +8840,38 @@ function RustPlusIntakePanel({
             </div>
           </div>
         </div>
+
+        <DetailsBlock summary="Manual admin plugin event">
+          <div className="grid gap-3">
+            <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto]">
+              <Input
+                type="password"
+                value={pluginSecret}
+                onChange={(event) => setPluginSecret(event.target.value)}
+                placeholder="Webhook secret"
+                autoComplete="off"
+              />
+              <Button size="sm" onClick={sendManualPluginEvent} disabled={manualPluginEvent.isPending}>
+                <DatabaseZap className={`h-4 w-4 ${manualPluginEvent.isPending ? "animate-pulse" : ""}`} />
+                Send
+              </Button>
+            </div>
+            <textarea
+              value={pluginEventText}
+              onChange={(event) => setPluginEventText(event.target.value)}
+              spellCheck={false}
+              rows={9}
+              className="min-h-48 w-full resize-y rounded-md border border-input bg-background px-3 py-2 font-mono text-xs text-foreground outline-none transition-colors placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            />
+            <div className="flex flex-wrap items-center gap-2">
+              <Button size="sm" variant="secondary" onClick={() => setPluginEventText(defaultPluginEventText)}>
+                Reset Payload
+              </Button>
+              <Badge variant="outline">admin/local test feed</Badge>
+            </div>
+            {pluginEventError ? <StatusLine tone="bad" text={pluginEventError} /> : null}
+          </div>
+        </DetailsBlock>
 
         <div className="grid gap-3 xl:grid-cols-2">
           <div className="rounded-md border border-border bg-background/50 p-3">

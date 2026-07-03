@@ -597,6 +597,14 @@ export type IntegrationTestResult = {
   checks?: Array<Record<string, unknown>>;
 };
 
+export type PluginEventInput = {
+  event_type: string;
+  severity?: string;
+  source?: string;
+  payload?: unknown;
+  occurred_at?: string;
+};
+
 export type RconActionInput = {
   action: "say" | "kick" | "ban" | "unban" | "mute" | "unmute";
   target?: string;
@@ -650,6 +658,7 @@ type RequestOptions = {
   method?: string;
   body?: unknown;
   token?: string;
+  headers?: Record<string, string>;
 };
 
 export function createApiClient(baseUrl: string, token?: string) {
@@ -660,6 +669,7 @@ export function createApiClient(baseUrl: string, token?: string) {
       method: options.method ?? "GET",
       headers: {
         "Content-Type": "application/json",
+        ...(options.headers ?? {}),
         ...(token || options.token ? { Authorization: `Bearer ${options.token ?? token}` } : {}),
       },
       body: options.body ? JSON.stringify(options.body) : undefined,
@@ -912,6 +922,13 @@ export function createApiClient(baseUrl: string, token?: string) {
     sendRustPlusSyntheticSnapshot() {
       return request<Record<string, unknown>>("/api/admin/rustcontrol/integrations/rustplus/synthetic-snapshot", {
         method: "POST",
+      });
+    },
+    sendPluginEvent(payload: PluginEventInput, secret: string) {
+      return request<Record<string, unknown>>("/api/admin/rustcontrol/plugin/events", {
+        method: "POST",
+        headers: { "X-RustControl-Secret": secret },
+        body: payload,
       });
     },
   };
