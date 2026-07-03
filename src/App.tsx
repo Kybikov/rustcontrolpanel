@@ -34,6 +34,7 @@ import {
   createApiClient,
   type ActivityQuery,
   type ActivityFeedResult,
+  type AlertsQuery,
   type CommandSearchItem,
   type CommandSearchResult,
   type IntegrationProvider,
@@ -103,6 +104,7 @@ type ServerDetailTab = "overview" | "history" | "wipes" | "players" | "map" | "a
 type BadgeVariant = "default" | "secondary" | "outline" | "danger" | "success" | "warning";
 
 const quickRiskLevels: QuickRiskLevel[] = ["watch", "suspect", "hostile"];
+const activeAlertsQuery = { page: "1", per_page: "50" } satisfies AlertsQuery;
 const toolsTabs: Array<{ value: ToolsTab; label: string; icon: React.ReactElement }> = [
   { value: "raid", label: "Raid Planner", icon: <Calculator className="h-4 w-4" /> },
   { value: "guides", label: "Field Guides", icon: <BookOpen className="h-4 w-4" /> },
@@ -765,7 +767,7 @@ function LiveView({ api, onOpenPlayer }: { api: ReturnType<typeof createApiClien
   const livePlayersQuery = useMemo<LivePlayersQuery>(() => ({ online: "true", page: "1", per_page: "100" }), []);
   const myContext = useQuery({ queryKey: ["myLiveContext"], queryFn: api.myLiveContext, refetchInterval: 5_000 });
   const livePlayers = useQuery({ queryKey: ["livePlayers", livePlayersQuery], queryFn: () => api.livePlayersPage(livePlayersQuery), refetchInterval: 5_000 });
-  const alerts = useQuery({ queryKey: ["rustAlerts"], queryFn: api.alerts, refetchInterval: 5_000 });
+  const alerts = useQuery({ queryKey: ["rustAlerts"], queryFn: () => api.alertsPage(activeAlertsQuery), refetchInterval: 5_000 });
   const health = useQuery({ queryKey: ["realtimeHealth"], queryFn: api.realtimeHealth, refetchInterval: 5_000 });
   const connectSteam = useMutation({
     mutationFn: () => api.connectMySteam(steamConnectQuery),
@@ -932,7 +934,14 @@ function LiveView({ api, onOpenPlayer }: { api: ReturnType<typeof createApiClien
     <section className="grid gap-4">
       <Header title="Live Control" subtitle="Your Steam link, current server, team and live plugin/Rust+ feed" />
       <RealtimeHealthPanel health={health.data} loading={health.isFetching} compact />
-      <AlertsPanel api={api} title="Watched Player Alerts" items={alerts.data?.items ?? []} loading={alerts.isFetching} onOpenPlayer={onOpenPlayer} />
+      <AlertsPanel
+        api={api}
+        title="Watched Player Alerts"
+        items={alerts.data?.items ?? []}
+        total={alerts.data?.meta?.total}
+        loading={alerts.isFetching}
+        onOpenPlayer={onOpenPlayer}
+      />
       <div className="grid gap-4 xl:grid-cols-[420px_1fr]">
         <Card>
           <CardHeader>
@@ -1486,6 +1495,7 @@ function AlertsPanel({
   api,
   title,
   items,
+  total,
   loading,
   compact = false,
   maxItems,
@@ -1494,6 +1504,7 @@ function AlertsPanel({
   api: ReturnType<typeof createApiClient>;
   title: string;
   items: RustAlertItem[];
+  total?: number;
   loading: boolean;
   compact?: boolean;
   maxItems?: number;
@@ -1511,6 +1522,7 @@ function AlertsPanel({
     [safeItems, scopeFilter, severityFilter],
   );
   const stats = useMemo(() => alertStats(safeItems), [safeItems]);
+  const totalActive = total ?? safeItems.length;
   const shownLimit = Math.max(1, maxItems ?? (compact ? 6 : 9));
   const shownItems = filteredItems.slice(0, shownLimit);
   const updateRisk = useMutation({
@@ -1536,7 +1548,7 @@ function AlertsPanel({
       <CardHeader>
         <CardTitle className="flex items-center justify-between gap-3">
           <span>{title}</span>
-          <Badge variant={safeItems.length ? "danger" : "outline"}>{safeItems.length} active</Badge>
+          <Badge variant={totalActive ? "danger" : "outline"}>{formatNumber(totalActive)} active</Badge>
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -1569,7 +1581,7 @@ function AlertsPanel({
             {!filteredItems.length ? <EmptyState label="No alerts match current filters" /> : null}
             {filteredItems.length > shownItems.length ? (
               <div className="text-xs text-muted-foreground">
-                Showing {shownItems.length} of {filteredItems.length}. Use alert filters for the rest.
+                Showing {shownItems.length} of {filteredItems.length} loaded alerts.
               </div>
             ) : null}
             {compact ? (
@@ -1685,7 +1697,7 @@ function AlertCard({
 
 function Dashboard({ api, onOpenPlayer }: { api: ReturnType<typeof createApiClient>; onOpenPlayer: (playerId: string) => void }) {
   const overview = useQuery({ queryKey: ["overview"], queryFn: api.overview, refetchInterval: 30_000 });
-  const alerts = useQuery({ queryKey: ["rustAlerts"], queryFn: api.alerts, refetchInterval: 5_000 });
+  const alerts = useQuery({ queryKey: ["rustAlerts"], queryFn: () => api.alertsPage(activeAlertsQuery), refetchInterval: 5_000 });
   const integrations = useQuery({ queryKey: ["integrations"], queryFn: api.integrations });
   const health = useQuery({ queryKey: ["realtimeHealth"], queryFn: api.realtimeHealth, refetchInterval: 5_000 });
   const data = overview.data ?? {};
@@ -1700,7 +1712,16 @@ function Dashboard({ api, onOpenPlayer }: { api: ReturnType<typeof createApiClie
         <MetricCard label="Team edges" value={data.team_edges} icon={<Crosshair />} />
         <MetricCard label="Watched online" value={data.watched_online} icon={<ShieldAlert />} />
       </div>
-      <AlertsPanel api={api} title="Realtime Alerts" items={alerts.data?.items ?? []} loading={alerts.isFetching} compact maxItems={6} onOpenPlayer={onOpenPlayer} />
+      <AlertsPanel
+        api={api}
+        title="Realtime Alerts"
+        items={alerts.data?.items ?? []}
+        total={alerts.data?.meta?.total}
+        loading={alerts.isFetching}
+        compact
+        maxItems={6}
+        onOpenPlayer={onOpenPlayer}
+      />
       <RealtimeHealthPanel health={health.data} loading={health.isFetching} />
       <Card>
         <CardHeader>
@@ -5038,7 +5059,7 @@ function WatchlistView({
     [page, watchlistFilterQuery],
   );
   const watchlist = useQuery({ queryKey: ["watchlist", watchlistQuery], queryFn: () => api.watchlistPage(watchlistQuery), refetchInterval: 5_000 });
-  const alerts = useQuery({ queryKey: ["rustAlerts"], queryFn: api.alerts, refetchInterval: 5_000 });
+  const alerts = useQuery({ queryKey: ["rustAlerts"], queryFn: () => api.alertsPage(activeAlertsQuery), refetchInterval: 5_000 });
   const clearWatch = useMutation({
     mutationFn: (playerId: string) => api.updatePlayerWatch(playerId, { watched: false, risk_level: "ignored" }),
     onSuccess: () => invalidateWatchlist(),
@@ -5083,6 +5104,7 @@ function WatchlistView({
         api={api}
         title="Active Watch Alerts"
         items={alerts.data?.items ?? []}
+        total={alerts.data?.meta?.total}
         loading={alerts.isFetching}
         compact
         maxItems={6}
@@ -6987,7 +7009,7 @@ function ProfileView({
   const myContext = useQuery({ queryKey: ["myLiveContext"], queryFn: api.myLiveContext, refetchInterval: 5_000 });
   const overview = useQuery({ queryKey: ["overview"], queryFn: api.overview, refetchInterval: 30_000 });
   const health = useQuery({ queryKey: ["realtimeHealth"], queryFn: api.realtimeHealth, refetchInterval: 5_000 });
-  const alerts = useQuery({ queryKey: ["rustAlerts"], queryFn: api.alerts, refetchInterval: 5_000 });
+  const alerts = useQuery({ queryKey: ["rustAlerts"], queryFn: () => api.alertsPage(activeAlertsQuery), refetchInterval: 5_000 });
   const watchlist = useQuery({
     queryKey: ["watchlist", "profile", profileWatchlistQuery],
     queryFn: () => api.watchlistPage(profileWatchlistQuery),
@@ -7017,6 +7039,7 @@ function ProfileView({
   const activityItems = activity.data?.items ?? [];
   const watchItems = watchlist.data?.items ?? [];
   const alertItems = alerts.data?.items ?? [];
+  const alertTotal = alerts.data?.meta?.total ?? alertItems.length;
   const counts = health.data?.counts ?? {};
   const watchStats = useMemo(() => watchlistStatsFromResult(watchlist.data?.stats, watchItems), [watchlist.data?.stats, watchItems]);
   const activityTotal = activity.data?.meta?.total ?? activity.data?.stats?.total ?? activityItems.length;
@@ -7065,7 +7088,7 @@ function ProfileView({
             <ProfileStatPill label="Tracked Servers" value={overview.data?.tracked_servers} icon={<Server />} variant="secondary" />
             <ProfileStatPill label="Known Players" value={overview.data?.known_players} icon={<Users />} variant="secondary" />
             <ProfileStatPill label="Live Online" value={counts.live_online} icon={<Wifi />} variant={Number(counts.live_online ?? 0) ? "success" : "outline"} />
-            <ProfileStatPill label="Active Alerts" value={alertItems.length} icon={<ShieldAlert />} variant={alertItems.length ? "danger" : "outline"} />
+            <ProfileStatPill label="Active Alerts" value={alertTotal} icon={<ShieldAlert />} variant={alertTotal ? "danger" : "outline"} />
           </div>
           <div className="rounded-md border border-border bg-background/45 p-3">
             <div className="mb-3 flex flex-wrap gap-2">
@@ -7102,7 +7125,7 @@ function ProfileView({
           overview={overview.data}
           health={health.data}
           watchStats={watchStats}
-          alerts={alertItems}
+          alertTotal={alertTotal}
           activity={activityItems}
           activityFeed={activity.data}
           loading={overview.isFetching || health.isFetching}
@@ -7114,6 +7137,7 @@ function ProfileView({
           watchlist={watchItems}
           watchlistTotal={watchlist.data?.meta?.total ?? watchStats.total}
           alerts={alertItems}
+          alertTotal={alertTotal}
           loading={activity.isFetching}
           activityTotal={Number(activityTotal || 0)}
           activityPage={historyPage}
@@ -7285,7 +7309,7 @@ function ProfileStatsTab({
   overview,
   health,
   watchStats,
-  alerts,
+  alertTotal,
   activity,
   activityFeed,
   loading,
@@ -7293,7 +7317,7 @@ function ProfileStatsTab({
   overview?: Record<string, unknown>;
   health?: RealtimeHealth;
   watchStats: ReturnType<typeof watchlistStats>;
-  alerts: RustAlertItem[];
+  alertTotal: number;
   activity: Array<Record<string, unknown>>;
   activityFeed?: ActivityFeedResult;
   loading: boolean;
@@ -7321,7 +7345,7 @@ function ProfileStatsTab({
         <div className="rounded-md border border-border bg-background/45 p-3">
           <div className="mb-3 flex items-center justify-between gap-2">
             <div className="text-sm font-medium">Watchlist And Activity</div>
-            <Badge variant={alerts.length ? "danger" : "outline"}>{alerts.length} alerts</Badge>
+            <Badge variant={alertTotal ? "danger" : "outline"}>{formatNumber(alertTotal)} alerts</Badge>
           </div>
           <div className="grid gap-2 md:grid-cols-3">
             <Fact label="Watchlist" value={watchStats.total} />
@@ -7346,6 +7370,7 @@ function ProfileHistoryTab({
   watchlist,
   watchlistTotal,
   alerts,
+  alertTotal,
   loading,
   activityTotal,
   activityPage,
@@ -7361,6 +7386,7 @@ function ProfileHistoryTab({
   watchlist: WatchlistItem[];
   watchlistTotal?: number;
   alerts: RustAlertItem[];
+  alertTotal: number;
   loading: boolean;
   activityTotal: number;
   activityPage: number;
@@ -7461,7 +7487,7 @@ function ProfileHistoryTab({
         <div className="rounded-md border border-border bg-background/45 p-3">
           <div className="mb-3 flex items-center justify-between gap-2">
             <div className="text-sm font-medium">Current Alerts</div>
-            <Badge variant={alerts.length ? "danger" : "outline"}>{alerts.length}</Badge>
+            <Badge variant={alertTotal ? "danger" : "outline"}>{formatNumber(alertTotal)}</Badge>
           </div>
           <div className="grid gap-2">
             {alerts.slice(0, 6).map((alert) => {

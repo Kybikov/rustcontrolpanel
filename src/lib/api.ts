@@ -200,6 +200,11 @@ export type LivePlayersQuery = {
   per_page?: string;
 };
 
+export type AlertsQuery = {
+  page?: string;
+  per_page?: string;
+};
+
 export type RustAlertItem = {
   alert_type: string;
   severity: "critical" | "warning" | "info" | string;
@@ -799,8 +804,11 @@ export function createApiClient(baseUrl: string, token?: string) {
     realtimeHealth() {
       return request<RealtimeHealth>("/api/admin/rustcontrol/realtime/health");
     },
-    alerts() {
-      return request<{ items: RustAlertItem[]; source_status: string }>("/api/admin/rustcontrol/alerts");
+    alerts(query?: AlertsQuery) {
+      return request<{ items: RustAlertItem[]; source_status: string }>(withQuery("/api/admin/rustcontrol/alerts", query));
+    },
+    alertsPage(query?: AlertsQuery) {
+      return requestList<RustAlertItem>(withQuery("/api/admin/rustcontrol/alerts", query));
     },
     integrations() {
       return request<IntegrationStatus>("/api/admin/rustcontrol/integrations");
