@@ -8272,7 +8272,7 @@ function ProfileView({
     [accountActorId, watchHistoryPage],
   );
   const profileAlertsQuery = useMemo<AlertsQuery>(
-    () => ({ page: String(alertHistoryPage), per_page: String(alertHistoryPerPage) }),
+    () => ({ scope: "same_server", page: String(alertHistoryPage), per_page: String(alertHistoryPerPage) }),
     [alertHistoryPage],
   );
   const myContext = useQuery({ queryKey: ["myLiveContext"], queryFn: api.myLiveContext, refetchInterval: 5_000 });
@@ -8815,7 +8815,7 @@ function ProfileHistoryTab({
 
         <div className="rounded-md border border-border bg-background/45 p-3">
           <div className="mb-3 flex items-center justify-between gap-2">
-            <div className="text-sm font-medium">Current Alerts</div>
+            <div className="text-sm font-medium">My Server Alerts</div>
             <Badge variant={alertTotal ? "danger" : "outline"}>{formatNumber(alertTotal)}</Badge>
           </div>
           <div className="grid gap-2">
@@ -8837,12 +8837,12 @@ function ProfileHistoryTab({
                 </button>
               );
             })}
-            {!alerts.length ? <EmptyState label="No active watched-player alerts" /> : null}
+            {!alerts.length ? <EmptyState label="No active watched-player alerts on your server" /> : null}
           </div>
           <div className="mt-3">
             <PageStatusBar
               total={alertTotal}
-              itemLabel="active alerts"
+              itemLabel="my server alerts"
               page={alertPage}
               pageCount={alertPageCount}
               sourceStatus={alertSourceStatus}
