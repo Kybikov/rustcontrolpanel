@@ -626,5 +626,5 @@ Schema: `rustcontrol`.
 - Overview and Watchlist now use compact alert panels: actionable alert cards stay visible, while duplicated alert counters and filters live in collapsed details so Live Control remains the full alert center without cluttering primary dashboards.
 - Tools now has separate `Raid Planner` and `Field Guides` tabs. Field Guides provide local, versioned, searchable Rust/operator checklists for raid prep, wipe start, live hunt, and plugin smoke without adding LLM/AI surfaces or cluttering primary monitoring screens.
 - Global command search now includes local navigation/tool results, so `tools`, `raid planner`, `field guides`, and individual guide names open the right `/tools` tab even before backend search results return.
-- Production builds now split React/query/vendor code into separate Rollup chunks, removing the Vite 500 kB chunk warning while keeping the operator app code chunk smaller.
+- Production builds now split React/query/icon/vendor code into separate Rollup chunks, removing the Vite 500 kB chunk warning while keeping the operator app code chunk smaller.
 - Global command search now supports keyboard navigation with selected-row highlighting, `ArrowUp`/`ArrowDown`, `Enter` to open, and `Escape` to close.
