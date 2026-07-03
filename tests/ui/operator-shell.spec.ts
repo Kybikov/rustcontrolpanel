@@ -194,6 +194,91 @@ test("activity time range sends backend filters", async ({ page }) => {
   expect(consoleProblems).toEqual([]);
 });
 
+test("wipe calendar switches day week month and records windows", async ({ page }) => {
+  const consoleProblems: string[] = [];
+  const wipeRequests: string[] = [];
+  page.on("console", (message) => {
+    if (["error", "warning"].includes(message.type())) {
+      consoleProblems.push(`${message.type()}: ${message.text()}`);
+    }
+  });
+  page.on("pageerror", (error) => consoleProblems.push(`pageerror: ${error.message}`));
+
+  await page.route(`${apiBaseUrl}/api/admin/rustcontrol/servers**`, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          items: [
+            {
+              id: "server-wipe-smoke",
+              name: "Smoke Wipe Server",
+              battlemetrics_server_id: "98765432",
+              status: "online",
+            },
+          ],
+          source_status: "ok",
+        },
+        meta: { total: 1, page: 1, per_page: 100, count: 1 },
+      }),
+    });
+  });
+  await page.route(`${apiBaseUrl}/api/admin/rustcontrol/wipes**`, async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith("/wipes/reminders")) {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          data: { items: [], source_status: "empty" },
+          meta: { total: 0, page: 1, per_page: 20, count: 0 },
+        }),
+      });
+      return;
+    }
+
+    wipeRequests.push(url.toString());
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          items: [
+            {
+              id: `wipe-${url.searchParams.get("window") ?? "default"}`,
+              server_id: "server-wipe-smoke",
+              server_name: "Smoke Wipe Server",
+              wipe_type: "map_wipe",
+              wipe_at: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+              source: "battlemetrics",
+              confidence: 82,
+              created_at: "2026-07-03T10:00:00Z",
+            },
+          ],
+          source_status: "ok",
+        },
+        meta: { total: 1, page: Number(url.searchParams.get("page") ?? "1"), per_page: 50, count: 1 },
+      }),
+    });
+  });
+
+  await page.goto("/wipes");
+  await expect(page.getByRole("heading", { name: "Wipe Calendar" })).toBeVisible();
+  await expect(page.getByText("Next 7 Days")).toBeVisible();
+  await expect(page.getByText("battlemetrics / confidence 82")).toBeVisible();
+
+  await page.getByRole("button", { name: "Day", exact: true }).click();
+  await expect(page.getByText("Today")).toBeVisible();
+  await page.getByRole("button", { name: "Month", exact: true }).click();
+  await expect(page.getByText("Next 30 Days")).toBeVisible();
+  await page.getByRole("button", { name: "Records", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Wipe Records" })).toBeVisible();
+
+  await expect
+    .poll(() => wipeRequests.map((requestUrl) => new URL(requestUrl).searchParams.get("window")))
+    .toEqual(expect.arrayContaining(["week", "day", "month", "all"]));
+
+  expect(consoleProblems).toEqual([]);
+});
+
 test("known players table shows cached steam ban summary", async ({ page }) => {
   const consoleProblems: string[] = [];
   page.on("console", (message) => {

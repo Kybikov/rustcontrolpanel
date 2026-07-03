@@ -101,8 +101,7 @@ type LiveMapFilter = "all" | "watched" | QuickRiskLevel | "team" | "near150" | "
 type ActivitySeverityFilter = "all" | "info" | "warning" | "error";
 type RaidToolKey = "best" | "rocket" | "c4" | "satchel" | "explosive_ammo";
 type ToolsTab = "raid" | "guides";
-type WipeCalendarMode = "calendar" | "records";
-type WipeRangeFilter = "30" | "60" | "90" | "all";
+type WipeCalendarMode = "day" | "week" | "month" | "records";
 type RconActionType = RconActionInput["action"];
 type ProfileTab = "account" | "steam" | "stats" | "history" | "security";
 type PlayerDetailTab = "overview" | "identity" | "live" | "relations" | "history";
@@ -115,6 +114,17 @@ const toolsTabs: Array<{ value: ToolsTab; label: string; icon: React.ReactElemen
   { value: "raid", label: "Raid Planner", icon: <Calculator className="h-4 w-4" /> },
   { value: "guides", label: "Field Guides", icon: <BookOpen className="h-4 w-4" /> },
 ];
+const wipeCalendarModes: Array<{ value: WipeCalendarMode; label: string; icon: React.ReactElement }> = [
+  { value: "day", label: "Day", icon: <CalendarClock className="h-4 w-4" /> },
+  { value: "week", label: "Week", icon: <CalendarClock className="h-4 w-4" /> },
+  { value: "month", label: "Month", icon: <CalendarClock className="h-4 w-4" /> },
+  { value: "records", label: "Records", icon: <History className="h-4 w-4" /> },
+];
+const wipeCalendarModeDays: Record<Exclude<WipeCalendarMode, "records">, number> = {
+  day: 1,
+  week: 7,
+  month: 30,
+};
 const raidTools: Array<{ key: Exclude<RaidToolKey, "best">; label: string; sulfur: number; unit: string }> = [
   { key: "rocket", label: "Rocket", sulfur: 1400, unit: "rockets" },
   { key: "c4", label: "C4", sulfur: 2200, unit: "C4" },
@@ -4993,13 +5003,23 @@ function addLocalDays(date: Date, days: number) {
   return next;
 }
 
-function wipeRangeQuery(range: WipeRangeFilter) {
-  if (range === "all") return { window: "all" };
-  const days = Number(range);
-  const from = addLocalDays(startOfLocalDay(new Date()), -14);
-  const to = addLocalDays(startOfLocalDay(new Date()), Number.isFinite(days) ? days : 60);
+function wipeModeQuery(mode: WipeCalendarMode) {
+  if (mode === "records") return { window: "all" };
+  const from = startOfLocalDay(new Date());
+  const to = addLocalDays(from, wipeCalendarModeDays[mode] - 1);
   to.setHours(23, 59, 59, 999);
-  return { from: from.toISOString(), to: to.toISOString() };
+  return { window: mode, from: from.toISOString(), to: to.toISOString() };
+}
+
+function wipeCalendarTitle(mode: Exclude<WipeCalendarMode, "records">) {
+  if (mode === "day") return "Today";
+  if (mode === "week") return "Next 7 Days";
+  return "Next 30 Days";
+}
+
+function wipeCalendarGridClass(mode: Exclude<WipeCalendarMode, "records">) {
+  if (mode === "day") return "grid gap-2";
+  return "grid gap-2 md:grid-cols-2 xl:grid-cols-7";
 }
 
 function localDateKey(value: unknown) {
@@ -8509,8 +8529,7 @@ function WipesView({ api }: { api: ReturnType<typeof createApiClient> }) {
   const [serverId, setServerId] = useState("");
   const [filterServerId, setFilterServerId] = useState("all");
   const [filterType, setFilterType] = useState("all");
-  const [range, setRange] = useState<WipeRangeFilter>("60");
-  const [mode, setMode] = useState<WipeCalendarMode>("calendar");
+  const [mode, setMode] = useState<WipeCalendarMode>("week");
   const [wipePage, setWipePage] = useState(1);
   const [reminderPage, setReminderPage] = useState(1);
   const [wipeType, setWipeType] = useState("map_wipe");
@@ -8526,11 +8545,11 @@ function WipesView({ api }: { api: ReturnType<typeof createApiClient> }) {
   const reminderPerPage = 20;
   const wipesFilterQuery = useMemo(
     () => ({
-      ...wipeRangeQuery(range),
+      ...wipeModeQuery(mode),
       server_id: filterServerId === "all" ? undefined : filterServerId,
       wipe_type: filterType === "all" ? undefined : filterType,
     }),
-    [filterServerId, filterType, range],
+    [filterServerId, filterType, mode],
   );
   const remindersFilterQuery = useMemo(
     () => ({
@@ -8616,7 +8635,8 @@ function WipesView({ api }: { api: ReturnType<typeof createApiClient> }) {
   }, [reminderPage, reminderPageCount]);
   const summary = useMemo(() => wipeCalendarSummary(wipeItems), [wipeItems]);
   const reminderStats = useMemo(() => wipeReminderSummary(reminderItems), [reminderItems]);
-  const days = useMemo(() => wipeCalendarDays(wipeItems), [wipeItems]);
+  const days = useMemo(() => (mode === "records" ? [] : wipeCalendarDays(wipeItems, wipeCalendarModeDays[mode])), [mode, wipeItems]);
+  const calendarItemLimit = mode === "day" ? 8 : 3;
   const typeOptions = useMemo(() => {
     const values = ["all", "map_wipe", "bp_wipe", "full_wipe", "manual_wipe"];
     for (const wipe of wipeItems) {
@@ -8641,7 +8661,7 @@ function WipesView({ api }: { api: ReturnType<typeof createApiClient> }) {
       <Header title="Wipe Calendar" subtitle="Server wipe windows, source confidence and manual overrides" />
       <Card>
         <CardContent className="grid gap-4 pt-4">
-          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-[minmax(220px,1fr)_160px_140px]">
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-[minmax(220px,1fr)_180px]">
             <select
               className="h-10 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
               value={filterServerId}
@@ -8665,25 +8685,13 @@ function WipesView({ api }: { api: ReturnType<typeof createApiClient> }) {
                 </option>
               ))}
             </select>
-            <select
-              className="h-10 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
-              value={range}
-              onChange={(event) => setRange(event.target.value as WipeRangeFilter)}
-            >
-              <option value="30">Next 30d</option>
-              <option value="60">Next 60d</option>
-              <option value="90">Next 90d</option>
-              <option value="all">All records</option>
-            </select>
-            <div className="flex flex-wrap gap-2 md:col-span-2 xl:col-span-3">
-              <Button size="sm" variant={mode === "calendar" ? "default" : "secondary"} onClick={() => setMode("calendar")}>
-                <CalendarClock className="h-4 w-4" />
-                Calendar
-              </Button>
-              <Button size="sm" variant={mode === "records" ? "default" : "secondary"} onClick={() => setMode("records")}>
-                <History className="h-4 w-4" />
-                Records
-              </Button>
+            <div className="flex flex-wrap gap-2 md:col-span-2">
+              {wipeCalendarModes.map((item) => (
+                <Button key={item.value} size="sm" variant={mode === item.value ? "default" : "secondary"} onClick={() => setMode(item.value)}>
+                  {item.icon}
+                  {item.label}
+                </Button>
+              ))}
               <Button
                 size="sm"
                 variant="secondary"
@@ -8711,10 +8719,9 @@ function WipesView({ api }: { api: ReturnType<typeof createApiClient> }) {
             onNext={() => setWipePage((value) => Math.min(wipePageCount, value + 1))}
           />
 
-          <div className="grid gap-2 md:grid-cols-5">
+          <div className="grid gap-2 md:grid-cols-4">
             <WatchlistSummaryPill label="Shown" value={summary.total} variant="secondary" />
             <WatchlistSummaryPill label="Upcoming" value={summary.upcoming.length} variant={summary.upcoming.length ? "warning" : "outline"} />
-            <WatchlistSummaryPill label="Recent" value={summary.recent.length} variant="outline" />
             <WatchlistSummaryPill label="Manual" value={summary.manual} variant={summary.manual ? "success" : "outline"} />
             <WatchlistSummaryPill
               label="Reminders"
@@ -8910,13 +8917,13 @@ function WipesView({ api }: { api: ReturnType<typeof createApiClient> }) {
         </CardContent>
       </Card>
 
-      {mode === "calendar" ? (
+      {mode !== "records" ? (
         <Card>
           <CardHeader>
-            <CardTitle>Next 14 Days</CardTitle>
+            <CardTitle>{wipeCalendarTitle(mode)}</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-7">
+            <div className={wipeCalendarGridClass(mode)}>
               {days.map((day) => (
                 <div key={day.key} className="min-h-[132px] rounded-md border border-border bg-background/45 p-3">
                   <div className="mb-2 flex items-center justify-between gap-2">
@@ -8924,7 +8931,7 @@ function WipesView({ api }: { api: ReturnType<typeof createApiClient> }) {
                     <Badge variant={day.items.length ? "warning" : "outline"}>{day.items.length}</Badge>
                   </div>
                   <div className="grid gap-2">
-                    {day.items.slice(0, 3).map((wipe) => (
+                    {day.items.slice(0, calendarItemLimit).map((wipe) => (
                       <div key={wipe.id} className="rounded-md border border-border bg-background/50 p-2">
                         <div className="truncate text-xs font-medium">{compactText(wipe.server_name)}</div>
                         <div className="mt-1 flex flex-wrap gap-1">
@@ -8934,7 +8941,7 @@ function WipesView({ api }: { api: ReturnType<typeof createApiClient> }) {
                       </div>
                     ))}
                     {!day.items.length ? <div className="text-xs text-muted-foreground">No wipes</div> : null}
-                    {day.items.length > 3 ? <div className="text-xs text-muted-foreground">+{day.items.length - 3} more</div> : null}
+                    {day.items.length > calendarItemLimit ? <div className="text-xs text-muted-foreground">+{day.items.length - calendarItemLimit} more</div> : null}
                   </div>
                 </div>
               ))}
