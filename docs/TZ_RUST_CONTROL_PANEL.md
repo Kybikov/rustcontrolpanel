@@ -617,6 +617,7 @@ Schema: `rustcontrol`.
 - The Oxide/uMod plugin streams `online_snapshot`, `team_snapshot`, connect/disconnect, death/combat relations, and optional chat events into `POST /webhooks/rustcontrol/:workspace_id/events`.
 - Server Detail Activity now exposes plugin chat, command usage, and RCON/admin moderation events in one collapsed Chat And Commands slice with counts, local search, and kind filters while keeping the full activity feed as the source of truth.
 - The Oxide/uMod plugin now emits `command_usage` plus ban/kick/unban moderation events, with player command auditing enabled by default, server-console command auditing behind an explicit config flag, and sensitive command parts redacted before webhook delivery.
+- Plugin ingest now persists map name, seed, size, and plugin map signature from realtime snapshots into tracked server facts and `rustcontrol.server_maps`, so Server Map metadata is populated even before BattleMetrics/RustMaps enrichment runs.
 - The Oxide/uMod plugin can emit `wipe_detected`; backend materializes those events into `rustcontrol.server_wipes` and updates tracked server `last_wipe_at` for Wipe Calendar/server detail views.
 - Wipe Calendar supports manual wipe overrides for tracked servers; backend stores them as `manual` `server_wipes`, updates tracked server `last_wipe_at`, and writes an audit activity event.
 - Global Wipe Calendar now supports server/type filters, day/week/month calendar modes, records mode, compact operational counters, and backend query filtering on `/api/admin/rustcontrol/wipes`.

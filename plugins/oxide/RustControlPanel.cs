@@ -10,7 +10,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("RustControlPanel", "WaterMelon", "0.1.2")]
+    [Info("RustControlPanel", "WaterMelon", "0.1.3")]
     [Description("Streams Rust player, team, combat, command, and moderation telemetry into Rust Control Panel.")]
     public class RustControlPanel : RustPlugin
     {
@@ -553,14 +553,31 @@ namespace Oxide.Plugins
 
         private ServerSnapshot BuildServer()
         {
+            var mapName = ConVar.Server.level ?? "";
+            var mapSize = ConVar.Server.worldsize > 0 ? ConVar.Server.worldsize : Mathf.RoundToInt(TerrainMeta.Size.x);
+            var mapSeed = ConVar.Server.seed;
             return new ServerSnapshot
             {
                 BattleMetricsServerId = _config.BattleMetricsServerId,
                 Name = string.IsNullOrEmpty(_config.ServerName) ? ConVar.Server.hostname : _config.ServerName,
                 IP = ConVar.Server.ip,
                 Port = ConVar.Server.port,
-                Status = "online"
+                Status = "online",
+                RustMap = mapName,
+                RustWorldSeed = mapSeed,
+                RustWorldSize = mapSize,
+                MapHash = BuildPluginMapHash(mapName, mapSeed, mapSize)
             };
+        }
+
+        private string BuildPluginMapHash(string mapName, int seed, int size)
+        {
+            var normalizedMap = string.IsNullOrWhiteSpace(mapName) ? "unknown" : mapName.Trim().ToLowerInvariant();
+            if (seed <= 0 && size <= 0 && normalizedMap == "unknown")
+            {
+                return "";
+            }
+            return $"plugin:{normalizedMap}:seed:{seed}:size:{size}";
         }
 
         private PlayerSnapshot BuildPlayer(BasePlayer player, bool online)
@@ -732,6 +749,18 @@ namespace Oxide.Plugins
 
             [JsonProperty("status")]
             public string Status;
+
+            [JsonProperty("rust_map")]
+            public string RustMap;
+
+            [JsonProperty("rust_world_seed")]
+            public int RustWorldSeed;
+
+            [JsonProperty("rust_world_size")]
+            public int RustWorldSize;
+
+            [JsonProperty("map_hash")]
+            public string MapHash;
         }
 
         private class PlayerSnapshot

@@ -82,7 +82,7 @@ rustcontrol.wipe map_wipe
 
 The plugin streams:
 
-- `online_snapshot` with current online players, positions, health, sleeping state, map grid;
+- `online_snapshot` as the server heartbeat, with current online players, positions, health, sleeping state, map grid, map name, world seed, world size, and a stable plugin map signature;
 - `team_snapshot` with live Rust team members;
 - `player_connected` and `player_disconnected`;
 - `player_death` with attacker/victim combat relation;
@@ -92,6 +92,8 @@ The plugin streams:
 - optional `player_chat` events when enabled in config.
 
 Server-console command usage is disabled by default to keep the feed clean. Enable `send_server_command_events` only when you need full console/RCON command auditing from the plugin side; backend-managed RCON actions are already audited by the panel.
+
+The plugin `map_hash` is a stable `plugin:<map>:seed:<seed>:size:<size>` signature used by Rust Control Panel for local map history. BattleMetrics/RustMaps sync can later replace it with external RustMaps image/hash metadata when available.
 
 ## Local HMAC smoke test
 
