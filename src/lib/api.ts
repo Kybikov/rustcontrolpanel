@@ -191,6 +191,15 @@ export type WatchlistQuery = {
   per_page?: string;
 };
 
+export type LivePlayersQuery = {
+  q?: string;
+  search?: string;
+  battlemetrics_server_id?: string;
+  online?: string;
+  page?: string;
+  per_page?: string;
+};
+
 export type RustAlertItem = {
   alert_type: string;
   severity: "critical" | "warning" | "info" | string;
@@ -968,7 +977,7 @@ export function createApiClient(baseUrl: string, token?: string) {
     livePlayers() {
       return request<{ items: LivePlayer[]; source_status: string }>("/api/admin/rustcontrol/live/players");
     },
-    livePlayersPage(query?: { battlemetrics_server_id?: string; online?: string; page?: string; per_page?: string }) {
+    livePlayersPage(query?: LivePlayersQuery) {
       return requestList<LivePlayer>(withQuery("/api/admin/rustcontrol/live/players", query));
     },
     myLiveContext() {

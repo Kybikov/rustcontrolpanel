@@ -635,3 +635,5 @@ Schema: `rustcontrol`.
 - Global Activity now uses backend pagination metadata with 50-row pages, page status, refresh, Prev/Next controls, and a short feed timeout, so filtered investigation logs are not limited to the first loaded batch or stuck in indefinite loading when the local backend is offline.
 - Servers and Wipe Calendar now keep backend pagination metadata for tracked servers, wipe records, and active wipe reminders, with compact page status/refresh/Prev/Next controls so filtered operational lists no longer show a first page as if it were complete.
 - Watchlist filters now run on the backend (`q`, `risk_level`, `live`, pagination) and return total/online/hostile/suspect/watch stats for the filtered set, so the UI no longer searches or counts only the currently loaded page.
+
+- Live players feed now supports backend `q/search`, pagination metadata, and filtered stats (`total`, `online`, `positioned`, `servers`); Live Control explicitly requests a 100-row live feed and removes duplicated radar/counter blocks from the main roster surface.

@@ -38,6 +38,7 @@ import {
   type IntegrationProvider,
   type IntegrationStatus,
   type LivePlayer,
+  type LivePlayersQuery,
   type MyLiveContext,
   type PlayerAlias,
   type PlayerDossier,
@@ -760,8 +761,9 @@ function LiveView({ api, onOpenPlayer }: { api: ReturnType<typeof createApiClien
   const queryClient = useQueryClient();
   const [selectedServerKey, setSelectedServerKey] = useState("");
   const [steamConnectQuery, setSteamConnectQuery] = useState("");
+  const livePlayersQuery = useMemo<LivePlayersQuery>(() => ({ online: "true", page: "1", per_page: "100" }), []);
   const myContext = useQuery({ queryKey: ["myLiveContext"], queryFn: api.myLiveContext, refetchInterval: 5_000 });
-  const livePlayers = useQuery({ queryKey: ["livePlayers"], queryFn: api.livePlayers, refetchInterval: 5_000 });
+  const livePlayers = useQuery({ queryKey: ["livePlayers", livePlayersQuery], queryFn: () => api.livePlayersPage(livePlayersQuery), refetchInterval: 5_000 });
   const alerts = useQuery({ queryKey: ["rustAlerts"], queryFn: api.alerts, refetchInterval: 5_000 });
   const health = useQuery({ queryKey: ["realtimeHealth"], queryFn: api.realtimeHealth, refetchInterval: 5_000 });
   const connectSteam = useMutation({
@@ -1175,7 +1177,6 @@ function LiveMap({
     });
   const focusGrid = focusItem?.live_player.map_grid ?? "";
   const rows = allRows.filter((row) => liveMapFilterMatches(row, signalFilter, focusGrid) && liveMapSearchMatches(row.item, searchText));
-  const mapStats = liveMapStats(allRows, rows, focusGrid);
 
   if (!positioned.length) {
     return <EmptyState label={`${items.length} live players, no realtime positions yet`} />;
@@ -1185,18 +1186,8 @@ function LiveMap({
     <div className="grid gap-3">
       <div className="rounded-md border border-border bg-background/45 p-3">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <div className="text-sm font-medium">Map Hunt</div>
-            <div className="text-xs text-muted-foreground">Search live positions by identity, team, grid, source, or risk</div>
-          </div>
+          <div className="text-sm font-medium">Map Hunt</div>
           <Badge variant="outline">{rows.length} / {allRows.length} shown</Badge>
-        </div>
-        <div className="mb-3 flex flex-wrap gap-2">
-          <WatchlistSummaryPill label="Watched" value={mapStats.watched} variant={mapStats.watched ? "danger" : "outline"} />
-          <WatchlistSummaryPill label="Team" value={mapStats.team} variant={mapStats.team ? "success" : "outline"} />
-          <WatchlistSummaryPill label="150m" value={mapStats.near150} variant={mapStats.near150 ? "warning" : "outline"} />
-          <WatchlistSummaryPill label="Same grid" value={mapStats.sameGrid} variant={mapStats.sameGrid ? "warning" : "outline"} />
-          <WatchlistSummaryPill label="Shown" value={mapStats.shown} variant="outline" />
         </div>
         <div className="grid gap-2 xl:grid-cols-[1fr_auto]">
           <Input
@@ -1321,23 +1312,6 @@ function LiveMap({
       </div>
     </div>
   );
-}
-
-function liveMapStats(
-  allRows: Array<{ item: ServerLivePlayerItem; isMe: boolean; isTeammate: boolean; distance?: number }>,
-  shownRows: Array<{ item: ServerLivePlayerItem; isTeammate: boolean }>,
-  focusGrid: string,
-) {
-  return {
-    positioned: allRows.length,
-    watched: allRows.filter((row) => row.item.watch?.watched).length,
-    team: allRows.filter((row) => row.isTeammate).length,
-    near150: allRows.filter((row) => !row.isMe && typeof row.distance === "number" && row.distance <= 150).length,
-    near400: allRows.filter((row) => !row.isMe && typeof row.distance === "number" && row.distance <= 400).length,
-    sameGrid: allRows.filter((row) => !row.isMe && focusGrid && row.item.live_player.map_grid === focusGrid).length,
-    online: allRows.filter((row) => row.item.live_player.is_online).length,
-    shown: shownRows.length,
-  };
 }
 
 function liveMapFilterMatches(
@@ -4931,20 +4905,6 @@ function watchlistStatsFromResult(stats: Record<string, number> | undefined, fal
   };
 }
 
-function rosterStats(items: ServerLivePlayerItem[]) {
-  return items.reduce(
-    (acc, item) => {
-      if (item.live_player.is_online) acc.online += 1;
-      if (item.watch?.watched) acc.watched += 1;
-      if (item.watch?.risk_level === "hostile") acc.hostile += 1;
-      if (item.watch?.risk_level === "suspect") acc.suspect += 1;
-      if (hasMapPosition(item.live_player)) acc.positioned += 1;
-      return acc;
-    },
-    { online: 0, watched: 0, hostile: 0, suspect: 0, positioned: 0 },
-  );
-}
-
 function rosterTeamOptions(items: ServerLivePlayerItem[]) {
   const byTeam = new Map<string, { id: string; label: string; count: number }>();
   for (const item of items) {
@@ -5413,7 +5373,6 @@ function ServerContextPanel({
   const watched = (context?.watched_players ?? []).filter(hasLivePlayerItem);
   const teams = context?.team_clusters ?? [];
   const activity = context?.activity ?? [];
-  const rosterStatsValue = useMemo(() => rosterStats(liveItems), [liveItems]);
   const teamOptions = useMemo(() => rosterTeamOptions(liveItems), [liveItems]);
   const filteredRoster = useMemo(
     () =>
@@ -5512,7 +5471,6 @@ function ServerContextPanel({
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <div>
               <div className="text-sm font-medium">Team Clusters</div>
-              <div className="text-xs text-muted-foreground">Grouped by realtime team id and sorted by threat</div>
             </div>
             <Badge variant={teams.some((team) => isHighRiskTeam(team)) ? "danger" : "outline"}>
               {teams.filter((team) => isHighRiskTeam(team)).length} high risk
@@ -5563,46 +5521,13 @@ function ServerContextPanel({
         </div>
       ) : null}
 
-      {liveItems.length ? (
-        <div className="rounded-md border border-border bg-background/45 p-3">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <div className="text-sm font-medium">Server Position Radar</div>
-              <div className="text-xs text-muted-foreground">Realtime positions with watch/promote actions</div>
-            </div>
-            <Badge variant={liveItems.some((item) => hasMapPosition(item.live_player)) ? "success" : "outline"}>
-              {liveItems.filter((item) => hasMapPosition(item.live_player)).length} positioned
-            </Badge>
-          </div>
-          <LiveMap
-            items={liveItems}
-            teammateSteamIds={[]}
-            onOpenPlayer={onOpenPlayer}
-            onOpenOrPromote={openOrPromote}
-            onWatch={watchFromRoster}
-            canAct={hasActionIdentity}
-            busy={actionBusy}
-          />
-        </div>
-      ) : null}
-
       <div className="rounded-md border border-border bg-background/45 p-3">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <div className="text-sm font-medium">Live Server Roster</div>
-            <div className="text-xs text-muted-foreground">Search, filter and flag players from the current server feed</div>
-          </div>
+          <div className="text-sm font-medium">Live Server Roster</div>
           <div className="flex items-center gap-2 rounded-md border border-border bg-background/45 px-3 py-2 text-sm text-muted-foreground">
             <SlidersHorizontal className="h-4 w-4" />
             <span>{filteredRoster.length} / {liveItems.length} shown</span>
           </div>
-        </div>
-        <div className="mb-3 grid gap-2 md:grid-cols-2 xl:grid-cols-5">
-          <WatchlistSummaryPill label="Online" value={rosterStatsValue.online} variant="success" />
-          <WatchlistSummaryPill label="Watched" value={rosterStatsValue.watched} variant={rosterStatsValue.watched ? "danger" : "outline"} />
-          <WatchlistSummaryPill label="Hostile" value={rosterStatsValue.hostile} variant={rosterStatsValue.hostile ? "danger" : "outline"} />
-          <WatchlistSummaryPill label="Suspect" value={rosterStatsValue.suspect} variant={rosterStatsValue.suspect ? "warning" : "outline"} />
-          <WatchlistSummaryPill label="Positioned" value={rosterStatsValue.positioned} variant={rosterStatsValue.positioned ? "success" : "outline"} />
         </div>
         <div className="mb-3 grid gap-2 xl:grid-cols-[1fr_auto]">
           <Input
@@ -5664,8 +5589,7 @@ function ServerContextPanel({
       {actionError ? <StatusLine tone="bad" text={actionError.message} /> : null}
 
       {activity.length ? (
-        <div className="rounded-md border border-border bg-background/45 p-3">
-          <div className="mb-2 text-sm font-medium">Recent Server Activity</div>
+        <DetailsBlock summary="Recent server activity">
           <div className="grid max-h-[220px] gap-2 overflow-auto">
             {activity.slice(0, 8).map((event) => (
               <div key={String(event.id)} className="grid grid-cols-[145px_100px_1fr] gap-2 border-b border-border pb-2 last:border-0 last:pb-0">
@@ -5675,7 +5599,7 @@ function ServerContextPanel({
               </div>
             ))}
           </div>
-        </div>
+        </DetailsBlock>
       ) : null}
     </div>
   );
