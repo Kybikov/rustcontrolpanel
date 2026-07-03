@@ -5212,8 +5212,8 @@ function wipeCalendarDays(wipes: ServerWipe[], length = 14) {
 
 function mapEventVariant(value: unknown): BadgeVariant {
   const type = stringFromUnknown(value).toLowerCase();
-  if (["combat", "raid", "heli", "bradley"].includes(type)) return "warning";
-  if (["wipe", "cargo", "chinook"].includes(type)) return "secondary";
+  if (["combat", "raid", "heli", "bradley", "locked_crate"].includes(type)) return "warning";
+  if (["wipe", "cargo", "chinook", "airdrop"].includes(type)) return "secondary";
   return "outline";
 }
 
@@ -7406,7 +7406,8 @@ function mapOverlayMarkerClass(marker: MapOverlayMarker) {
     if (marker.variant === "hostile" || marker.variant === "suspect" || marker.variant === "watch") return "h-4 w-4 bg-destructive ring-4 ring-destructive/25";
     return "h-3.5 w-3.5 bg-primary ring-4 ring-primary/20";
   }
-  if (["raid", "combat", "heli", "bradley"].includes(String(marker.variant ?? "").toLowerCase())) return "h-3.5 w-3.5 bg-amber-300 ring-4 ring-amber-300/20";
+  if (["raid", "combat", "heli", "bradley", "locked_crate"].includes(String(marker.variant ?? "").toLowerCase())) return "h-3.5 w-3.5 bg-amber-300 ring-4 ring-amber-300/20";
+  if (["cargo", "chinook", "airdrop"].includes(String(marker.variant ?? "").toLowerCase())) return "h-3.5 w-3.5 bg-sky-300 ring-4 ring-sky-300/20";
   return "h-3 w-3 bg-secondary ring-4 ring-secondary/20";
 }
 
