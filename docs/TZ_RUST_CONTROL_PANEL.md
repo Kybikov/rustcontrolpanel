@@ -365,6 +365,7 @@ Unified event stream:
 - `GET /api/admin/rustcontrol/players/:id/server-history`;
 - `GET /api/admin/rustcontrol/players/:id/position-trail`;
 - `GET /api/admin/rustcontrol/players/:id/team-probability`;
+- `POST /api/admin/rustcontrol/players/:id/team-probability/recalculate`;
 - `GET /api/admin/rustcontrol/activity`;
 - `GET /api/admin/rustcontrol/wipes`;
 - `GET /api/admin/rustcontrol/integrations`;
@@ -556,7 +557,9 @@ Schema: `rustcontrol`.
 - `GET /api/admin/rustcontrol/players?q=...` now returns `live_items` from realtime roster rows in addition to BattleMetrics and local alias matches.
 - Player Intelligence now includes Live Search Results with `Promote`, `Intel`, and direct `Watch` actions, so an operator can search current/recent live players before a local profile already exists.
 - `GET /api/admin/rustcontrol/players/:id/sessions` now caches BattleMetrics sessions into `rustcontrol.player_sessions` and recalculates `battlemetrics_overlap` team edges for known players with overlapping sessions on the same server.
+- `POST /api/admin/rustcontrol/players/:id/team-probability/recalculate` rebuilds cached BattleMetrics overlap edges for a local player and writes a `team_probability_recalculated` activity event.
 - Player Intelligence now includes a visible BattleMetrics Session Sync panel with BM id, API/source status, fetched/cached session counts, overlap edge updates, last loaded age, backend message, and a manual `Sync` action.
+- Player Intelligence keeps manual team probability recalculation inside the collapsed relations details, with only a compact result counter after recalculation.
 - Steam/BattleMetrics/plugin/session names are stored as `rustcontrol.player_aliases`; player search now returns local alias matches alongside BattleMetrics results.
 - Player Intelligence now includes an Alias History panel with alias source counts, first/last seen timestamps, and relative last-seen age for identity tracking.
 - `rustcontrol.player_flags` stores operator watchlist state: watched flag, risk level, reason, note, labels, and audit fields.

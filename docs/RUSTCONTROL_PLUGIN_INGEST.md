@@ -222,6 +222,7 @@ The frontend reads this through:
 - `POST /api/admin/rustcontrol/players/:id/notes`;
 - `PUT /api/admin/rustcontrol/players/:id/watch`;
 - `GET /api/admin/rustcontrol/players/:id/team-probability`;
+- `POST /api/admin/rustcontrol/players/:id/team-probability/recalculate`;
 - `GET /api/admin/rustcontrol/players/:id/team-evidence`.
 
 `GET /api/admin/rustcontrol/players/:id/intel` is the one-shot operator view for a resolved local player id. It returns the local profile, latest live player record, `live_status` freshness (`ok`, `recent`, `stale`, `silent`, or `no_live`), current server, realtime teammates, likely teammates, raw team evidence, recent sessions, and recent activity. When the target is currently live on a server, it also returns `realtime_context` and `nearby_players`: current-server roster counts, watched players on that server, same-grid players, current team members, distance-to-target, and proximity status for positioned players.
@@ -289,6 +290,7 @@ BattleMetrics session sync:
 - `GET /api/admin/rustcontrol/players/:id/sessions` fetches BattleMetrics sessions and caches usable rows in `rustcontrol.player_sessions`;
 - cached sessions are matched by local player, BattleMetrics player id, BattleMetrics server id, and start time;
 - after sync, the backend recalculates `battlemetrics_overlap` team edges against other known local players;
+- `POST /api/admin/rustcontrol/players/:id/team-probability/recalculate` rebuilds cached `battlemetrics_overlap` edges for the local player without calling BattleMetrics again and records a `team_probability_recalculated` activity event;
 - overlap scoring is capped below plugin-confirmed team evidence and is shown as a reason in the player intel probability table.
 - Player Intelligence renders a visible BattleMetrics Session Sync panel with the selected BM player id, API/source status, fetched session count, cached session count, updated overlap edge count, last loaded age, backend message, and a manual `Sync` action.
 

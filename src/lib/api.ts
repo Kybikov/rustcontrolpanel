@@ -563,6 +563,19 @@ export type TeamProbability = {
   calculated_at?: string;
 };
 
+export type TeamProbabilityResult = {
+  items: TeamProbability[];
+  source_status: string;
+  required_sources?: string[];
+};
+
+export type TeamProbabilityRecalculateResult = TeamProbabilityResult & {
+  cached_sessions?: number;
+  battlemetrics_overlap_edges_deleted?: number;
+  overlap_edges_updated?: number;
+  recalculated_at?: string;
+};
+
 export type PlayerIntelDetail = {
   player: PlayerIntel & {
     visibility_state?: number | null;
@@ -1018,9 +1031,12 @@ export function createApiClient(baseUrl: string, token?: string) {
       );
     },
     teamProbability(id: string) {
-      return request<{ items: TeamProbability[]; source_status: string; required_sources?: string[] }>(
-        `/api/admin/rustcontrol/players/${encodeURIComponent(id)}/team-probability`,
-      );
+      return request<TeamProbabilityResult>(`/api/admin/rustcontrol/players/${encodeURIComponent(id)}/team-probability`);
+    },
+    recalculateTeamProbability(id: string) {
+      return request<TeamProbabilityRecalculateResult>(`/api/admin/rustcontrol/players/${encodeURIComponent(id)}/team-probability/recalculate`, {
+        method: "POST",
+      });
     },
     livePlayers() {
       return request<{ items: LivePlayer[]; source_status: string }>("/api/admin/rustcontrol/live/players");

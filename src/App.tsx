@@ -75,6 +75,7 @@ import {
   type SyncRun,
   type SyncRunsQuery,
   type TeamProbability,
+  type TeamProbabilityRecalculateResult,
   type WatchlistItem,
   type WatchlistQuery,
   type WipeReminder,
@@ -2051,6 +2052,14 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
       }),
     onSuccess: (_watch, variables) => invalidatePlayerSearchState(variables.playerId),
   });
+  const recalculateTeamProbability = useMutation({
+    mutationFn: () => {
+      if (!localPlayerId) throw new Error("Select a local player first");
+      return api.recalculateTeamProbability(localPlayerId);
+    },
+    onSuccess: () => invalidateCurrentPlayerContext(),
+  });
+  const displayedLikelyTeammates = recalculateTeamProbability.data?.items ?? likelyTeammates;
 
   function invalidatePlayerSearchState(playerId?: string) {
     queryClient.invalidateQueries({ queryKey: ["rustAlerts"] });
@@ -2187,8 +2196,14 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
       </Card>
 
       {connect.data ? <StatusLine tone="ok" text={`Steam connected: ${compactText(connect.data.steam_id)}`} /> : null}
-      {resolve.error || search.error || connect.error || promoteLiveSearch.error || watchLiveSearch.error ? (
-        <StatusLine tone="bad" text={(resolve.error ?? search.error ?? connect.error ?? promoteLiveSearch.error ?? watchLiveSearch.error)?.message ?? "Request failed"} />
+      {resolve.error || search.error || connect.error || promoteLiveSearch.error || watchLiveSearch.error || recalculateTeamProbability.error ? (
+        <StatusLine
+          tone="bad"
+          text={
+            (resolve.error ?? search.error ?? connect.error ?? promoteLiveSearch.error ?? watchLiveSearch.error ?? recalculateTeamProbability.error)?.message ??
+            "Request failed"
+          }
+        />
       ) : null}
       {resolve.data?.local_player ? (
         <StatusLine tone="ok" text={`Local intel profile: ${compactText(resolve.data.local_player.display_name ?? resolve.data.local_player.id)}`} />
@@ -2336,8 +2351,8 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
                 <Badge variant={dossier.data?.source_status === "ok" ? "success" : "outline"}>
                   dossier {compactText(dossier.data?.source_status ?? "-")}
                 </Badge>
-                <Badge variant={likelyTeammates.length ? "success" : "outline"}>
-                  probability {likelyTeammates.length}
+                <Badge variant={displayedLikelyTeammates.length ? "success" : "outline"}>
+                  probability {displayedLikelyTeammates.length}
                 </Badge>
                 <Badge variant={teamEvidence.length ? "success" : "outline"}>
                   evidence {teamEvidence.length}
@@ -2416,7 +2431,12 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
               <PlayerNetworkPanel api={api} data={network.data} loading={network.isFetching} onOpenPlayer={selectLocalPlayer} onChanged={invalidateCurrentPlayerContext} />
               <DetailsBlock summary="Team probability and evidence details">
                 <div className="grid gap-4 xl:grid-cols-2">
-                  <TeamProbabilityTable items={likelyTeammates} />
+                  <TeamProbabilityTable
+                    items={displayedLikelyTeammates}
+                    busy={recalculateTeamProbability.isPending}
+                    result={recalculateTeamProbability.data}
+                    onRecalculate={localPlayerId ? () => recalculateTeamProbability.mutate() : undefined}
+                  />
                   <TeamEvidenceTable items={teamEvidence} />
                 </div>
               </DetailsBlock>
@@ -4373,37 +4393,65 @@ function TimelineRow({ item }: { item: PlayerTimelineItem }) {
   );
 }
 
-function TeamProbabilityTable({ items }: { items: TeamProbability[] }) {
+function TeamProbabilityTable({
+  items,
+  busy,
+  result,
+  onRecalculate,
+}: {
+  items: TeamProbability[];
+  busy?: boolean;
+  result?: TeamProbabilityRecalculateResult;
+  onRecalculate?: () => void;
+}) {
   return (
-    <div className="overflow-auto rounded-md border border-border">
-      <Table>
-        <thead>
-          <tr>
-            <Th>Likely teammate</Th>
-            <Th>Score</Th>
-            <Th>Source</Th>
-            <Th>Updated</Th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((item) => (
-            <tr key={item.player.id ?? item.player.steam_id ?? item.player.battlemetrics_player_id}>
-              <Td>
-                <div className="font-medium">{compactText(item.player.display_name ?? item.player.name)}</div>
-                <div className="text-xs text-muted-foreground">{compactText(item.player.steam_id ?? item.player.battlemetrics_player_id)}</div>
-              </Td>
-              <Td>
-                <Badge variant={item.score >= 70 ? "danger" : item.score >= 40 ? "warning" : "outline"}>{item.score}%</Badge>
-              </Td>
-              <Td>
-                <div>{compactText(item.source)}</div>
-                <div className="max-w-[320px] truncate text-xs text-muted-foreground">{reasonSummary(item.reasons)}</div>
-              </Td>
-              <Td>{formatDateTime(item.calculated_at)}</Td>
+    <div className="rounded-md border border-border">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
+        <div className="min-w-0">
+          <div className="text-sm font-medium">Team Probability</div>
+          {result ? (
+            <div className="truncate text-xs text-muted-foreground">
+              sessions {compactText(result.cached_sessions)} / edges {compactText(result.overlap_edges_updated)}
+            </div>
+          ) : null}
+        </div>
+        {onRecalculate ? (
+          <Button size="sm" variant="secondary" onClick={onRecalculate} disabled={busy}>
+            <RefreshCw className={`h-4 w-4 ${busy ? "animate-spin" : ""}`} />
+            Recalculate
+          </Button>
+        ) : null}
+      </div>
+      <div className="overflow-auto">
+        <Table>
+          <thead>
+            <tr>
+              <Th>Likely teammate</Th>
+              <Th>Score</Th>
+              <Th>Source</Th>
+              <Th>Updated</Th>
             </tr>
-          ))}
-        </tbody>
-      </Table>
+          </thead>
+          <tbody>
+            {items.map((item) => (
+              <tr key={item.player.id ?? item.player.steam_id ?? item.player.battlemetrics_player_id}>
+                <Td>
+                  <div className="font-medium">{compactText(item.player.display_name ?? item.player.name)}</div>
+                  <div className="text-xs text-muted-foreground">{compactText(item.player.steam_id ?? item.player.battlemetrics_player_id)}</div>
+                </Td>
+                <Td>
+                  <Badge variant={item.score >= 70 ? "danger" : item.score >= 40 ? "warning" : "outline"}>{item.score}%</Badge>
+                </Td>
+                <Td>
+                  <div>{compactText(item.source)}</div>
+                  <div className="max-w-[320px] truncate text-xs text-muted-foreground">{reasonSummary(item.reasons)}</div>
+                </Td>
+                <Td>{formatDateTime(item.calculated_at)}</Td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+      </div>
       {!items.length ? <EmptyState label="No team probability yet" /> : null}
     </div>
   );
