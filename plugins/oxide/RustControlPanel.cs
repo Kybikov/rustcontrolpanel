@@ -10,12 +10,13 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("RustControlPanel", "WaterMelon", "0.1.3")]
+    [Info("RustControlPanel", "WaterMelon", "0.1.4")]
     [Description("Streams Rust player, team, combat, command, and moderation telemetry into Rust Control Panel.")]
     public class RustControlPanel : RustPlugin
     {
         private PluginConfig _config;
         private Timer _snapshotTimer;
+        private readonly Dictionary<string, float> _raidEventTimes = new Dictionary<string, float>();
 
         private class PluginConfig
         {
@@ -66,6 +67,12 @@ namespace Oxide.Plugins
 
             [JsonProperty("send_death_events")]
             public bool SendDeathEvents = true;
+
+            [JsonProperty("send_raid_events")]
+            public bool SendRaidEvents = true;
+
+            [JsonProperty("raid_event_cooldown_seconds")]
+            public float RaidEventCooldownSeconds = 20f;
 
             [JsonProperty("send_wipe_events")]
             public bool SendWipeEvents = true;
@@ -184,6 +191,25 @@ namespace Oxide.Plugins
                     ["weapon"] = info?.WeaponPrefab?.ShortPrefabName ?? ""
                 }
             });
+        }
+
+        private object OnEntityTakeDamage(BaseCombatEntity entity, HitInfo info)
+        {
+            if (!_config.SendRaidEvents || entity == null || info == null || !IsRaidTarget(entity) || !IsRaidDamage(info))
+            {
+                return null;
+            }
+            SendRaidEvent("raid_activity", entity, info, "warning", false);
+            return null;
+        }
+
+        private void OnEntityDeath(BaseCombatEntity entity, HitInfo info)
+        {
+            if (!_config.SendRaidEvents || entity == null || info == null || !IsRaidTarget(entity) || !IsRaidDamage(info))
+            {
+                return;
+            }
+            SendRaidEvent("raid_destroyed", entity, info, "critical", true);
         }
 
         private void OnPlayerChat(BasePlayer player, string message)
@@ -404,6 +430,101 @@ namespace Oxide.Plugins
                 };
             }
             SendEvent(envelope);
+        }
+
+        private void SendRaidEvent(string eventType, BaseCombatEntity entity, HitInfo info, string severity, bool destroyed)
+        {
+            if (!destroyed && !ShouldEmitRaidEvent(entity, info))
+            {
+                return;
+            }
+
+            var position = entity.transform.position;
+            var attacker = info.InitiatorPlayer;
+            var target = EntityName(entity);
+            var weapon = info.WeaponPrefab?.ShortPrefabName ?? "";
+            var damageType = info.damageTypes?.GetMajorityDamageType().ToString() ?? "";
+            var payload = new Dictionary<string, object>
+            {
+                ["type"] = "raid",
+                ["title"] = destroyed ? "Raid target destroyed" : "Raid damage detected",
+                ["target_prefab"] = target,
+                ["target_owner_id"] = entity.OwnerID.ToString(),
+                ["damage_type"] = damageType,
+                ["weapon"] = weapon,
+                ["map_grid"] = WorldToGrid(position),
+                ["position"] = new PositionSnapshot { X = position.x, Y = position.y, Z = position.z },
+                ["destroyed"] = destroyed,
+                ["attacker_steam_id"] = attacker?.UserIDString ?? "",
+                ["attacker_name"] = attacker?.displayName ?? ""
+            };
+            var envelope = new EventEnvelope
+            {
+                EventType = eventType,
+                Severity = severity,
+                Source = "oxide-plugin",
+                Server = BuildServer(),
+                Payload = payload
+            };
+            if (attacker != null)
+            {
+                envelope.Player = BuildPlayer(attacker, true);
+                envelope.RelatedPlayers = RelatedTeamPlayers(attacker, envelope.Player.TeamId, "same_team_raid_context", "same live Rust team near raid damage", 12);
+            }
+            SendEvent(envelope);
+        }
+
+        private bool ShouldEmitRaidEvent(BaseCombatEntity entity, HitInfo info)
+        {
+            var position = entity.transform.position;
+            var attackerId = info.InitiatorPlayer?.UserIDString ?? "world";
+            var key = $"{WorldToGrid(position)}:{EntityName(entity)}:{attackerId}";
+            var now = Time.realtimeSinceStartup;
+            var cooldown = Math.Max(5f, _config.RaidEventCooldownSeconds);
+            if (_raidEventTimes.Count > 512)
+            {
+                foreach (var expired in _raidEventTimes.Where(pair => now - pair.Value > cooldown * 4f).Select(pair => pair.Key).ToList())
+                {
+                    _raidEventTimes.Remove(expired);
+                }
+            }
+            if (_raidEventTimes.TryGetValue(key, out var last) && now - last < cooldown)
+            {
+                return false;
+            }
+            _raidEventTimes[key] = now;
+            return true;
+        }
+
+        private bool IsRaidTarget(BaseCombatEntity entity)
+        {
+            var name = EntityName(entity);
+            if (name == "" || name.Contains("player") || name.Contains("corpse") || name.Contains("npc"))
+            {
+                return false;
+            }
+            return name.Contains("building") || name.Contains("foundation") || name.Contains("wall") || name.Contains("floor") ||
+                   name.Contains("roof") || name.Contains("door") || name.Contains("window") || name.Contains("shutter") ||
+                   name.Contains("gate") || name.Contains("external") || name.Contains("cupboard") || name.Contains("barricade") ||
+                   name.Contains("furnace") || name.Contains("locker") || name.Contains("box") || name.Contains("vending") ||
+                   name.Contains("turret") || name.Contains("sam_site") || name.Contains("deployable");
+        }
+
+        private bool IsRaidDamage(HitInfo info)
+        {
+            var damageType = info.damageTypes?.GetMajorityDamageType().ToString().ToLowerInvariant() ?? "";
+            var weapon = info.WeaponPrefab?.ShortPrefabName?.ToLowerInvariant() ?? "";
+            var initiator = info.Initiator?.ShortPrefabName?.ToLowerInvariant() ?? "";
+            return damageType.Contains("explosion") || damageType.Contains("heat") ||
+                   weapon.Contains("rocket") || weapon.Contains("explosive") || weapon.Contains("satchel") ||
+                   weapon.Contains("c4") || weapon.Contains("grenade") || weapon.Contains("beancan") || weapon.Contains("mlrs") ||
+                   initiator.Contains("rocket") || initiator.Contains("explosive") || initiator.Contains("satchel") ||
+                   initiator.Contains("c4") || initiator.Contains("grenade") || initiator.Contains("fireball");
+        }
+
+        private string EntityName(BaseEntity entity)
+        {
+            return ((entity?.ShortPrefabName ?? entity?.name ?? "")).ToLowerInvariant();
         }
 
         private Dictionary<string, object> BuildCommandPayload(string commandSource, BasePlayer player, string command, string[] args)

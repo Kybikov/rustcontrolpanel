@@ -68,6 +68,8 @@ Minimal config:
   "send_server_command_events": false,
   "send_admin_action_events": true,
   "send_death_events": true,
+  "send_raid_events": true,
+  "raid_event_cooldown_seconds": 20.0,
   "send_wipe_events": true
 }
 ```
@@ -86,6 +88,7 @@ The plugin streams:
 - `team_snapshot` with live Rust team members;
 - `player_connected` and `player_disconnected`;
 - `player_death` with attacker/victim combat relation;
+- `raid_activity` and `raid_destroyed` for explosive damage against likely base/raid targets, with map position/grid and per-target cooldown;
 - `command_usage` for player chat commands and player console commands, with sensitive command parts redacted and `action` set for ban/kick/mute/unban/unmute commands;
 - `player_kicked`, `player_banned`, and `player_unbanned` moderation events when admin action events are enabled;
 - `wipe_detected` when the server reports a new save/wipe;
