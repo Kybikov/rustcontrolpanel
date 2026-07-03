@@ -10,13 +10,14 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("RustControlPanel", "WaterMelon", "0.1.4")]
-    [Description("Streams Rust player, team, combat, command, and moderation telemetry into Rust Control Panel.")]
+    [Info("RustControlPanel", "WaterMelon", "0.1.5")]
+    [Description("Streams Rust player, team, combat, world, command, and moderation telemetry into Rust Control Panel.")]
     public class RustControlPanel : RustPlugin
     {
         private PluginConfig _config;
         private Timer _snapshotTimer;
         private readonly Dictionary<string, float> _raidEventTimes = new Dictionary<string, float>();
+        private readonly Dictionary<string, float> _worldEventTimes = new Dictionary<string, float>();
 
         private class PluginConfig
         {
@@ -73,6 +74,12 @@ namespace Oxide.Plugins
 
             [JsonProperty("raid_event_cooldown_seconds")]
             public float RaidEventCooldownSeconds = 20f;
+
+            [JsonProperty("send_world_events")]
+            public bool SendWorldEvents = true;
+
+            [JsonProperty("world_event_cooldown_seconds")]
+            public float WorldEventCooldownSeconds = 30f;
 
             [JsonProperty("send_wipe_events")]
             public bool SendWipeEvents = true;
@@ -205,11 +212,122 @@ namespace Oxide.Plugins
 
         private void OnEntityDeath(BaseCombatEntity entity, HitInfo info)
         {
+            if (_config.SendWorldEvents && entity != null)
+            {
+                SendWorldEntityDeath(entity, info);
+            }
+
             if (!_config.SendRaidEvents || entity == null || info == null || !IsRaidTarget(entity) || !IsRaidDamage(info))
             {
                 return;
             }
             SendRaidEvent("raid_destroyed", entity, info, "critical", true);
+        }
+
+        private void OnEntitySpawned(BaseNetworkable instance)
+        {
+            if (!_config.SendWorldEvents)
+            {
+                return;
+            }
+
+            var entity = instance as BaseEntity;
+            var kind = WorldEventKind(entity);
+            if (string.IsNullOrEmpty(kind))
+            {
+                return;
+            }
+
+            SendWorldEvent(
+                "world_entity_spawned",
+                kind,
+                WorldEventTitle(kind, "spawned"),
+                WorldEventSeverity(kind, false),
+                entity,
+                null,
+                new Dictionary<string, object> { ["phase"] = "spawned" },
+                true
+            );
+        }
+
+        private object OnPatrolHelicopterKill(PatrolHelicopter instance, HitInfo info)
+        {
+            if (_config.SendWorldEvents && instance != null)
+            {
+                SendWorldEvent(
+                    "world_entity_destroyed",
+                    "heli",
+                    "Patrol helicopter destroyed",
+                    "warning",
+                    instance,
+                    info?.InitiatorPlayer,
+                    new Dictionary<string, object>
+                    {
+                        ["phase"] = "destroyed",
+                        ["damage_type"] = info?.damageTypes?.GetMajorityDamageType().ToString() ?? "",
+                        ["weapon"] = info?.WeaponPrefab?.ShortPrefabName ?? ""
+                    },
+                    false
+                );
+            }
+            return null;
+        }
+
+        private object OnCargoShipSpawnCrate(CargoShip instance)
+        {
+            if (_config.SendWorldEvents && instance != null)
+            {
+                SendWorldEvent(
+                    "world_loot_spawned",
+                    "cargo",
+                    "Cargo ship loot spawned",
+                    "info",
+                    instance,
+                    null,
+                    new Dictionary<string, object> { ["phase"] = "loot_spawned" },
+                    true
+                );
+            }
+            return null;
+        }
+
+        private void OnCrateHack(HackableLockedCrate instance)
+        {
+            if (!_config.SendWorldEvents || instance == null)
+            {
+                return;
+            }
+
+            SendWorldEvent(
+                "world_crate_hacked",
+                "locked_crate",
+                "Locked crate hacking started",
+                "warning",
+                instance,
+                null,
+                new Dictionary<string, object> { ["phase"] = "hack_started" },
+                false
+            );
+        }
+
+        private void OnAirdrop(CargoPlane instance, Vector3 newDropPosition)
+        {
+            if (!_config.SendWorldEvents || instance == null)
+            {
+                return;
+            }
+
+            SendWorldEventAt(
+                "world_airdrop_inbound",
+                "airdrop",
+                "Airdrop inbound",
+                "info",
+                instance,
+                newDropPosition,
+                null,
+                new Dictionary<string, object> { ["phase"] = "inbound" },
+                true
+            );
         }
 
         private void OnPlayerChat(BasePlayer player, string message)
@@ -472,6 +590,189 @@ namespace Oxide.Plugins
                 envelope.RelatedPlayers = RelatedTeamPlayers(attacker, envelope.Player.TeamId, "same_team_raid_context", "same live Rust team near raid damage", 12);
             }
             SendEvent(envelope);
+        }
+
+        private void SendWorldEntityDeath(BaseCombatEntity entity, HitInfo info)
+        {
+            var kind = WorldEventKind(entity);
+            if (string.IsNullOrEmpty(kind))
+            {
+                return;
+            }
+
+            if (kind == "heli")
+            {
+                return;
+            }
+
+            SendWorldEvent(
+                "world_entity_destroyed",
+                kind,
+                WorldEventTitle(kind, "destroyed"),
+                WorldEventSeverity(kind, true),
+                entity,
+                info?.InitiatorPlayer,
+                new Dictionary<string, object>
+                {
+                    ["phase"] = "destroyed",
+                    ["damage_type"] = info?.damageTypes?.GetMajorityDamageType().ToString() ?? "",
+                    ["weapon"] = info?.WeaponPrefab?.ShortPrefabName ?? ""
+                },
+                false
+            );
+        }
+
+        private void SendWorldEvent(string eventType, string kind, string title, string severity, BaseEntity entity, BasePlayer actor, Dictionary<string, object> extra, bool useCooldown)
+        {
+            if (entity == null)
+            {
+                return;
+            }
+            SendWorldEventAt(eventType, kind, title, severity, entity, entity.transform.position, actor, extra, useCooldown);
+        }
+
+        private void SendWorldEventAt(string eventType, string kind, string title, string severity, BaseEntity entity, Vector3 position, BasePlayer actor, Dictionary<string, object> extra, bool useCooldown)
+        {
+            if (!_config.SendWorldEvents || entity == null || string.IsNullOrEmpty(kind))
+            {
+                return;
+            }
+            if (useCooldown && !ShouldEmitWorldEvent(eventType, kind, entity, position))
+            {
+                return;
+            }
+
+            var payload = new Dictionary<string, object>
+            {
+                ["type"] = kind,
+                ["title"] = title,
+                ["entity_prefab"] = EntityName(entity),
+                ["entity_id"] = entity.net?.ID.ToString() ?? "",
+                ["owner_id"] = entity.OwnerID.ToString(),
+                ["map_grid"] = WorldToGrid(position),
+                ["position"] = new PositionSnapshot { X = position.x, Y = position.y, Z = position.z }
+            };
+            if (extra != null)
+            {
+                foreach (var pair in extra)
+                {
+                    payload[pair.Key] = pair.Value;
+                }
+            }
+
+            var envelope = new EventEnvelope
+            {
+                EventType = eventType,
+                Severity = severity,
+                Source = "oxide-plugin",
+                Server = BuildServer(),
+                Payload = payload
+            };
+            if (actor != null)
+            {
+                envelope.Player = BuildPlayer(actor, true);
+                envelope.RelatedPlayers = RelatedTeamPlayers(actor, envelope.Player.TeamId, "same_team_world_event_context", "same live Rust team near world event", 10);
+            }
+            SendEvent(envelope);
+        }
+
+        private bool ShouldEmitWorldEvent(string eventType, string kind, BaseEntity entity, Vector3 position)
+        {
+            var key = $"{eventType}:{kind}:{EntityNetworkId(entity)}:{WorldToGrid(position)}";
+            var now = Time.realtimeSinceStartup;
+            var cooldown = Math.Max(5f, _config.WorldEventCooldownSeconds);
+            if (_worldEventTimes.Count > 512)
+            {
+                foreach (var expired in _worldEventTimes.Where(pair => now - pair.Value > cooldown * 4f).Select(pair => pair.Key).ToList())
+                {
+                    _worldEventTimes.Remove(expired);
+                }
+            }
+            if (_worldEventTimes.TryGetValue(key, out var last) && now - last < cooldown)
+            {
+                return false;
+            }
+            _worldEventTimes[key] = now;
+            return true;
+        }
+
+        private string EntityNetworkId(BaseEntity entity)
+        {
+            var value = entity?.net?.ID.ToString() ?? "";
+            if (!string.IsNullOrEmpty(value) && value != "0")
+            {
+                return value;
+            }
+            var position = entity?.transform.position ?? Vector3.zero;
+            return $"{EntityName(entity)}:{Mathf.RoundToInt(position.x)}:{Mathf.RoundToInt(position.z)}";
+        }
+
+        private string WorldEventKind(BaseEntity entity)
+        {
+            var name = EntityName(entity);
+            if (string.IsNullOrEmpty(name))
+            {
+                return "";
+            }
+            if (name.Contains("patrolhelicopter") || name.Contains("patrol_helicopter"))
+            {
+                return "heli";
+            }
+            if (name.Contains("bradleyapc") || name.Contains("bradley_apc") || name.Contains("bradley"))
+            {
+                return "bradley";
+            }
+            if (name.Contains("cargoship") || name.Contains("cargo_ship"))
+            {
+                return "cargo";
+            }
+            if (name.Contains("ch47") || name.Contains("chinook"))
+            {
+                return "chinook";
+            }
+            if (name.Contains("hackablelockedcrate") || name.Contains("lockedcrate") || name.Contains("locked_crate"))
+            {
+                return "locked_crate";
+            }
+            if (name.Contains("supply_drop") || name.Contains("supplydrop"))
+            {
+                return "airdrop";
+            }
+            return "";
+        }
+
+        private string WorldEventTitle(string kind, string phase)
+        {
+            switch (kind)
+            {
+                case "heli":
+                    return phase == "destroyed" ? "Patrol helicopter destroyed" : "Patrol helicopter spawned";
+                case "bradley":
+                    return phase == "destroyed" ? "Bradley APC destroyed" : "Bradley APC spawned";
+                case "cargo":
+                    return phase == "destroyed" ? "Cargo ship left map" : "Cargo ship spawned";
+                case "chinook":
+                    return phase == "destroyed" ? "Chinook destroyed" : "Chinook spawned";
+                case "locked_crate":
+                    return phase == "destroyed" ? "Locked crate removed" : "Locked crate spawned";
+                case "airdrop":
+                    return phase == "destroyed" ? "Airdrop removed" : "Airdrop spawned";
+                default:
+                    return $"World event {phase}";
+            }
+        }
+
+        private string WorldEventSeverity(string kind, bool destroyed)
+        {
+            if (destroyed && (kind == "heli" || kind == "bradley"))
+            {
+                return "warning";
+            }
+            if (kind == "locked_crate")
+            {
+                return "warning";
+            }
+            return "info";
         }
 
         private bool ShouldEmitRaidEvent(BaseCombatEntity entity, HitInfo info)

@@ -70,6 +70,8 @@ Minimal config:
   "send_death_events": true,
   "send_raid_events": true,
   "raid_event_cooldown_seconds": 20.0,
+  "send_world_events": true,
+  "world_event_cooldown_seconds": 30.0,
   "send_wipe_events": true
 }
 ```
@@ -89,12 +91,15 @@ The plugin streams:
 - `player_connected` and `player_disconnected`;
 - `player_death` with attacker/victim combat relation;
 - `raid_activity` and `raid_destroyed` for explosive damage against likely base/raid targets, with map position/grid and per-target cooldown;
+- `world_entity_spawned`, `world_entity_destroyed`, `world_loot_spawned`, `world_crate_hacked`, and `world_airdrop_inbound` for useful map events such as patrol helicopter, Bradley APC, cargo ship, Chinook, locked crate, and airdrop activity;
 - `command_usage` for player chat commands and player console commands, with sensitive command parts redacted and `action` set for ban/kick/mute/unban/unmute commands;
 - `player_kicked`, `player_banned`, and `player_unbanned` moderation events when admin action events are enabled;
 - `wipe_detected` when the server reports a new save/wipe;
 - optional `player_chat` events when enabled in config.
 
 Server-console command usage is disabled by default to keep the feed clean. Enable `send_server_command_events` only when you need full console/RCON command auditing from the plugin side; backend-managed RCON actions are already audited by the panel.
+
+World events are throttled by `world_event_cooldown_seconds` and include `type`, `title`, `position`, and `map_grid`, so Server Map can render them as compact recent map markers without adding another noisy primary widget.
 
 The plugin `map_hash` is a stable `plugin:<map>:seed:<seed>:size:<size>` signature used by Rust Control Panel for local map history. BattleMetrics/RustMaps sync can later replace it with external RustMaps image/hash metadata when available.
 
