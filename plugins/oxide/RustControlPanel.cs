@@ -10,7 +10,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("RustControlPanel", "WaterMelon", "0.1.5")]
+    [Info("RustControlPanel", "WaterMelon", "0.1.6")]
     [Description("Streams Rust player, team, combat, world, command, and moderation telemetry into Rust Control Panel.")]
     public class RustControlPanel : RustPlugin
     {
@@ -143,7 +143,8 @@ namespace Oxide.Plugins
             }
             SendPlayerEvent("player_connected", player, "info", new Dictionary<string, object>
             {
-                ["ip"] = player.net?.connection?.ipaddress ?? ""
+                ["connection_ip_hash"] = HashSensitiveValue(player.net?.connection?.ipaddress ?? ""),
+                ["connection_ip_present"] = !string.IsNullOrWhiteSpace(player.net?.connection?.ipaddress ?? "")
             });
         }
 
@@ -1111,6 +1112,16 @@ namespace Oxide.Plugins
                 var hash = hmac.ComputeHash(Encoding.UTF8.GetBytes(body));
                 return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
             }
+        }
+
+        private string HashSensitiveValue(string value)
+        {
+            value = (value ?? "").Trim();
+            if (string.IsNullOrEmpty(value) || string.IsNullOrWhiteSpace(_config?.WebhookSecret))
+            {
+                return "";
+            }
+            return HmacSha256(value, _config.WebhookSecret);
         }
 
         private string Truncate(string value, int max)

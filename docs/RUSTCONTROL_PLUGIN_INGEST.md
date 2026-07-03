@@ -88,7 +88,7 @@ The plugin streams:
 
 - `online_snapshot` as the server heartbeat, with current online players, positions, health, sleeping state, map grid, map name, world seed, world size, and a stable plugin map signature;
 - `team_snapshot` with live Rust team members;
-- `player_connected` and `player_disconnected`;
+- `player_connected` and `player_disconnected`; connect events include only `connection_ip_hash`/presence metadata, never the raw player IP;
 - `player_death` with attacker/victim combat relation;
 - `raid_activity` and `raid_destroyed` for explosive damage against likely base/raid targets, with map position/grid and per-target cooldown;
 - `world_entity_spawned`, `world_entity_destroyed`, `world_loot_spawned`, `world_crate_hacked`, and `world_airdrop_inbound` for useful map events such as patrol helicopter, Bradley APC, cargo ship, Chinook, locked crate, and airdrop activity;
