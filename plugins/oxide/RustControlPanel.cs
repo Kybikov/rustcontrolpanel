@@ -10,7 +10,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("RustControlPanel", "WaterMelon", "0.1.6")]
+    [Info("RustControlPanel", "WaterMelon", "0.1.7")]
     [Description("Streams Rust player, team, combat, world, command, and moderation telemetry into Rust Control Panel.")]
     public class RustControlPanel : RustPlugin
     {
@@ -62,6 +62,9 @@ namespace Oxide.Plugins
 
             [JsonProperty("send_admin_action_events")]
             public bool SendAdminActionEvents = true;
+
+            [JsonProperty("send_clan_events")]
+            public bool SendClanEvents = true;
 
             [JsonProperty("max_command_args")]
             public int MaxCommandArgs = 12;
@@ -401,6 +404,31 @@ namespace Oxide.Plugins
             SendAdminTargetEvent("player_unbanned", "unban", name, id, "", 0);
         }
 
+        private void OnClanCreated(LocalClan localClan, ulong leaderSteamId)
+        {
+            SendClanEvent("clan_created", "created", localClan, leaderSteamId, 0, "info");
+        }
+
+        private void OnClanDisbanded(LocalClan localClan, ulong bySteamId)
+        {
+            SendClanEvent("clan_disbanded", "disbanded", localClan, bySteamId, bySteamId, "warning");
+        }
+
+        private void OnClanMemberAdded(long clanId, ulong steamId)
+        {
+            SendClanEvent("clan_member_added", "member_added", clanId, steamId, 0, "info");
+        }
+
+        private void OnClanMemberLeft(LocalClan localClan, ulong steamId)
+        {
+            SendClanEvent("clan_member_left", "member_left", localClan, steamId, 0, "info");
+        }
+
+        private void OnClanMemberKicked(LocalClan localClan, ulong steamId, ulong bySteamId)
+        {
+            SendClanEvent("clan_member_kicked", "member_kicked", localClan, steamId, bySteamId, "warning");
+        }
+
         private void OnNewSave(string filename)
         {
             SendWipeEvent("map_wipe", filename, false);
@@ -546,6 +574,61 @@ namespace Oxide.Plugins
                     SteamId = id,
                     Name = name ?? "",
                     IsOnline = false
+                };
+            }
+            SendEvent(envelope);
+        }
+
+        private void SendClanEvent(string eventType, string action, LocalClan localClan, ulong steamId, ulong actorSteamId, string severity)
+        {
+            SendClanEvent(eventType, action, localClan?.ClanId ?? 0, steamId, actorSteamId, severity);
+        }
+
+        private void SendClanEvent(string eventType, string action, long clanId, ulong steamId, ulong actorSteamId, string severity)
+        {
+            if (!_config.SendClanEvents || clanId == 0)
+            {
+                return;
+            }
+
+            var member = BasePlayer.FindByID(steamId) ?? BasePlayer.FindSleeping(steamId);
+            var actor = actorSteamId != 0 ? BasePlayer.FindByID(actorSteamId) ?? BasePlayer.FindSleeping(actorSteamId) : null;
+            var payload = new Dictionary<string, object>
+            {
+                ["type"] = "clan",
+                ["action"] = action,
+                ["clan_id"] = clanId.ToString(),
+                ["steam_id"] = steamId.ToString(),
+                ["member_name"] = member?.displayName ?? "",
+                ["actor_steam_id"] = actorSteamId != 0 ? actorSteamId.ToString() : "",
+                ["actor_name"] = actor?.displayName ?? ""
+            };
+            var envelope = new EventEnvelope
+            {
+                EventType = eventType,
+                Severity = severity,
+                Source = "oxide-plugin",
+                Server = BuildServer(),
+                Payload = payload,
+                Player = member != null ? BuildPlayer(member, member.IsConnected) : new PlayerSnapshot
+                {
+                    SteamId = steamId.ToString(),
+                    Name = "",
+                    IsOnline = false
+                }
+            };
+            if (actorSteamId != 0 && actorSteamId != steamId)
+            {
+                envelope.RelatedPlayers = new List<RelatedPlayer>
+                {
+                    new RelatedPlayer
+                    {
+                        SteamId = actorSteamId.ToString(),
+                        Name = actor?.displayName ?? "",
+                        EvidenceType = "clan_action_actor",
+                        Reason = "performed clan membership action",
+                        ScoreDelta = 2
+                    }
                 };
             }
             SendEvent(envelope);
