@@ -148,6 +148,22 @@ test("server settings expose read-only rcon readiness test", async ({ page }) =>
       }),
     });
   });
+  await page.route(`${apiBaseUrl}/api/admin/rustcontrol/servers/smoke-server/snapshots**`, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          items: [
+            { id: "snap-3", players: 12, max_players: 100, rank: 210, status: "online", captured_at: "2026-07-03T12:10:00Z" },
+            { id: "snap-2", players: 7, max_players: 100, rank: 260, status: "online", captured_at: "2026-07-03T12:05:00Z" },
+            { id: "snap-1", players: 4, max_players: 100, rank: 320, status: "online", captured_at: "2026-07-03T12:00:00Z" },
+          ],
+          source_status: "ok",
+        },
+        meta: { total: 3, page: 1, per_page: 96, count: 3 },
+      }),
+    });
+  });
   await page.route(`${apiBaseUrl}/api/admin/rustcontrol/integrations/rcon/test`, async (route) => {
     await route.fulfill({
       contentType: "application/json",
@@ -169,6 +185,10 @@ test("server settings expose read-only rcon readiness test", async ({ page }) =>
 
   await page.goto("/servers/smoke-server");
   await expect(page.getByRole("heading", { name: "Server Detail" })).toBeVisible();
+  await page.getByRole("button", { name: "History" }).click();
+  await expect(page.getByTestId("server-history-chart")).toBeVisible();
+  await expect(page.getByText("12 / 100")).toBeVisible();
+  await expect(page.getByText("rank 210")).toBeVisible();
   await page.getByRole("button", { name: "Settings" }).click();
   await expect(page.getByRole("heading", { name: "Readiness" })).toBeVisible();
 

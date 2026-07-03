@@ -10,7 +10,8 @@ export default defineConfig({
         manualChunks(id) {
           if (!id.includes("node_modules")) return undefined;
           if (id.includes("lucide-react")) return "vendor-icons";
-          if (id.includes("react-dom") || id.includes("react-router-dom") || id.includes("react")) return "vendor-react";
+          if (id.includes("recharts") || id.includes("victory-vendor") || id.includes("react-smooth") || id.includes("react-is") || id.includes("\\d3-") || id.includes("/d3-")) return "vendor-charts";
+          if (id.includes("react-dom") || id.includes("react-router-dom") || id.includes("@remix-run") || id.includes("scheduler") || id.includes("react")) return "vendor-react";
           if (id.includes("@tanstack")) return "vendor-query";
           return "vendor";
         },

@@ -1,6 +1,7 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
+import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import {
   Activity,
   BarChart3,
@@ -4622,6 +4623,63 @@ function serverSnapshotSummary(snapshots: ServerSnapshot[], server?: ServerIntel
   };
 }
 
+type ServerHistoryChartPoint = {
+  id: string;
+  label: string;
+  capturedAt?: string;
+  players: number;
+  maxPlayers: number;
+  rank?: number | null;
+  status?: string;
+};
+
+function serverHistoryChartData(snapshots: ServerSnapshot[]): ServerHistoryChartPoint[] {
+  return [...snapshots]
+    .reverse()
+    .map((snapshot, index) => {
+      const capturedAt = snapshot.captured_at;
+      const time = dateMs(capturedAt);
+      const label = time
+        ? new Intl.DateTimeFormat("en-GB", { day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(new Date(time))
+        : String(index + 1);
+      return {
+        id: snapshot.id,
+        label,
+        capturedAt,
+        players: Number(snapshot.players ?? 0),
+        maxPlayers: Number(snapshot.max_players ?? 0),
+        rank: snapshot.rank ?? null,
+        status: snapshot.status,
+      };
+    });
+}
+
+function ServerHistoryTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: Array<{ name?: string; value?: unknown; color?: string; payload?: ServerHistoryChartPoint }>;
+}) {
+  if (!active || !payload?.length) return null;
+  const point = payload[0]?.payload;
+  return (
+    <div className="grid gap-1 rounded-md border border-border bg-background px-3 py-2 text-xs shadow-lg">
+      <div className="font-medium text-foreground">{formatDateTime(point?.capturedAt)}</div>
+      {payload.map((item) => {
+        const value = typeof item.value === "number" && Number.isFinite(item.value) ? formatNumber(item.value) : compactText(item.value);
+        return (
+          <div key={item.name} className="flex min-w-36 items-center justify-between gap-4 text-muted-foreground">
+            <span style={{ color: item.color }}>{compactText(item.name)}</span>
+            <span className="font-medium text-foreground">{value}</span>
+          </div>
+        );
+      })}
+      <div className="text-muted-foreground">status {compactText(point?.status)}</div>
+    </div>
+  );
+}
+
 function formatSignedNumber(value: number) {
   if (!Number.isFinite(value) || value === 0) return "0";
   return value > 0 ? `+${value}` : String(value);
@@ -6129,7 +6187,7 @@ function ServerDetailView({
   const [activeTab, setActiveTab] = useState<ServerDetailTab>("overview");
   const [snapshotPage, setSnapshotPage] = useState(1);
   const [wipePage, setWipePage] = useState(1);
-  const snapshotPerPage = 36;
+  const snapshotPerPage = 96;
   const wipePerPage = 25;
   const snapshotQuery = useMemo<ServerDetailListQuery>(
     () => ({ page: String(snapshotPage), per_page: String(snapshotPerPage) }),
@@ -6474,7 +6532,7 @@ function ServerHistoryTab({
 }) {
   const stats = serverSnapshotSummary(snapshots, server);
   const rows = [...snapshots].reverse();
-  const barMax = Math.max(1, server?.max_players ?? 0, ...snapshots.map((snapshot) => Number(snapshot.players ?? 0)));
+  const chartData = useMemo(() => serverHistoryChartData(snapshots), [snapshots]);
 
   return (
     <Card>
@@ -6490,16 +6548,36 @@ function ServerHistoryTab({
           <Fact label="Delta" value={formatSignedNumber(stats.deltaPlayers)} />
         </div>
 
+        {chartData.length ? (
+          <div data-testid="server-history-chart" className="h-[300px] min-w-0 rounded-md border border-border bg-background/45 p-3">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={chartData} margin={{ top: 8, right: 10, bottom: 0, left: -12 }}>
+                <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="label" minTickGap={24} tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} tickLine={false} />
+                <YAxis yAxisId="players" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} tickLine={false} axisLine={false} allowDecimals={false} />
+                <YAxis yAxisId="rank" orientation="right" reversed tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} tickLine={false} axisLine={false} allowDecimals={false} width={44} />
+                <Tooltip content={<ServerHistoryTooltip />} cursor={{ stroke: "hsl(var(--primary))", strokeDasharray: "3 3" }} />
+                <Legend wrapperStyle={{ color: "hsl(var(--muted-foreground))", fontSize: 12 }} />
+                <Line yAxisId="players" type="monotone" dataKey="players" name="Online" stroke="hsl(var(--primary))" strokeWidth={2.4} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} />
+                <Line yAxisId="players" type="monotone" dataKey="maxPlayers" name="Capacity" stroke="hsl(var(--muted-foreground))" strokeWidth={1.6} strokeDasharray="5 5" dot={false} isAnimationActive={false} />
+                <Line yAxisId="rank" type="monotone" dataKey="rank" name="Rank" stroke="#f59e0b" strokeWidth={1.8} dot={false} connectNulls isAnimationActive={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        ) : null}
+
         {rows.length ? (
           <div className="grid gap-2">
             {rows.slice(-36).map((snapshot) => {
               const players = Number(snapshot.players ?? 0);
-              const width = Math.max(4, Math.min(100, Math.round((players / barMax) * 100)));
               return (
                 <div key={snapshot.id} className="grid gap-2 md:grid-cols-[150px_1fr_90px_70px] md:items-center">
                   <div className="text-xs text-muted-foreground">{formatDateTime(snapshot.captured_at)}</div>
-                  <div className="h-8 overflow-hidden rounded-md border border-border bg-background/45">
-                    <div className="h-full bg-primary/55" style={{ width: `${width}%` }} />
+                  <div className="min-w-0 rounded-md border border-border bg-background/45 px-3 py-2">
+                    <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                      <span>online {formatNumber(players)}</span>
+                      <span>rank {compactText(snapshot.rank)}</span>
+                    </div>
                   </div>
                   <div className="text-sm font-medium">{formatNumber(players)} / {formatNumber(snapshot.max_players)}</div>
                   <Badge variant={snapshot.status === "online" ? "success" : "outline"}>{compactText(snapshot.status)}</Badge>
