@@ -8970,6 +8970,8 @@ function ActivityView({ api }: { api: ReturnType<typeof createApiClient> }) {
   const [typeFilter, setTypeFilter] = useState("all");
   const [fromFilter, setFromFilter] = useState("");
   const [toFilter, setToFilter] = useState("");
+  const [serverIdFilter, setServerIdFilter] = useState("");
+  const [playerIdFilter, setPlayerIdFilter] = useState("");
   const [page, setPage] = useState(1);
   const deferredSearchText = useDeferredValue(searchText);
   const perPage = 50;
@@ -8979,12 +8981,14 @@ function ActivityView({ api }: { api: ReturnType<typeof createApiClient> }) {
       severity: severityFilter === "all" ? undefined : severityFilter,
       source: sourceFilter === "all" ? undefined : sourceFilter,
       event_type: typeFilter === "all" ? undefined : typeFilter,
+      server_id: serverIdFilter.trim() || undefined,
+      player_id: playerIdFilter.trim() || undefined,
       from: localDateTimeToApi(fromFilter),
       to: localDateTimeToApi(toFilter),
       page: String(page),
       per_page: String(perPage),
     }),
-    [deferredSearchText, fromFilter, page, severityFilter, sourceFilter, toFilter, typeFilter],
+    [deferredSearchText, fromFilter, page, playerIdFilter, serverIdFilter, severityFilter, sourceFilter, toFilter, typeFilter],
   );
   const activity = useQuery({
     queryKey: ["activity", activityQuery],
@@ -8998,7 +9002,17 @@ function ActivityView({ api }: { api: ReturnType<typeof createApiClient> }) {
   const typeOptions = activity.data?.event_types?.length ? activity.data.event_types : activityOptionCounts(items, "event_type");
   const total = activity.data?.meta?.total ?? stats.total ?? items.length;
   const pageCount = Math.max(1, Math.ceil(Number(total || 0) / perPage));
-  const hasFilters = Boolean(searchText.trim() || severityFilter !== "all" || sourceFilter !== "all" || typeFilter !== "all" || fromFilter.trim() || toFilter.trim() || page > 1);
+  const hasFilters = Boolean(
+    searchText.trim() ||
+      severityFilter !== "all" ||
+      sourceFilter !== "all" ||
+      typeFilter !== "all" ||
+      fromFilter.trim() ||
+      toFilter.trim() ||
+      serverIdFilter.trim() ||
+      playerIdFilter.trim() ||
+      page > 1,
+  );
   const activitySavedFilters = useMemo(
     () => ({
       q: searchText.trim(),
@@ -9007,8 +9021,10 @@ function ActivityView({ api }: { api: ReturnType<typeof createApiClient> }) {
       event_type: typeFilter === "all" ? "" : typeFilter,
       from: fromFilter.trim(),
       to: toFilter.trim(),
+      server_id: serverIdFilter.trim(),
+      player_id: playerIdFilter.trim(),
     }),
-    [fromFilter, searchText, severityFilter, sourceFilter, toFilter, typeFilter],
+    [fromFilter, playerIdFilter, searchText, serverIdFilter, severityFilter, sourceFilter, toFilter, typeFilter],
   );
 
   function updateSearch(value: string) {
@@ -9041,6 +9057,16 @@ function ActivityView({ api }: { api: ReturnType<typeof createApiClient> }) {
     setPage(1);
   }
 
+  function updateServerId(value: string) {
+    setServerIdFilter(value);
+    setPage(1);
+  }
+
+  function updatePlayerId(value: string) {
+    setPlayerIdFilter(value);
+    setPage(1);
+  }
+
   function clearFilters() {
     setSearchText("");
     setSeverityFilter("all");
@@ -9048,6 +9074,8 @@ function ActivityView({ api }: { api: ReturnType<typeof createApiClient> }) {
     setTypeFilter("all");
     setFromFilter("");
     setToFilter("");
+    setServerIdFilter("");
+    setPlayerIdFilter("");
     setPage(1);
   }
 
@@ -9058,6 +9086,8 @@ function ActivityView({ api }: { api: ReturnType<typeof createApiClient> }) {
     setTypeFilter(filters.event_type || "all");
     setFromFilter(filters.from ?? "");
     setToFilter(filters.to ?? "");
+    setServerIdFilter(filters.server_id ?? "");
+    setPlayerIdFilter(filters.player_id ?? "");
     setPage(1);
   }
 
@@ -9112,6 +9142,12 @@ function ActivityView({ api }: { api: ReturnType<typeof createApiClient> }) {
             <div className="grid gap-2 md:grid-cols-2">
               <Input data-testid="activity-from-filter" type="datetime-local" value={fromFilter} onChange={(event) => updateFrom(event.target.value)} />
               <Input data-testid="activity-to-filter" type="datetime-local" value={toFilter} onChange={(event) => updateTo(event.target.value)} />
+            </div>
+          </DetailsBlock>
+          <DetailsBlock summary="Entity filters" testId="activity-entity-filters">
+            <div className="grid gap-2 md:grid-cols-2">
+              <Input data-testid="activity-server-id-filter" value={serverIdFilter} onChange={(event) => updateServerId(event.target.value)} placeholder="Server id" />
+              <Input data-testid="activity-player-id-filter" value={playerIdFilter} onChange={(event) => updatePlayerId(event.target.value)} placeholder="Player id" />
             </div>
           </DetailsBlock>
           <SavedFilterBar

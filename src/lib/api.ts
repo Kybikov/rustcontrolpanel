@@ -410,6 +410,8 @@ export type ActivityQuery = {
   severity?: string;
   source?: string;
   event_type?: string;
+  server_id?: string;
+  player_id?: string;
   from?: string;
   to?: string;
   page?: string;

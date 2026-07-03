@@ -173,12 +173,20 @@ test("activity time range sends backend filters", async ({ page }) => {
   await page.getByTestId("activity-time-range").locator("summary").click();
   await page.getByTestId("activity-from-filter").fill("2026-07-03T10:00");
   await page.getByTestId("activity-to-filter").fill("2026-07-03T12:30");
+  await page.getByTestId("activity-entity-filters").locator("summary").click();
+  await page.getByTestId("activity-server-id-filter").fill("11111111-1111-1111-1111-111111111111");
+  await page.getByTestId("activity-player-id-filter").fill("22222222-2222-2222-2222-222222222222");
 
   await expect
     .poll(() =>
       activityRequests.some((requestUrl) => {
         const params = new URL(requestUrl).searchParams;
-        return params.get("from")?.startsWith("2026-07-03T") && params.get("to")?.startsWith("2026-07-03T");
+        return (
+          params.get("from")?.startsWith("2026-07-03T") &&
+          params.get("to")?.startsWith("2026-07-03T") &&
+          params.get("server_id") === "11111111-1111-1111-1111-111111111111" &&
+          params.get("player_id") === "22222222-2222-2222-2222-222222222222"
+        );
       }),
     )
     .toBe(true);
