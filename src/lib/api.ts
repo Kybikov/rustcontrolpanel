@@ -256,6 +256,10 @@ export type ServerLivePlayerItem = {
   watch?: PlayerWatchState | null;
 };
 
+export type ServerPositionSnapshotItem = ServerLivePlayerItem & {
+  observed_at?: string;
+};
+
 export type PromoteLivePlayerResult = {
   player: PlayerIntel;
   watch?: PlayerWatchState | null;
@@ -341,6 +345,15 @@ export type ServerDetail = {
 
 export type ServerSnapshotsResult = {
   items: ServerSnapshot[];
+  server_id?: string;
+  battlemetrics_server_id?: string;
+  source?: string;
+  source_status?: string;
+  meta?: ApiEnvelope<unknown>["meta"];
+};
+
+export type ServerPositionSnapshotsResult = {
+  items: ServerPositionSnapshotItem[];
   server_id?: string;
   battlemetrics_server_id?: string;
   source?: string;
@@ -909,6 +922,12 @@ export function createApiClient(baseUrl: string, token?: string) {
     async serverSnapshots(id: string, query?: ServerDetailListQuery): Promise<ServerSnapshotsResult> {
       const envelope = await requestEnvelope<Omit<ServerSnapshotsResult, "meta">>(
         withQuery(`/api/admin/rustcontrol/servers/${encodeURIComponent(id)}/snapshots`, query),
+      );
+      return { ...(envelope.data ?? { items: [] }), meta: envelope.meta };
+    },
+    async serverPositionSnapshots(id: string, query?: ServerDetailListQuery): Promise<ServerPositionSnapshotsResult> {
+      const envelope = await requestEnvelope<Omit<ServerPositionSnapshotsResult, "meta">>(
+        withQuery(`/api/admin/rustcontrol/servers/${encodeURIComponent(id)}/position-snapshots`, query),
       );
       return { ...(envelope.data ?? { items: [] }), meta: envelope.meta };
     },

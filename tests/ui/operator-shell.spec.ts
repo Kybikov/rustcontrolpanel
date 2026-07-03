@@ -215,6 +215,75 @@ test("server settings expose read-only rcon readiness test", async ({ page }) =>
       }),
     });
   });
+  await page.route(`${apiBaseUrl}/api/admin/rustcontrol/servers/smoke-server/map`, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          server: {
+            id: "smoke-server",
+            name: "Smoke Rust Server",
+            battlemetrics_server_id: "12345678",
+            rust_world_size: 4250,
+          },
+          map: {},
+          markers: [],
+          event_markers: [],
+          live_players: [],
+          source_status: "ok",
+        },
+      }),
+    });
+  });
+  await page.route(`${apiBaseUrl}/api/admin/rustcontrol/servers/smoke-server/position-snapshots**`, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          items: [
+            {
+              observed_at: "2026-07-03T12:10:15Z",
+              live_player: {
+                id: "pos-1",
+                server_id: "smoke-server",
+                battlemetrics_server_id: "12345678",
+                display_name: "Replay Known",
+                steam_id: "76561198000000001",
+                is_online: true,
+                position: { x: 1100, y: 32, z: 900 },
+                map_grid: "G12",
+                health: 91,
+                source: "plugin",
+                last_seen_at: "2026-07-03T12:10:15Z",
+              },
+              player: {
+                id: "player-replay-known",
+                display_name: "Replay Known",
+                steam_id: "76561198000000001",
+              },
+            },
+            {
+              observed_at: "2026-07-03T12:10:45Z",
+              live_player: {
+                id: "pos-2",
+                server_id: "smoke-server",
+                battlemetrics_server_id: "12345678",
+                display_name: "Replay Unknown",
+                is_online: true,
+                position: { x: 1400, y: 30, z: 1250 },
+                map_grid: "H13",
+                health: 77,
+                source: "plugin",
+                last_seen_at: "2026-07-03T12:10:45Z",
+              },
+            },
+          ],
+          source_status: "ok",
+        },
+        meta: { total: 2, page: 1, per_page: 160, count: 2 },
+      }),
+    });
+  });
   await page.route(`${apiBaseUrl}/api/admin/rustcontrol/integrations/rcon/test`, async (route) => {
     await route.fulfill({
       contentType: "application/json",
@@ -240,6 +309,11 @@ test("server settings expose read-only rcon readiness test", async ({ page }) =>
   await expect(page.getByTestId("server-history-chart")).toBeVisible();
   await expect(page.getByText("12 / 100")).toBeVisible();
   await expect(page.getByText("rank 210")).toBeVisible();
+  await page.getByRole("button", { name: "Map" }).click();
+  await page.getByTestId("server-position-replay").locator("summary").click();
+  await expect(page.getByTestId("server-position-replay-slider")).toBeVisible();
+  await expect(page.getByText("2 samples")).toBeVisible();
+  await expect(page.getByText("Replay Known").first()).toBeVisible();
   await page.getByRole("button", { name: "Settings" }).click();
   await expect(page.getByRole("heading", { name: "Readiness" })).toBeVisible();
 

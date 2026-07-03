@@ -70,6 +70,7 @@ import {
   type ServerLiveContext,
   type ServerLivePlayerItem,
   type ServerMapDetail,
+  type ServerPositionSnapshotItem,
   type ServerSnapshot,
   type ServerIntel,
   type ServerWipe,
@@ -6264,6 +6265,7 @@ function ServerDetailView({
   const [wipePage, setWipePage] = useState(1);
   const snapshotPerPage = 96;
   const wipePerPage = 25;
+  const positionReplayPerPage = 160;
   const snapshotQuery = useMemo<ServerDetailListQuery>(
     () => ({ page: String(snapshotPage), per_page: String(snapshotPerPage) }),
     [snapshotPage],
@@ -6271,6 +6273,10 @@ function ServerDetailView({
   const serverWipesQuery = useMemo<ServerDetailListQuery>(
     () => ({ page: String(wipePage), per_page: String(wipePerPage) }),
     [wipePage],
+  );
+  const positionReplayQuery = useMemo<ServerDetailListQuery>(
+    () => ({ page: "1", per_page: String(positionReplayPerPage) }),
+    [],
   );
   const detail = useQuery({
     queryKey: ["serverDetail", serverId],
@@ -6302,12 +6308,19 @@ function ServerDetailView({
     enabled: serverId.length > 0 && activeTab === "map",
     refetchInterval: 15_000,
   });
+  const positionReplayQueryResult = useQuery({
+    queryKey: ["serverPositionSnapshots", serverId, positionReplayQuery],
+    queryFn: () => api.serverPositionSnapshots(serverId, positionReplayQuery),
+    enabled: serverId.length > 0 && activeTab === "map",
+    refetchInterval: 30_000,
+  });
   const sync = useMutation({
     mutationFn: () => api.syncServer(serverId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["serverDetail", serverId] });
       queryClient.invalidateQueries({ queryKey: ["serverLiveContext", serverId] });
       queryClient.invalidateQueries({ queryKey: ["serverSnapshots", serverId] });
+      queryClient.invalidateQueries({ queryKey: ["serverPositionSnapshots", serverId] });
       queryClient.invalidateQueries({ queryKey: ["serverWipes", serverId] });
       queryClient.invalidateQueries({ queryKey: ["serverMap", serverId] });
       queryClient.invalidateQueries({ queryKey: ["trackedServers"] });
@@ -6324,13 +6337,13 @@ function ServerDetailView({
   const serverKey = server?.battlemetrics_server_id || stringFromUnknown(settings.battlemetrics_server_id) || serverId;
   const mapInfo = objectFrom(mapQuery.data?.map);
   const rustmapsUrl = stringFromUnknown(mapInfo.url) || server?.rustmaps_url || stringFromUnknown(settings.rustmaps_url);
-  const sourceStatus = detail.data?.source_status ?? snapshotsQuery.data?.source_status ?? wipesQuery.data?.source_status ?? mapQuery.data?.source_status ?? liveContext.data?.source_status ?? "loading";
+  const sourceStatus = detail.data?.source_status ?? snapshotsQuery.data?.source_status ?? wipesQuery.data?.source_status ?? mapQuery.data?.source_status ?? positionReplayQueryResult.data?.source_status ?? liveContext.data?.source_status ?? "loading";
   const stats = serverSnapshotSummary(snapshots, server);
   const snapshotTotal = snapshotsQuery.data?.meta?.total ?? snapshots.length;
   const snapshotPageCount = Math.max(1, Math.ceil(Number(snapshotTotal || 0) / snapshotPerPage));
   const wipeTotal = wipesQuery.data?.meta?.total ?? wipes.length;
   const wipePageCount = Math.max(1, Math.ceil(Number(wipeTotal || 0) / wipePerPage));
-  const pageError = detail.error ?? liveContext.error ?? snapshotsQuery.error ?? wipesQuery.error ?? mapQuery.error ?? sync.error;
+  const pageError = detail.error ?? liveContext.error ?? snapshotsQuery.error ?? wipesQuery.error ?? mapQuery.error ?? positionReplayQueryResult.error ?? sync.error;
 
   useEffect(() => {
     if (snapshotPage > snapshotPageCount) setSnapshotPage(snapshotPageCount);
@@ -6345,6 +6358,7 @@ function ServerDetailView({
     void snapshotsQuery.refetch();
     void wipesQuery.refetch();
     void mapQuery.refetch();
+    void positionReplayQueryResult.refetch();
   }
 
   return (
@@ -6462,7 +6476,18 @@ function ServerDetailView({
           </CardContent>
         </Card>
       ) : null}
-      {activeTab === "map" ? <ServerMapTab server={server} context={liveContext.data} mapData={mapQuery.data} loading={mapQuery.isFetching} onOpenPlayer={onOpenPlayer} /> : null}
+      {activeTab === "map" ? (
+        <ServerMapTab
+          server={server}
+          context={liveContext.data}
+          mapData={mapQuery.data}
+          loading={mapQuery.isFetching}
+          positionReplayItems={positionReplayQueryResult.data?.items ?? []}
+          positionReplayLoading={positionReplayQueryResult.isFetching}
+          positionReplaySourceStatus={positionReplayQueryResult.data?.source_status}
+          onOpenPlayer={onOpenPlayer}
+        />
+      ) : null}
       {activeTab === "activity" ? <ServerActivityTab items={activity} loading={detail.isFetching || liveContext.isFetching} /> : null}
       {activeTab === "settings" ? (
         <ServerSettingsTab
@@ -6779,12 +6804,18 @@ function ServerMapTab({
   context,
   mapData,
   loading,
+  positionReplayItems = [],
+  positionReplayLoading,
+  positionReplaySourceStatus,
   onOpenPlayer,
 }: {
   server?: ServerIntel | null;
   context?: ServerLiveContext;
   mapData?: ServerMapDetail;
   loading?: boolean;
+  positionReplayItems?: ServerPositionSnapshotItem[];
+  positionReplayLoading?: boolean;
+  positionReplaySourceStatus?: string;
   onOpenPlayer: (playerId: string) => void;
 }) {
   const liveItems = context?.live_players?.length ? context.live_players : mapData?.live_players ?? [];
@@ -6816,6 +6847,12 @@ function ServerMapTab({
           ) : (
             <EmptyState label={loading ? "Loading map metadata" : "No realtime player positions or RustMaps thumbnail yet"} />
           )}
+          <PositionReplayPanel
+            items={positionReplayItems}
+            loading={positionReplayLoading}
+            sourceStatus={positionReplaySourceStatus}
+            onOpenPlayer={onOpenPlayer}
+          />
         </CardContent>
       </Card>
 
@@ -6893,6 +6930,84 @@ function ServerMapTab({
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+type PositionReplayFrame = {
+  id: string;
+  observedAt: string;
+  items: ServerPositionSnapshotItem[];
+};
+
+function positionReplayFrames(items: ServerPositionSnapshotItem[]): PositionReplayFrame[] {
+  const buckets = new Map<string, PositionReplayFrame>();
+  items.forEach((item, index) => {
+    const observedAt = item.observed_at ?? item.live_player.last_seen_at ?? "";
+    const observedMs = dateMs(observedAt);
+    const bucketTime = observedMs ? new Date(Math.floor(observedMs / 60_000) * 60_000).toISOString() : `sample-${index + 1}`;
+    const frame = buckets.get(bucketTime) ?? { id: bucketTime, observedAt: observedAt || bucketTime, items: [] };
+    frame.items.push(item);
+    buckets.set(bucketTime, frame);
+  });
+  return [...buckets.values()].sort((left, right) => dateMs(right.observedAt) - dateMs(left.observedAt));
+}
+
+function PositionReplayPanel({
+  items,
+  loading,
+  sourceStatus,
+  onOpenPlayer,
+}: {
+  items: ServerPositionSnapshotItem[];
+  loading?: boolean;
+  sourceStatus?: string;
+  onOpenPlayer: (playerId: string) => void;
+}) {
+  const frames = useMemo(() => positionReplayFrames(items), [items]);
+  const [frameIndex, setFrameIndex] = useState(0);
+  const selectedFrame = frames[frameIndex];
+
+  useEffect(() => {
+    if (frames.length && frameIndex >= frames.length) setFrameIndex(frames.length - 1);
+  }, [frameIndex, frames.length]);
+
+  if (!items.length && !loading && !sourceStatus) return null;
+
+  return (
+    <DetailsBlock summary="Position replay" testId="server-position-replay">
+      <div className="grid gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant={sourceStatus === "ok" ? "success" : "outline"}>{compactText(sourceStatus ?? (loading ? "loading" : "snapshots"))}</Badge>
+            <Badge variant="secondary">{formatNumber(items.length)} samples</Badge>
+            <Badge variant="secondary">{formatNumber(frames.length)} frames</Badge>
+          </div>
+          {selectedFrame ? <div className="text-xs text-muted-foreground">{formatDateTime(selectedFrame.observedAt)}</div> : null}
+        </div>
+
+        {frames.length ? (
+          <>
+            <div className="grid gap-2 md:grid-cols-[1fr_auto] md:items-center">
+              <input
+                data-testid="server-position-replay-slider"
+                className="w-full accent-primary"
+                type="range"
+                min={0}
+                max={Math.max(0, frames.length - 1)}
+                value={frameIndex}
+                onChange={(event) => setFrameIndex(Number(event.target.value))}
+              />
+              <div className="text-xs text-muted-foreground">
+                frame {formatNumber(frameIndex + 1)} / {formatNumber(frames.length)} / {formatNumber(selectedFrame?.items.length ?? 0)} players
+              </div>
+            </div>
+            <LiveMap items={selectedFrame?.items ?? []} teammateSteamIds={[]} onOpenPlayer={onOpenPlayer} />
+          </>
+        ) : (
+          <EmptyState label={loading ? "Loading position replay" : "No position snapshots yet"} />
+        )}
+      </div>
+    </DetailsBlock>
   );
 }
 

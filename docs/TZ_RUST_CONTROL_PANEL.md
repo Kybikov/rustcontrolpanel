@@ -353,6 +353,7 @@ Unified event stream:
 - `GET /api/admin/rustcontrol/servers/:id`;
 - `POST /api/admin/rustcontrol/servers/:id/sync`;
 - `GET /api/admin/rustcontrol/servers/:id/snapshots`;
+- `GET /api/admin/rustcontrol/servers/:id/position-snapshots`;
 - `GET /api/admin/rustcontrol/servers/:id/wipes`;
 - `GET /api/admin/rustcontrol/servers/:id/map`;
 - `GET /api/admin/rustcontrol/realtime/health`;
@@ -593,6 +594,7 @@ Schema: `rustcontrol`.
 - Live Online Map rows/dots now support `Promote`, `Intel`, and quick `Watch`, `Suspect`, `Hostile` actions, so an offender seen on the current server can be flagged from the map without dropping into the roster table.
 - Live Online Map now has a Map Hunt toolbar with identity/team/grid/source/risk search, watched/team/150m/400m/same-grid/online/shown counters, and filters for watched/hostile/suspect/team/150m/400m/same-grid/online/clear players on the current server.
 - Live Online Map now exposes explicit `My server`/`Top server` auto mode versus `All live`, so connecting Steam and receiving a live row immediately opens the current server context without making the operator think they are viewing all servers.
+- Server Map now supports compact position replay from `GET /api/admin/rustcontrol/servers/:id/position-snapshots`, grouping plugin/Rust+ player position samples into timeline frames with a slider and replay map/table in collapsed details.
 - `GET /api/admin/rustcontrol/players/:id/intel` now includes `realtime_context` and `nearby_players` for live targets: watched players on the same server, same-grid players, current team members, distance-to-target, and near-150m/near-400m counts.
 - `GET /api/admin/rustcontrol/players/:id/intel` now also includes `live_status` freshness with age/source/last-seen fields so the UI can distinguish live, recent, stale, silent, and no-live targets.
 - Player Intelligence now includes an Identity Summary panel with local id, Steam/BattleMetrics ids, visibility, first/last seen, created/updated, live source, freshness, and quick links to Steam, BattleMetrics player/server, and RustMaps.
