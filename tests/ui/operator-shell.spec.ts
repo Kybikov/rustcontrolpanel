@@ -372,6 +372,172 @@ test("battlemetrics integration saves tracked sync interval from compact control
   expect(consoleProblems).toEqual([]);
 });
 
+test("player detail sends managed rcon action for current server", async ({ page }) => {
+  const consoleProblems: string[] = [];
+  let rconPath = "";
+  let rconPayload: { action?: string; target?: string; reason?: string } | undefined;
+  const steamId = "76561198000000003";
+  const player = {
+    id: "player-managed",
+    display_name: "Managed Target",
+    steam_id: steamId,
+    battlemetrics_player_id: "bm-managed",
+    avatar_url: "",
+  };
+  const currentServer = {
+    id: "server-managed",
+    name: "Managed Smoke Server",
+    battlemetrics_server_id: "98765433",
+    ip: "127.0.0.1",
+    port: 28015,
+    players: 12,
+    max_players: 100,
+    rank: 120,
+    status: "online",
+    rust_world_size: 4250,
+    rust_world_seed: 12345,
+    next_wipe_at: "2026-07-04T12:00:00Z",
+  };
+
+  page.on("console", (message) => {
+    if (["error", "warning"].includes(message.type())) {
+      consoleProblems.push(`${message.type()}: ${message.text()}`);
+    }
+  });
+  page.on("pageerror", (error) => consoleProblems.push(`pageerror: ${error.message}`));
+
+  await page.route(`${apiBaseUrl}/api/admin/rustcontrol/players**`, async (route) => {
+    const url = new URL(route.request().url());
+    const path = url.pathname;
+    const detailEnvelope = (data: Record<string, unknown>) =>
+      route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ data }),
+      });
+
+    if (path.endsWith("/intel")) {
+      await detailEnvelope({
+        player,
+        watch: null,
+        live_player: {
+          id: "live-managed",
+          server_id: currentServer.id,
+          server_name: currentServer.name,
+          battlemetrics_server_id: currentServer.battlemetrics_server_id,
+          display_name: player.display_name,
+          steam_id: steamId,
+          is_online: true,
+          position: { x: 1200, y: 35, z: 980 },
+          map_grid: "G12",
+          source: "plugin",
+          last_seen_at: "2026-07-03T12:00:00Z",
+        },
+        live_status: { status: "ok", is_online: true, server_id: currentServer.id, last_seen_at: "2026-07-03T12:00:00Z", source: "plugin" },
+        current_server: currentServer,
+        realtime_teammates: [],
+        realtime_context: { counts: {}, source_status: "ok" },
+        nearby_players: [],
+        likely_teammates: [],
+        team_evidence: [],
+        recent_sessions: [],
+        recent_activity: [],
+        source_status: "ok",
+      });
+      return;
+    }
+    if (path.endsWith("/sessions")) {
+      await detailEnvelope({ items: [], source_status: "ok", stored_sessions: 0, overlap_edges_updated: 0 });
+      return;
+    }
+    if (path.endsWith("/dossier")) {
+      await detailEnvelope({ player, summary: {}, top_servers: [], active_hours: [], activity_types: [], evidence_types: [], relation_sources: [], source_status: "ok" });
+      return;
+    }
+    if (path.endsWith("/relations")) {
+      await detailEnvelope({ target: { player }, items: [], counts: {}, source_status: "ok" });
+      return;
+    }
+    if (path.endsWith("/network")) {
+      await detailEnvelope({ target: { player }, nodes: [], counts: { nodes: 0 }, source_status: "ok" });
+      return;
+    }
+    if (path.endsWith("/server-history")) {
+      await detailEnvelope({ player, current_server: currentServer, top_servers: [], recent_sessions: [], repeated_companions: [], evidence_servers: [], counts: {}, source_status: "ok" });
+      return;
+    }
+    if (path.endsWith("/position-trail")) {
+      await detailEnvelope({ player, items: [], heat_cells: [], counts: { samples: 0 }, source_status: "ok" });
+      return;
+    }
+    if (path.endsWith("/timeline")) {
+      await detailEnvelope({ player, items: [], counts: { total: 0 }, source_status: "ok" });
+      return;
+    }
+
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          items: [
+            {
+              player,
+              live_player: {
+                id: "live-managed",
+                server_id: currentServer.id,
+                server_name: currentServer.name,
+                display_name: player.display_name,
+                steam_id: steamId,
+                is_online: true,
+                map_grid: "G12",
+              },
+              current_server: currentServer,
+              stats: { sessions: 2, playtime_seconds: 3600, probable_team_count: 0 },
+              last_activity_at: "2026-07-03T12:00:00Z",
+            },
+          ],
+          stats: { total: 1, watched: 0, online: 1 },
+          source_status: "ok",
+        },
+        meta: { total: 1, page: 1, per_page: 25, count: 1 },
+      }),
+    });
+  });
+  await page.route(`${apiBaseUrl}/api/admin/rustcontrol/servers/server-managed/rcon/actions`, async (route) => {
+    rconPath = new URL(route.request().url()).pathname;
+    rconPayload = route.request().postDataJSON();
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          status: "sent",
+          message: "RCON action sent.",
+          activity_id: "activity-rcon-smoke",
+          server_id: currentServer.id,
+          action: rconPayload?.action,
+          target: rconPayload?.target,
+          response_preview: "ok",
+        },
+      }),
+    });
+  });
+
+  await page.goto("/players");
+  await expect(page.getByRole("heading", { name: "Player Intelligence" })).toBeVisible();
+  await page.getByRole("button", { name: "Intel" }).click();
+  await expect(page.getByText("Managed Target").first()).toBeVisible();
+  await page.getByTestId("player-managed-actions").locator("summary").click();
+  await expect(page.getByText("Managed Smoke Server").first()).toBeVisible();
+  await page.getByTestId("player-rcon-reason").fill("Smoke mute from player detail");
+  await page.getByTestId("player-rcon-send").click();
+
+  await expect.poll(() => rconPath).toContain("/api/admin/rustcontrol/servers/server-managed/rcon/actions");
+  await expect.poll(() => rconPayload?.action).toBe("mute");
+  await expect.poll(() => rconPayload?.target).toBe(steamId);
+  await expect.poll(() => rconPayload?.reason).toBe("Smoke mute from player detail");
+  await expect(page.getByText("mute 76561198000000003")).toBeVisible();
+  expect(consoleProblems).toEqual([]);
+});
+
 test("known players table shows cached steam ban summary", async ({ page }) => {
   const consoleProblems: string[] = [];
   page.on("console", (message) => {

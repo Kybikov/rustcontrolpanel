@@ -103,6 +103,7 @@ type RaidToolKey = "best" | "rocket" | "c4" | "satchel" | "explosive_ammo";
 type ToolsTab = "raid" | "guides";
 type WipeCalendarMode = "day" | "week" | "month" | "records";
 type RconActionType = RconActionInput["action"];
+type PlayerRconActionType = Exclude<RconActionType, "say">;
 type ProfileTab = "account" | "steam" | "stats" | "history" | "security";
 type PlayerDetailTab = "overview" | "identity" | "live" | "relations" | "history";
 type ServerDetailTab = "overview" | "history" | "wipes" | "players" | "map" | "activity" | "settings";
@@ -3035,6 +3036,7 @@ function PlayerIntelPanel({
         </div>
         <WatchControls api={api} playerId={intel.player.id ?? ""} watch={intel.watch} onSaved={onWatchChanged} />
         <OperatorNoteBox api={api} playerId={intel.player.id ?? ""} onSaved={onWatchChanged} />
+        <PlayerManagedActionsPanel api={api} intel={intel} onSent={onWatchChanged} />
         {live ? <LiveFacts player={live} /> : <EmptyState label="No live position yet" />}
       </div>
 
@@ -3741,6 +3743,131 @@ function OperatorNoteBox({
       </div>
     </div>
   );
+}
+
+const playerRconActionOptions: Array<{ value: PlayerRconActionType; label: string }> = [
+  { value: "kick", label: "Kick" },
+  { value: "ban", label: "Ban" },
+  { value: "mute", label: "Mute" },
+  { value: "unban", label: "Unban" },
+  { value: "unmute", label: "Unmute" },
+];
+
+function PlayerManagedActionsPanel({
+  api,
+  intel,
+  onSent,
+}: {
+  api: ReturnType<typeof createApiClient>;
+  intel: PlayerIntelDetail;
+  onSent: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const server = intel.current_server;
+  const serverId = server?.id ?? server?.battlemetrics_server_id ?? intel.live_status?.server_id ?? intel.live_player?.server_id ?? "";
+  const steamId = intel.player.steam_id ?? intel.live_player?.steam_id ?? "";
+  const displayName = intel.player.display_name ?? intel.player.name ?? intel.live_player?.display_name ?? "";
+  const [action, setAction] = useState<PlayerRconActionType>("mute");
+  const [target, setTarget] = useState(() => defaultPlayerRconTarget("mute", steamId, displayName));
+  const [reason, setReason] = useState(() => defaultPlayerRconReason("mute", displayName));
+  const requiresSteamId = action === "ban" || action === "unban";
+  const validTarget = Boolean(target.trim()) && (!requiresSteamId || isLikelySteamId64(target));
+  const canSend = Boolean(serverId && validTarget);
+  const sendAction = useMutation({
+    mutationFn: () =>
+      api.serverRconAction(serverId, {
+        action,
+        target: target.trim(),
+        reason: reason.trim(),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["activity"] });
+      queryClient.invalidateQueries({ queryKey: ["syncRuns"] });
+      if (intel.player.id) {
+        queryClient.invalidateQueries({ queryKey: ["playerTimeline", intel.player.id] });
+        queryClient.invalidateQueries({ queryKey: ["playerIntel", intel.player.id] });
+      }
+      onSent();
+    },
+  });
+
+  useEffect(() => {
+    setTarget(defaultPlayerRconTarget(action, steamId, displayName));
+    setReason(defaultPlayerRconReason(action, displayName));
+  }, [action, displayName, intel.player.id, steamId]);
+
+  return (
+    <DetailsBlock summary="Managed server actions" testId="player-managed-actions">
+      <div className="grid gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant={serverId ? "secondary" : "outline"}>{serverId ? compactText(server?.name ?? serverId) : "no server"}</Badge>
+          <Badge variant={requiresSteamId && !isLikelySteamId64(target) ? "warning" : "outline"}>
+            {requiresSteamId ? "SteamID64 target" : "RCON target"}
+          </Badge>
+        </div>
+        <div className="grid gap-2 md:grid-cols-[130px_minmax(0,1fr)_minmax(0,1fr)_auto]">
+          <select
+            data-testid="player-rcon-action"
+            className={selectClassName}
+            value={action}
+            onChange={(event) => setAction(event.target.value as PlayerRconActionType)}
+            disabled={sendAction.isPending}
+          >
+            {playerRconActionOptions.map((item) => (
+              <option key={item.value} value={item.value}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+          <Input
+            data-testid="player-rcon-target"
+            value={target}
+            onChange={(event) => setTarget(event.target.value)}
+            placeholder={requiresSteamId ? "SteamID64" : "Name or SteamID64"}
+            disabled={sendAction.isPending}
+          />
+          <Input
+            data-testid="player-rcon-reason"
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            placeholder="Reason"
+            disabled={sendAction.isPending}
+          />
+          <Button data-testid="player-rcon-send" size="sm" onClick={() => sendAction.mutate()} disabled={!canSend || sendAction.isPending}>
+            <ShieldAlert className="h-4 w-4" />
+            Send
+          </Button>
+        </div>
+        {!serverId ? <StatusLine tone="bad" text="Current tracked server is required before managed actions are available." /> : null}
+        {requiresSteamId && target.trim() && !isLikelySteamId64(target) ? <StatusLine tone="bad" text="Ban and unban require a SteamID64 target." /> : null}
+        {sendAction.error ? <StatusLine tone="bad" text={sendAction.error.message} /> : null}
+        {sendAction.data ? (
+          <StatusLine
+            tone={sendAction.data.status === "error" ? "bad" : "ok"}
+            text={`${compactText(sendAction.data.action)} ${compactText(sendAction.data.target)}: ${compactText(sendAction.data.message ?? sendAction.data.status)}`}
+          />
+        ) : null}
+      </div>
+    </DetailsBlock>
+  );
+}
+
+function defaultPlayerRconTarget(action: PlayerRconActionType, steamId: string, displayName: string) {
+  if (action === "ban" || action === "unban") return steamId;
+  return steamId || displayName;
+}
+
+function defaultPlayerRconReason(action: PlayerRconActionType, displayName: string) {
+  const name = displayName ? ` ${displayName}` : "";
+  if (action === "ban") return `Panel ban${name}`;
+  if (action === "unban") return `Panel unban${name}`;
+  if (action === "kick") return `Panel kick${name}`;
+  if (action === "mute") return `Panel mute${name}`;
+  return `Panel unmute${name}`;
+}
+
+function isLikelySteamId64(value: string) {
+  return /^7656\d{13}$/.test(value.trim());
 }
 
 function PlayerDossierPanel({ data, loading }: { data?: PlayerDossier; loading: boolean }) {
