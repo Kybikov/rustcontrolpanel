@@ -2240,6 +2240,18 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
     enabled: localPlayerId.length > 0,
     refetchInterval: 5_000,
   });
+  const teamProbability = useQuery({
+    queryKey: ["teamProbability", localPlayerId],
+    queryFn: () => api.teamProbability(localPlayerId),
+    enabled: localPlayerId.length > 0 && activePlayerTab === "relations",
+    refetchInterval: 15_000,
+  });
+  const teamEvidenceDetails = useQuery({
+    queryKey: ["teamEvidence", localPlayerId],
+    queryFn: () => api.teamEvidence(localPlayerId),
+    enabled: localPlayerId.length > 0 && activePlayerTab === "relations",
+    refetchInterval: 15_000,
+  });
   const serverHistory = useQuery({
     queryKey: ["playerServerHistory", localPlayerId, serverHistoryQuery],
     queryFn: () => api.playerServerHistory(localPlayerId, serverHistoryQuery),
@@ -2273,7 +2285,7 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
   const timelinePageCount = Math.max(1, Math.ceil(Number(timelineTotal || 0) / timelinePerPage));
   const profile = resolve.data?.steam_profile as Record<string, unknown> | null | undefined;
   const likelyTeammates = intel.data?.likely_teammates ?? [];
-  const teamEvidence = intel.data?.team_evidence ?? [];
+  const intelTeamEvidence = intel.data?.team_evidence ?? [];
   const relationItems = relations.data?.items ?? [];
   const currentIntel = intel.data;
   const aliases = currentIntel?.player.aliases ?? [];
@@ -2314,7 +2326,8 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
     },
     onSuccess: () => invalidateCurrentPlayerContext(),
   });
-  const displayedLikelyTeammates = recalculateTeamProbability.data?.items ?? likelyTeammates;
+  const displayedLikelyTeammates = recalculateTeamProbability.data?.items ?? teamProbability.data?.items ?? likelyTeammates;
+  const displayedTeamEvidence = teamEvidenceDetails.data?.items ?? intelTeamEvidence;
 
   function invalidatePlayerSearchState(playerId?: string) {
     queryClient.invalidateQueries({ queryKey: ["rustAlerts"] });
@@ -2328,6 +2341,8 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
       queryClient.invalidateQueries({ queryKey: ["playerDossier", playerId] });
       queryClient.invalidateQueries({ queryKey: ["playerRelations", playerId] });
       queryClient.invalidateQueries({ queryKey: ["playerNetwork", playerId] });
+      queryClient.invalidateQueries({ queryKey: ["teamProbability", playerId] });
+      queryClient.invalidateQueries({ queryKey: ["teamEvidence", playerId] });
       queryClient.invalidateQueries({ queryKey: ["playerServerHistory", playerId] });
       queryClient.invalidateQueries({ queryKey: ["playerPositionTrail", playerId] });
       queryClient.invalidateQueries({ queryKey: ["playerTimeline", playerId] });
@@ -2371,6 +2386,8 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
       queryClient.invalidateQueries({ queryKey: ["playerDossier", localPlayerId] });
       queryClient.invalidateQueries({ queryKey: ["playerRelations", localPlayerId] });
       queryClient.invalidateQueries({ queryKey: ["playerNetwork", localPlayerId] });
+      queryClient.invalidateQueries({ queryKey: ["teamProbability", localPlayerId] });
+      queryClient.invalidateQueries({ queryKey: ["teamEvidence", localPlayerId] });
       queryClient.invalidateQueries({ queryKey: ["playerServerHistory", localPlayerId] });
       queryClient.invalidateQueries({ queryKey: ["playerTimeline", localPlayerId] });
     }
@@ -2386,6 +2403,8 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
     if (localPlayerId) queryClient.invalidateQueries({ queryKey: ["playerDossier", localPlayerId] });
     if (localPlayerId) queryClient.invalidateQueries({ queryKey: ["playerRelations", localPlayerId] });
     if (localPlayerId) queryClient.invalidateQueries({ queryKey: ["playerNetwork", localPlayerId] });
+    if (localPlayerId) queryClient.invalidateQueries({ queryKey: ["teamProbability", localPlayerId] });
+    if (localPlayerId) queryClient.invalidateQueries({ queryKey: ["teamEvidence", localPlayerId] });
     if (localPlayerId) queryClient.invalidateQueries({ queryKey: ["playerServerHistory", localPlayerId] });
     if (localPlayerId) queryClient.invalidateQueries({ queryKey: ["playerPositionTrail", localPlayerId] });
     if (localPlayerId) queryClient.invalidateQueries({ queryKey: ["playerTimeline", localPlayerId] });
@@ -2468,6 +2487,8 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
       {dossier.error ? <StatusLine tone="bad" text={dossier.error.message} /> : null}
       {relations.error ? <StatusLine tone="bad" text={relations.error.message} /> : null}
       {network.error ? <StatusLine tone="bad" text={network.error.message} /> : null}
+      {teamProbability.error ? <StatusLine tone="bad" text={teamProbability.error.message} /> : null}
+      {teamEvidenceDetails.error ? <StatusLine tone="bad" text={teamEvidenceDetails.error.message} /> : null}
       {serverHistory.error ? <StatusLine tone="bad" text={serverHistory.error.message} /> : null}
       {positionTrail.error ? <StatusLine tone="bad" text={positionTrail.error.message} /> : null}
       {timeline.error ? <StatusLine tone="bad" text={timeline.error.message} /> : null}
@@ -2609,8 +2630,8 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
                 <Badge variant={displayedLikelyTeammates.length ? "success" : "outline"}>
                   probability {displayedLikelyTeammates.length}
                 </Badge>
-                <Badge variant={teamEvidence.length ? "success" : "outline"}>
-                  evidence {teamEvidence.length}
+                <Badge variant={displayedTeamEvidence.length ? "success" : "outline"}>
+                  evidence {displayedTeamEvidence.length}
                 </Badge>
                 <Badge variant={Number(network.data?.counts?.nodes ?? 0) > 0 ? "success" : "outline"}>
                   network {compactText(network.data?.counts?.nodes)}
@@ -2693,15 +2714,17 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
             <div className="grid gap-4">
               <RelationGraphPanel data={relations.data} loading={relations.isFetching} onOpenPlayer={selectLocalPlayer} />
               <PlayerNetworkPanel api={api} data={network.data} loading={network.isFetching} onOpenPlayer={selectLocalPlayer} onChanged={invalidateCurrentPlayerContext} />
-              <DetailsBlock summary="Team probability and evidence details">
+              <DetailsBlock summary="Team probability and evidence details" testId="player-team-details">
                 <div className="grid gap-4 xl:grid-cols-2">
                   <TeamProbabilityTable
                     items={displayedLikelyTeammates}
                     busy={recalculateTeamProbability.isPending}
+                    loading={teamProbability.isFetching}
+                    sourceStatus={recalculateTeamProbability.data?.source_status ?? teamProbability.data?.source_status ?? intel.data?.source_status}
                     result={recalculateTeamProbability.data}
                     onRecalculate={localPlayerId ? () => recalculateTeamProbability.mutate() : undefined}
                   />
-                  <TeamEvidenceTable items={teamEvidence} />
+                  <TeamEvidenceTable items={displayedTeamEvidence} loading={teamEvidenceDetails.isFetching} sourceStatus={teamEvidenceDetails.data?.source_status} />
                 </div>
               </DetailsBlock>
             </div>
@@ -4957,11 +4980,15 @@ function TimelineRow({ item }: { item: PlayerTimelineItem }) {
 function TeamProbabilityTable({
   items,
   busy,
+  loading,
+  sourceStatus,
   result,
   onRecalculate,
 }: {
   items: TeamProbability[];
   busy?: boolean;
+  loading?: boolean;
+  sourceStatus?: string;
   result?: TeamProbabilityRecalculateResult;
   onRecalculate?: () => void;
 }) {
@@ -4976,12 +5003,15 @@ function TeamProbabilityTable({
             </div>
           ) : null}
         </div>
-        {onRecalculate ? (
-          <Button size="sm" variant="secondary" onClick={onRecalculate} disabled={busy}>
-            <RefreshCw className={`h-4 w-4 ${busy ? "animate-spin" : ""}`} />
-            Recalculate
-          </Button>
-        ) : null}
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant={sourceStatus === "ok" ? "success" : "outline"}>{loading ? "loading" : compactText(sourceStatus ?? "intel")}</Badge>
+          {onRecalculate ? (
+            <Button size="sm" variant="secondary" onClick={onRecalculate} disabled={busy}>
+              <RefreshCw className={`h-4 w-4 ${busy ? "animate-spin" : ""}`} />
+              Recalculate
+            </Button>
+          ) : null}
+        </div>
       </div>
       <div className="overflow-auto">
         <Table>
@@ -5969,9 +5999,21 @@ function serverRosterFilterLabel(filter: ServerRosterFilter) {
   return riskActionLabel(filter);
 }
 
-function TeamEvidenceTable({ items }: { items: Array<Record<string, unknown>> }) {
+function TeamEvidenceTable({
+  items,
+  loading,
+  sourceStatus,
+}: {
+  items: Array<Record<string, unknown>>;
+  loading?: boolean;
+  sourceStatus?: string;
+}) {
   return (
     <div className="overflow-auto rounded-md border border-border">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
+        <div className="text-sm font-medium">Evidence Details</div>
+        <Badge variant={sourceStatus === "ok" ? "success" : "outline"}>{loading ? "loading" : compactText(sourceStatus ?? "intel")}</Badge>
+      </div>
       <Table>
         <thead>
           <tr>

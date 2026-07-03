@@ -505,6 +505,8 @@ test("player detail sends managed rcon action for current server", async ({ page
   const consoleProblems: string[] = [];
   let rconPath = "";
   let rconPayload: { action?: string; target?: string; reason?: string } | undefined;
+  const teamProbabilityRequests: string[] = [];
+  const teamEvidenceRequests: string[] = [];
   const serverHistoryRequests: string[] = [];
   const positionTrailRequests: string[] = [];
   const timelineRequests: string[] = [];
@@ -591,6 +593,45 @@ test("player detail sends managed rcon action for current server", async ({ page
     }
     if (path.endsWith("/network")) {
       await detailEnvelope({ target: { player }, nodes: [], counts: { nodes: 0 }, source_status: "ok" });
+      return;
+    }
+    if (path.endsWith("/team-probability")) {
+      teamProbabilityRequests.push(url.search);
+      await detailEnvelope({
+        items: [
+          {
+            player: {
+              id: "probable-team",
+              display_name: "Backend Team",
+              steam_id: "76561198000000004",
+            },
+            score: 82,
+            source: "battlemetrics_overlap",
+            reasons: [{ type: "session_overlap", reason: "+24 same server sessions overlap 17h" }],
+            calculated_at: "2026-07-03T12:00:00Z",
+          },
+        ],
+        source_status: "ok",
+        required_sources: ["battlemetrics sessions", "plugin team snapshots"],
+      });
+      return;
+    }
+    if (path.endsWith("/team-evidence")) {
+      teamEvidenceRequests.push(url.search);
+      await detailEnvelope({
+        items: [
+          {
+            id: "team-proof-1",
+            evidence_type: "same_team_snapshot",
+            reason: "plugin team snapshot",
+            player_a_name: "Managed Target",
+            player_b_name: "Backend Team",
+            score_delta: 40,
+            occurred_at: "2026-07-03T12:00:00Z",
+          },
+        ],
+        source_status: "ok",
+      });
       return;
     }
     if (path.endsWith("/server-history")) {
@@ -767,6 +808,13 @@ test("player detail sends managed rcon action for current server", async ({ page
   await expect.poll(() => rconPayload?.target).toBe(steamId);
   await expect.poll(() => rconPayload?.reason).toBe("Smoke mute from player detail");
   await expect(page.getByText("mute 76561198000000003")).toBeVisible();
+  await page.locator("main").getByRole("button", { name: "Relations", exact: true }).click();
+  await expect.poll(() => teamProbabilityRequests.length).toBeGreaterThan(0);
+  await expect.poll(() => teamEvidenceRequests.length).toBeGreaterThan(0);
+  const teamDetails = page.getByTestId("player-team-details");
+  await teamDetails.locator("summary").click();
+  await expect(teamDetails.getByText("Backend Team", { exact: true }).first()).toBeVisible();
+  await expect(teamDetails.getByText("same_team_snapshot", { exact: true })).toBeVisible();
   await page.locator("main").getByRole("button", { name: "Live", exact: true }).click();
   await expect(page.getByTestId("player-position-trail-page")).toContainText("45 position samples / page 1 of 2");
   await expect(page.getByText("PX1", { exact: true }).first()).toBeVisible();
