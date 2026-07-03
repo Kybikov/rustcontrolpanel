@@ -217,6 +217,8 @@ export type WatchlistQuery = {
   q?: string;
   risk_level?: string;
   live?: string;
+  actor_id?: string;
+  updated_by?: string;
   page?: string;
   per_page?: string;
 };

@@ -296,7 +296,7 @@ The watchlist is a local operator layer over the integrated data. It does not re
 
 - `PUT /api/admin/rustcontrol/players/:id/watch` creates or updates a player flag with `watched`, `risk_level`, `reason`, `note`, and `labels`.
 - `POST /api/admin/rustcontrol/live/players/:id/promote` can create the local player and flag it directly from the live roster, so operators do not need to search manually first.
-- `GET /api/admin/rustcontrol/watchlist` returns watched players joined with the latest live player row and current server summary.
+- `GET /api/admin/rustcontrol/watchlist` returns watched players joined with the latest live player row and current server summary. It accepts `actor_id`/`updated_by`/`user_id` for Operator Profile history, matching the flag row's `COALESCE(updated_by, created_by)`.
 - `GET /api/admin/rustcontrol/players/:id/intel` includes `watch`, so the player detail panel can edit the flag inline.
 - Player Intelligence realtime-context rows can promote live-only nearby/team/grid players into local profiles and place them on watch without leaving the offender view.
 - Realtime rows in Live Search, Live Online Map, Player Intelligence, Live/Servers roster, and server radar expose quick `Watch`, `Suspect`, and `Hostile` actions so operators can set the initial risk level directly from live context.

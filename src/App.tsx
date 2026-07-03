@@ -8268,8 +8268,8 @@ function ProfileView({
     [accountActorId, historyPage],
   );
   const profileWatchlistQuery = useMemo<WatchlistQuery>(
-    () => ({ page: String(watchHistoryPage), per_page: String(watchHistoryPerPage) }),
-    [watchHistoryPage],
+    () => ({ actor_id: accountActorId || undefined, page: String(watchHistoryPage), per_page: String(watchHistoryPerPage) }),
+    [accountActorId, watchHistoryPage],
   );
   const profileAlertsQuery = useMemo<AlertsQuery>(
     () => ({ page: String(alertHistoryPage), per_page: String(alertHistoryPerPage) }),
