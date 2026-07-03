@@ -1,0 +1,90 @@
+import { expect, test } from "@playwright/test";
+
+const apiBaseUrl = process.env.UI_SMOKE_API_BASE_URL ?? "http://127.0.0.1:18080";
+
+function base64Url(value: string) {
+  return Buffer.from(value).toString("base64url");
+}
+
+function smokeToken() {
+  const now = Math.floor(Date.now() / 1000);
+  return [
+    base64Url(JSON.stringify({ alg: "none", typ: "JWT" })),
+    base64Url(JSON.stringify({
+      email: "smoke.operator@example.invalid",
+      exp: now + 3600,
+      iat: now,
+      name: "Smoke Operator",
+      sub: "00000000-0000-0000-0000-000000000001",
+    })),
+    "smoke",
+  ].join(".");
+}
+
+test.beforeEach(async ({ page }) => {
+  await page.route(`${apiBaseUrl}/api/admin/rustcontrol/me/live-context`, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          connected: true,
+          source_status: "ok",
+          steam: {
+            persona_name: "Smoke Operator",
+            steam_id: "76561197960287930",
+          },
+        },
+      }),
+    });
+  });
+  await page.route(`${apiBaseUrl}/api/admin/rustcontrol/search**`, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          items: [],
+          source_status: "empty",
+        },
+      }),
+    });
+  });
+  await page.addInitScript(({ token, baseUrl }) => {
+    window.localStorage.setItem("rustcp.accessToken", token);
+    window.localStorage.setItem("rustcp.baseUrl", baseUrl);
+  }, { token: smokeToken(), baseUrl: apiBaseUrl });
+});
+
+test("operator shell command search and raid planner work in production build", async ({ page }) => {
+  const consoleProblems: string[] = [];
+  page.on("console", (message) => {
+    if (["error", "warning"].includes(message.type())) {
+      consoleProblems.push(`${message.type()}: ${message.text()}`);
+    }
+  });
+  page.on("pageerror", (error) => consoleProblems.push(`pageerror: ${error.message}`));
+
+  await page.goto("/tools?tab=raid");
+
+  await expect(page).toHaveTitle(/Rust Control Panel/);
+  await expect(page.getByText("Rust Control", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Tools" })).toBeVisible();
+  await expect(page.getByText("Raid Budget Planner")).toBeVisible();
+
+  await page.getByTestId("command-search-open").click();
+  await page.getByTestId("command-search-input").fill("field");
+  await expect(page.getByTestId("command-search-result").filter({ hasText: "Field Guides" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("command-search-input")).toBeHidden();
+
+  await page.getByTestId("raid-target-select").selectOption("metal_wall");
+  await page.getByTestId("raid-quantity-input").fill("2");
+  await page.getByTestId("raid-reserve-input").fill("0");
+
+  const summary = page.getByTestId("raid-summary");
+  await expect(summary).toContainText("Selected method");
+  await expect(summary).toContainText("C4");
+  await expect(summary).toContainText("Total sulfur");
+  await expect(summary).toContainText("17,600");
+
+  expect(consoleProblems).toEqual([]);
+});

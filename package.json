@@ -10,6 +10,7 @@
     "dev": "vite --host 127.0.0.1",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0",
+    "smoke:ui": "npm run build && playwright test --config playwright.config.ts",
     "smoke:prod": "powershell -ExecutionPolicy Bypass -File scripts/smoke-production.ps1",
     "start": "node server.mjs"
   },
@@ -25,6 +26,7 @@
     "tailwind-merge": "^2.6.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@types/node": "^22.10.2",
     "@types/react": "^18.3.17",
     "@types/react-dom": "^18.3.5",
