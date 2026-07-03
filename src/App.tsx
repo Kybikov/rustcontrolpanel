@@ -1337,12 +1337,16 @@ function AlertsPanel({
   title,
   items,
   loading,
+  compact = false,
+  maxItems,
   onOpenPlayer,
 }: {
   api: ReturnType<typeof createApiClient>;
   title: string;
   items: RustAlertItem[];
   loading: boolean;
+  compact?: boolean;
+  maxItems?: number;
   onOpenPlayer?: (playerId: string) => void;
 }) {
   const queryClient = useQueryClient();
@@ -1357,6 +1361,8 @@ function AlertsPanel({
     [safeItems, scopeFilter, severityFilter],
   );
   const stats = useMemo(() => alertStats(safeItems), [safeItems]);
+  const shownLimit = Math.max(1, maxItems ?? (compact ? 6 : 9));
+  const shownItems = filteredItems.slice(0, shownLimit);
   const updateRisk = useMutation({
     mutationFn: ({ playerId, riskLevel }: { playerId: string; riskLevel: QuickRiskLevel }) =>
       api.updatePlayerWatch(playerId, {
@@ -1386,31 +1392,18 @@ function AlertsPanel({
       <CardContent>
         {safeItems.length ? (
           <div className="grid gap-3">
-            <div className="grid gap-2 lg:grid-cols-[1fr_auto_auto]">
-              <div className="grid gap-2 md:grid-cols-4">
-                <WatchlistSummaryPill label="Critical" value={stats.critical} variant="danger" />
-                <WatchlistSummaryPill label="Warning" value={stats.warning} variant="warning" />
-                <WatchlistSummaryPill label="Same server" value={stats.sameServer} variant="danger" />
-                <WatchlistSummaryPill label="Near" value={stats.near} variant="warning" />
-              </div>
-              <div className="flex flex-wrap gap-1">
-                {(["all", "critical", "warning", "info"] as AlertSeverityFilter[]).map((level) => (
-                  <Button key={level} size="sm" variant={severityFilter === level ? "default" : "secondary"} onClick={() => setSeverityFilter(level)}>
-                    {level === "all" ? "All severity" : level}
-                  </Button>
-                ))}
-              </div>
-              <div className="flex flex-wrap gap-1">
-                {(["all", "same_server", "near", "online"] as AlertScopeFilter[]).map((scope) => (
-                  <Button key={scope} size="sm" variant={scopeFilter === scope ? "default" : "secondary"} onClick={() => setScopeFilter(scope)}>
-                    {alertScopeLabel(scope)}
-                  </Button>
-                ))}
-              </div>
-            </div>
+            {!compact ? (
+              <AlertPanelControls
+                stats={stats}
+                severityFilter={severityFilter}
+                scopeFilter={scopeFilter}
+                onSeverityFilter={setSeverityFilter}
+                onScopeFilter={setScopeFilter}
+              />
+            ) : null}
             {updateRisk.error ? <StatusLine tone="bad" text={updateRisk.error.message} /> : null}
             <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
-              {filteredItems.slice(0, 9).map((item) => (
+              {shownItems.map((item) => (
                 <AlertCard
                   key={`${item.alert_type}-${item.player?.id ?? item.player?.steam_id ?? item.watch?.player_id ?? item.live_player?.id}`}
                   item={item}
@@ -1424,12 +1417,67 @@ function AlertsPanel({
               ))}
             </div>
             {!filteredItems.length ? <EmptyState label="No alerts match current filters" /> : null}
+            {filteredItems.length > shownItems.length ? (
+              <div className="text-xs text-muted-foreground">
+                Showing {shownItems.length} of {filteredItems.length}. Use alert filters for the rest.
+              </div>
+            ) : null}
+            {compact ? (
+              <DetailsBlock summary="Alert filters and counts">
+                <AlertPanelControls
+                  stats={stats}
+                  severityFilter={severityFilter}
+                  scopeFilter={scopeFilter}
+                  onSeverityFilter={setSeverityFilter}
+                  onScopeFilter={setScopeFilter}
+                />
+              </DetailsBlock>
+            ) : null}
           </div>
         ) : (
           <EmptyState label={loading ? "Loading alerts" : "No watched players online"} />
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function AlertPanelControls({
+  stats,
+  severityFilter,
+  scopeFilter,
+  onSeverityFilter,
+  onScopeFilter,
+}: {
+  stats: ReturnType<typeof alertStats>;
+  severityFilter: AlertSeverityFilter;
+  scopeFilter: AlertScopeFilter;
+  onSeverityFilter: (filter: AlertSeverityFilter) => void;
+  onScopeFilter: (filter: AlertScopeFilter) => void;
+}) {
+  return (
+    <div className="grid gap-2 lg:grid-cols-[1fr_auto_auto]">
+      <div className="grid gap-2 md:grid-cols-4">
+        <WatchlistSummaryPill label="Critical" value={stats.critical} variant="danger" />
+        <WatchlistSummaryPill label="Warning" value={stats.warning} variant="warning" />
+        <WatchlistSummaryPill label="Same server" value={stats.sameServer} variant="danger" />
+        <WatchlistSummaryPill label="Near" value={stats.near} variant="warning" />
+      </div>
+      <div className="flex flex-wrap gap-1">
+        {(["all", "critical", "warning", "info"] as AlertSeverityFilter[]).map((level) => (
+          <Button key={level} size="sm" variant={severityFilter === level ? "default" : "secondary"} onClick={() => onSeverityFilter(level)}>
+            {level === "all" ? "All severity" : level}
+          </Button>
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-1">
+        {(["all", "same_server", "near", "online"] as AlertScopeFilter[]).map((scope) => (
+          <Button key={scope} size="sm" variant={scopeFilter === scope ? "default" : "secondary"} onClick={() => onScopeFilter(scope)}>
+            {alertScopeLabel(scope)}
+          </Button>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -1502,7 +1550,7 @@ function Dashboard({ api, onOpenPlayer }: { api: ReturnType<typeof createApiClie
         <MetricCard label="Team edges" value={data.team_edges} icon={<Crosshair />} />
         <MetricCard label="Watched online" value={data.watched_online} icon={<ShieldAlert />} />
       </div>
-      <AlertsPanel api={api} title="Realtime Alerts" items={alerts.data?.items ?? []} loading={alerts.isFetching} onOpenPlayer={onOpenPlayer} />
+      <AlertsPanel api={api} title="Realtime Alerts" items={alerts.data?.items ?? []} loading={alerts.isFetching} compact maxItems={6} onOpenPlayer={onOpenPlayer} />
       <RealtimeHealthPanel health={health.data} loading={health.isFetching} />
       <Card>
         <CardHeader>
@@ -4883,6 +4931,8 @@ function WatchlistView({
         title="Active Watch Alerts"
         items={alerts.data?.items ?? []}
         loading={alerts.isFetching}
+        compact
+        maxItems={6}
         onOpenPlayer={(playerId) => onOpenPlayer(playerId)}
       />
       <Card>
