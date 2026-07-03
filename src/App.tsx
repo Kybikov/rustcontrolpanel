@@ -844,9 +844,16 @@ function CurrentServerFacts({ server, live }: { server?: ServerIntel | null; liv
         <Fact label="World" value={`${compactText(server?.rust_world_size)} / ${compactText(server?.rust_world_seed)}`} wide />
         <Fact label="Last wipe" value={formatDateTime(server?.last_wipe_at)} />
         <Fact label="Next wipe" value={formatDateTime(server?.next_wipe_at)} />
-        <Fact label="Source" value={server?.source ?? live?.source} />
-        <Fact label="Updated" value={formatDateTime(updatedAt)} />
       </div>
+
+      <DetailsBlock summary="Server data details">
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Fact label="BattleMetrics ID" value={serverKey} />
+          <Fact label="Query port" value={server?.port_query} />
+          <Fact label="Source" value={server?.source ?? live?.source} />
+          <Fact label="Updated" value={formatDateTime(updatedAt)} />
+        </div>
+      </DetailsBlock>
 
       <div className="mt-3 flex flex-wrap gap-3 text-sm">
         {rustmapsUrl ? (
@@ -933,13 +940,10 @@ function LiveMap({
           <Badge variant="outline">{rows.length} / {allRows.length} shown</Badge>
         </div>
         <div className="mb-3 flex flex-wrap gap-2">
-          <WatchlistSummaryPill label="Positioned" value={mapStats.positioned} variant={mapStats.positioned ? "success" : "outline"} />
           <WatchlistSummaryPill label="Watched" value={mapStats.watched} variant={mapStats.watched ? "danger" : "outline"} />
           <WatchlistSummaryPill label="Team" value={mapStats.team} variant={mapStats.team ? "success" : "outline"} />
           <WatchlistSummaryPill label="150m" value={mapStats.near150} variant={mapStats.near150 ? "warning" : "outline"} />
-          <WatchlistSummaryPill label="400m" value={mapStats.near400} variant={mapStats.near400 ? "warning" : "outline"} />
           <WatchlistSummaryPill label="Same grid" value={mapStats.sameGrid} variant={mapStats.sameGrid ? "warning" : "outline"} />
-          <WatchlistSummaryPill label="Online" value={mapStats.online} variant={mapStats.online ? "success" : "outline"} />
           <WatchlistSummaryPill label="Shown" value={mapStats.shown} variant="outline" />
         </div>
         <div className="grid gap-2 xl:grid-cols-[1fr_auto]">
@@ -1448,6 +1452,24 @@ function RealtimeHealthPanel({ health, loading, compact = false }: { health?: Re
   const servers = health?.servers ?? [];
   const recentEvents = health?.recent_events ?? [];
   const shownServers = servers.slice(0, compact ? 4 : 8);
+
+  if (compact) {
+    return (
+      <Card>
+        <CardContent className="flex flex-wrap items-center gap-2 pt-4">
+          <div className="mr-auto flex min-w-44 items-center gap-2">
+            <Wifi className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm font-medium">Feed health</span>
+            <Badge variant={healthStatusVariant(health?.status)}>{compactText(health?.status ?? (loading ? "loading" : "no data"))}</Badge>
+          </div>
+          <WatchlistSummaryPill label="Online" value={Number(counts.live_online ?? 0)} variant={Number(counts.live_online ?? 0) ? "success" : "outline"} />
+          <WatchlistSummaryPill label="Watched" value={Number(counts.watched_online ?? 0)} variant={Number(counts.watched_online ?? 0) ? "danger" : "outline"} />
+          <WatchlistSummaryPill label="Events 5m" value={Number(counts.events_5m ?? 0)} variant={Number(counts.events_5m ?? 0) ? "warning" : "outline"} />
+          <WatchlistSummaryPill label="Sources" value={sources.length} variant={sources.length ? "secondary" : "outline"} />
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card>
@@ -2346,23 +2368,27 @@ function PlayerIdentitySummaryPanel({ intel }: { intel: PlayerIntelDetail }) {
         <div className="flex flex-wrap gap-1">
           {player.steam_id ? <Badge variant="success">Steam</Badge> : <Badge variant="outline">no Steam</Badge>}
           {player.battlemetrics_player_id ? <Badge variant="default">BattleMetrics</Badge> : <Badge variant="outline">no BM</Badge>}
-          {live?.source ? <Badge variant="warning">{compactText(live.source)}</Badge> : null}
-          {server?.rustmaps_url || live?.rustmaps_url ? <Badge variant="secondary">RustMaps</Badge> : null}
           <Badge variant={liveStatusVariant(liveStatus?.status)}>{compactText(liveStatus?.status ?? "no_live")}</Badge>
         </div>
       </div>
 
       <div className="grid gap-3 lg:grid-cols-[1fr_340px]">
         <div className="grid gap-2 md:grid-cols-3">
-          <Fact label="Local ID" value={player.id} wide />
           <Fact label="Steam ID" value={player.steam_id} />
           <Fact label="BattleMetrics" value={player.battlemetrics_player_id} />
-          <Fact label="Visibility" value={player.visibility_state ?? "-"} />
           <Fact label="First seen" value={formatDateTime(player.first_seen_at)} />
           <Fact label="Last seen" value={formatDateTime(player.last_seen_at)} />
-          <Fact label="Created" value={formatDateTime(player.created_at)} />
-          <Fact label="Updated" value={formatDateTime(player.updated_at)} />
           <Fact label="Live source" value={liveStatus?.source ?? live?.source} />
+          <Fact label="Visibility" value={player.visibility_state ?? "-"} />
+          <div className="md:col-span-3">
+            <DetailsBlock summary="Identity audit fields">
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                <Fact label="Local ID" value={player.id} wide />
+                <Fact label="Created" value={formatDateTime(player.created_at)} />
+                <Fact label="Updated" value={formatDateTime(player.updated_at)} />
+              </div>
+            </DetailsBlock>
+          </div>
         </div>
 
         <div className="rounded-md border border-border bg-background/50 p-3">
@@ -2415,8 +2441,6 @@ function PlayerRiskEvidenceDigestPanel({ intel }: { intel: PlayerIntelDetail }) 
         </div>
         <div className="flex flex-wrap gap-1">
           <Badge variant={riskBadgeVariant(riskLevel)}>{compactText(riskLevel)}</Badge>
-          <Badge variant={evidence.length ? "warning" : "outline"}>{evidence.length} proofs</Badge>
-          <Badge variant={totalScore > 0 ? "warning" : "outline"}>score +{compactText(totalScore)}</Badge>
           <Badge variant={Number(counts.watched_on_server ?? 0) > 0 ? "danger" : "outline"}>{compactText(counts.watched_on_server)} watched nearby</Badge>
           <Badge variant={Number(counts.near_150m ?? 0) > 0 ? "danger" : "outline"}>{compactText(counts.near_150m)} near 150m</Badge>
         </div>
@@ -2425,14 +2449,21 @@ function PlayerRiskEvidenceDigestPanel({ intel }: { intel: PlayerIntelDetail }) 
       <div className="grid gap-3 xl:grid-cols-[1fr_380px]">
         <div className="grid gap-2 md:grid-cols-3">
           <Fact label="Watch reason" value={watch?.reason || watch?.note || "-"} wide />
-          <Fact label="Risk note" value={watch?.note || "-"} />
           <Fact label="Strongest proof" value={strongestScore ? `+${strongestScore}` : "-"} />
-          <Fact label="Top evidence type" value={topType ? `${topType.value} (${topType.count})` : "-"} />
-          <Fact label="Top source" value={topSource ? `${topSource.value} (${topSource.count})` : "-"} />
           <Fact label="Top relation" value={topLikely ? `${compactText(topLikely.player?.display_name ?? topLikely.player?.name)} ${compactText(topLikely.score)}%` : "-"} />
           <Fact label="Same grid" value={compactText(counts.same_grid)} />
-          <Fact label="Team count" value={compactText(counts.teammates)} />
           <Fact label="Live status" value={compactText(intel.live_status?.status)} />
+          <div className="md:col-span-3">
+            <DetailsBlock summary="Evidence breakdown">
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                <Fact label="Proofs" value={evidence.length} />
+                <Fact label="Total score" value={totalScore ? `+${compactText(totalScore)}` : "-"} />
+                <Fact label="Top evidence type" value={topType ? `${topType.value} (${topType.count})` : "-"} />
+                <Fact label="Top source" value={topSource ? `${topSource.value} (${topSource.count})` : "-"} />
+                <Fact label="Team count" value={compactText(counts.teammates)} />
+              </div>
+            </DetailsBlock>
+          </div>
         </div>
 
         <div className="rounded-md border border-border bg-background/50 p-3">
@@ -2489,11 +2520,7 @@ function PlayerAliasHistoryPanel({ aliases, currentName }: { aliases: PlayerAlia
         <div className="flex flex-wrap gap-1">
           <Badge variant={items.length ? "success" : "outline"}>{items.length} aliases</Badge>
           {currentName ? <Badge variant="secondary">current {compactText(currentName)}</Badge> : null}
-          {sources.slice(0, 4).map(([source, count]) => (
-            <Badge key={source} variant={aliasSourceVariant(source)}>
-              {source} {count}
-            </Badge>
-          ))}
+          {sources[0] ? <Badge variant={aliasSourceVariant(sources[0][0])}>top {compactText(sources[0][0])}</Badge> : null}
         </div>
       </div>
 
@@ -5513,17 +5540,22 @@ function ServerOverviewTab({
         </CardHeader>
         <CardContent className="grid gap-4">
           <div className="grid gap-2 md:grid-cols-2">
-            <Fact label="BattleMetrics" value={server?.battlemetrics_server_id} wide />
             <Fact label="Address" value={server?.ip ? `${server.ip}:${compactText(server.port)}` : server?.address} />
-            <Fact label="Query port" value={server?.port_query} />
             <Fact label="Map" value={server?.rust_map || server?.rust_type} />
             <Fact label="World size" value={server?.rust_world_size} />
             <Fact label="World seed" value={server?.rust_world_seed} />
             <Fact label="Last wipe" value={formatDateTime(server?.last_wipe_at)} />
             <Fact label="Next wipe" value={formatDateTime(server?.next_wipe_at)} />
-            <Fact label="Tracked source" value={server?.source ?? detail?.source ?? detail?.source_status} />
-            <Fact label="Updated" value={formatDateTime(server?.source_updated_at ?? server?.updated_at)} />
           </div>
+
+          <DetailsBlock summary="Server source details">
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Fact label="BattleMetrics" value={server?.battlemetrics_server_id} wide />
+              <Fact label="Query port" value={server?.port_query} />
+              <Fact label="Tracked source" value={server?.source ?? detail?.source ?? detail?.source_status} />
+              <Fact label="Updated" value={formatDateTime(server?.source_updated_at ?? server?.updated_at)} />
+            </div>
+          </DetailsBlock>
 
           {description ? (
             <div className="rounded-md border border-border bg-background/50 p-3">
@@ -5554,10 +5586,10 @@ function ServerOverviewTab({
           </CardHeader>
           <CardContent className="grid gap-3">
             <div className="grid grid-cols-2 gap-2">
-              <Fact label="Online rows" value={context?.counts?.online_players ?? context?.live_players?.length ?? 0} />
-              <Fact label="Known" value={context?.counts?.known_players ?? context?.live_players?.length ?? 0} />
+              <Fact label="Online" value={context?.counts?.online_players ?? context?.live_players?.length ?? 0} />
               <Fact label="Watched" value={context?.counts?.watched_players ?? context?.watched_players?.length ?? 0} />
               <Fact label="Teams" value={context?.counts?.teams ?? context?.team_clusters?.length ?? 0} />
+              <Fact label="Known" value={context?.counts?.known_players ?? context?.live_players?.length ?? 0} />
             </div>
             <div className="rounded-md border border-border bg-background/50 p-3">
               <div className="text-sm font-medium">Source freshness</div>
@@ -5575,8 +5607,6 @@ function ServerOverviewTab({
           <CardContent className="grid gap-2">
             <Fact label="Latest snapshot" value={latestSnapshot ? `${compactText(latestSnapshot.players)} online at ${formatDateTime(latestSnapshot.captured_at)}` : "-"} wide />
             <Fact label="Latest wipe record" value={latestWipe ? `${compactText(latestWipe.wipe_type)} at ${formatDateTime(latestWipe.wipe_at)}` : "-"} wide />
-            <Fact label="Activity rows" value={detail?.activity?.length ?? context?.activity?.length ?? 0} />
-            <Fact label="Snapshots" value={snapshots.length} />
           </CardContent>
         </Card>
       </div>
@@ -5753,15 +5783,19 @@ function ServerMapTab({
           <div className="grid grid-cols-2 gap-2">
             <Fact label="Positioned" value={positioned.length} />
             <Fact label="Live rows" value={liveItems.length} />
-            <Fact label="Live markers" value={liveMarkers.length} />
             <Fact label="Monuments" value={monuments.length} />
-            <Fact label="RustMaps markers" value={rustmapsMarkers.length} />
-            <Fact label="Source" value={mapData?.source_status ?? mapData?.source} />
             <Fact label="World size" value={mapInfo.size ?? server?.rust_world_size} />
             <Fact label="World seed" value={mapInfo.seed ?? server?.rust_world_seed} />
             <Fact label="Rust map" value={mapInfo.map ?? server?.rust_map ?? server?.rust_type} wide />
-            <Fact label="Updated" value={formatDateTime(server?.source_updated_at ?? server?.updated_at)} wide />
           </div>
+          <DetailsBlock summary="Map data details">
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Fact label="Live markers" value={liveMarkers.length} />
+              <Fact label="RustMaps markers" value={rustmapsMarkers.length} />
+              <Fact label="Source" value={mapData?.source_status ?? mapData?.source} />
+              <Fact label="Updated" value={formatDateTime(server?.source_updated_at ?? server?.updated_at)} />
+            </div>
+          </DetailsBlock>
           {stringFromUnknown(mapInfo.settings_source) ? (
             <div className="rounded-md border border-border bg-background/50 p-3">
               <div className="text-xs uppercase tracking-normal text-muted-foreground">Settings source</div>
@@ -6166,8 +6200,6 @@ function ProfileView({
             </div>
           </div>
           <div className="mt-4 grid grid-cols-2 gap-2">
-            <Fact label="API" value={baseUrl.replace(/^https?:\/\//, "")} wide />
-            <Fact label="Token expires" value={formatJwtTime(claims, "exp")} />
             <Fact label="Live age" value={formatAgeSeconds(ageSecondsFromDate(live?.last_seen_at))} />
             <Fact label="Current grid" value={live?.map_grid} />
             <Fact label="Team" value={live?.team_id || live?.clan_tag} />
@@ -6190,11 +6222,12 @@ function ProfileView({
                 </Button>
               ))}
             </div>
-            <div className="grid gap-2 md:grid-cols-4">
-              <Fact label="Watchlist" value={watchItems.length} />
-              <Fact label="Events" value={activityItems.length} />
-              <Fact label="Events 5m" value={counts.events_5m} />
-              <Fact label="Teammates" value={myContext.data?.teammates?.length ?? 0} />
+            <div className="text-sm text-muted-foreground">
+              {activeTab === "account" ? "Account identity and provider readiness" : null}
+              {activeTab === "steam" ? "Steam binding, current live identity and detected teammates" : null}
+              {activeTab === "stats" ? "Operational counts without duplicated raw feed details" : null}
+              {activeTab === "history" ? "Recent activity, watchlist changes and alerts" : null}
+              {activeTab === "security" ? "Session and permission-sensitive account details" : null}
             </div>
           </div>
         </div>
@@ -6272,13 +6305,17 @@ function ProfileAccountTab({
           <Fact label="Email" value={profileClaim(claims, ["email", "preferred_username"])} />
           <Fact label="User ID" value={profileClaim(claims, ["user_id", "sub"])} wide />
           <Fact label="Role" value={profileClaim(claims, ["role", "roles", "scope"])} />
-          <Fact label="Workspace" value={profileClaim(claims, ["workspace_id", "workspace", "workspace_slug"])} />
-          <Fact label="API base" value={baseUrl} wide />
-          <Fact label="Issued" value={formatJwtTime(claims, "iat")} />
-          <Fact label="Expires" value={formatJwtTime(claims, "exp")} />
           <Fact label="Steam" value={steam.steam_id} />
           <Fact label="Persona" value={steam.persona_name} />
         </div>
+        <DetailsBlock summary="Session details">
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Fact label="Workspace" value={profileClaim(claims, ["workspace_id", "workspace", "workspace_slug"])} />
+            <Fact label="API base" value={baseUrl} wide />
+            <Fact label="Issued" value={formatJwtTime(claims, "iat")} />
+            <Fact label="Expires" value={formatJwtTime(claims, "exp")} />
+          </div>
+        </DetailsBlock>
       </div>
 
       <div className="rounded-md border border-border bg-background/45 p-3">
@@ -6344,8 +6381,7 @@ function ProfileSteamTab({
           <Fact label="Steam ID" value={steam.steam_id} wide />
           <Fact label="Persona" value={steam.persona_name} />
           <Fact label="Profile" value={steam.profile_url} />
-          <Fact label="Live source" value={live?.source ?? myContext?.source_status} />
-          <Fact label="Feed status" value={health?.status} />
+          <Fact label="Feed" value={health?.status} />
         </div>
       </div>
 
@@ -6404,43 +6440,32 @@ function ProfileStatsTab({
   const typeOptions = activityOptionCounts(activity, "event_type");
   return (
     <div className="grid gap-4">
-      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-5">
-        <WatchlistSummaryPill label="Watchlist" value={watchStats.total} variant={watchStats.total ? "warning" : "outline"} />
-        <WatchlistSummaryPill label="Hostile" value={watchStats.hostile} variant={watchStats.hostile ? "danger" : "outline"} />
-        <WatchlistSummaryPill label="Suspect" value={watchStats.suspect} variant={watchStats.suspect ? "warning" : "outline"} />
-        <WatchlistSummaryPill label="Online Watched" value={watchStats.online} variant={watchStats.online ? "success" : "outline"} />
-        <WatchlistSummaryPill label="Alerts" value={alerts.length} variant={alerts.length ? "danger" : "outline"} />
-      </div>
-
       <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
         <div className="rounded-md border border-border bg-background/45 p-3">
           <div className="mb-3 flex items-center justify-between gap-2">
-            <div className="text-sm font-medium">RustControl Totals</div>
+            <div className="text-sm font-medium">Workspace Totals</div>
             <Badge variant={loading ? "secondary" : "outline"}>{loading ? "refreshing" : "cached"}</Badge>
           </div>
-          <div className="grid gap-2 md:grid-cols-3">
+          <div className="grid gap-2 md:grid-cols-2">
             <Fact label="Tracked servers" value={overview?.tracked_servers} />
             <Fact label="Known players" value={overview?.known_players} />
             <Fact label="Team edges" value={overview?.team_edges} />
-            <Fact label="Live events 1h" value={overview?.live_events_1h} />
             <Fact label="Live online" value={counts.live_online} />
-            <Fact label="Live teams" value={counts.live_teams} />
-            <Fact label="Live servers" value={counts.live_servers} />
-            <Fact label="Events 5m" value={counts.events_5m} />
-            <Fact label="Events 1h" value={counts.events_1h} />
           </div>
         </div>
 
         <div className="rounded-md border border-border bg-background/45 p-3">
           <div className="mb-3 flex items-center justify-between gap-2">
-            <div className="text-sm font-medium">Activity Mix</div>
-            <Badge variant={activitySummary.error ? "danger" : activitySummary.warning ? "warning" : "outline"}>{activitySummary.total} events</Badge>
+            <div className="text-sm font-medium">Watchlist And Activity</div>
+            <Badge variant={alerts.length ? "danger" : "outline"}>{alerts.length} alerts</Badge>
           </div>
-          <div className="grid gap-2 md:grid-cols-2">
+          <div className="grid gap-2 md:grid-cols-3">
+            <Fact label="Watchlist" value={watchStats.total} />
+            <Fact label="Hostile" value={watchStats.hostile} />
+            <Fact label="Online watched" value={watchStats.online} />
             <Fact label="Warnings" value={activitySummary.warning} />
             <Fact label="Errors" value={activitySummary.error} />
             <Fact label="Operator notes" value={activitySummary.operatorNotes} />
-            <Fact label="Shown rows" value={activity.length} />
           </div>
           <div className="mt-3 grid gap-2 md:grid-cols-2">
             <ActivityFilterChips title="Top Sources" allLabel="All sources" selected="all" items={sourceOptions} onSelect={() => undefined} />
@@ -6448,8 +6473,6 @@ function ProfileStatsTab({
           </div>
         </div>
       </div>
-
-      <RealtimeHealthPanel health={health} loading={loading} compact />
     </div>
   );
 }
@@ -6689,11 +6712,10 @@ function ActivityView({ api }: { api: ReturnType<typeof createApiClient> }) {
       <Header title="Realtime Activity" subtitle="Rust+, plugin, BattleMetrics and admin events" />
       <Card>
         <CardContent className="grid gap-3 pt-4">
-          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-5">
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
             <WatchlistSummaryPill label="Total" value={stats.total} variant="secondary" />
             <WatchlistSummaryPill label="Warnings" value={stats.warning} variant={stats.warning ? "warning" : "outline"} />
             <WatchlistSummaryPill label="Errors" value={stats.error} variant={stats.error ? "danger" : "outline"} />
-            <WatchlistSummaryPill label="Notes" value={stats.operatorNotes} variant={stats.operatorNotes ? "success" : "outline"} />
             <WatchlistSummaryPill label="Shown" value={filteredItems.length} variant="outline" />
           </div>
 
@@ -6734,9 +6756,8 @@ function ActivityView({ api }: { api: ReturnType<typeof createApiClient> }) {
               <thead>
                 <tr>
                   <Th>Time</Th>
-                  <Th>Signal</Th>
                   <Th>Event</Th>
-                  <Th>Payload</Th>
+                  <Th>Signal</Th>
                 </tr>
               </thead>
               <tbody>
@@ -6747,17 +6768,17 @@ function ActivityView({ api }: { api: ReturnType<typeof createApiClient> }) {
                       <div className="text-xs text-muted-foreground">{formatRelativeTime(event.occurred_at)}</div>
                     </Td>
                     <Td>
+                      <div className="font-medium">{compactText(event.event_type)}</div>
+                      <div className="text-xs text-muted-foreground">{compactText(activityPayloadTitle(event.payload))}</div>
+                      <DetailsBlock summary="Payload">
+                        <div className="whitespace-pre-wrap text-xs leading-5 text-muted-foreground">{activityPayloadSummary(event.payload)}</div>
+                      </DetailsBlock>
+                    </Td>
+                    <Td>
                       <div className="flex flex-wrap gap-1">
                         <Badge variant={timelineSeverityVariant(String(event.severity ?? ""))}>{compactText(event.severity)}</Badge>
                         <Badge variant="secondary">{compactText(event.source)}</Badge>
                       </div>
-                    </Td>
-                    <Td>
-                      <div className="font-medium">{compactText(event.event_type)}</div>
-                      <div className="text-xs text-muted-foreground">{compactText(activityPayloadTitle(event.payload))}</div>
-                    </Td>
-                    <Td>
-                      <div className="max-w-[520px] whitespace-pre-wrap text-xs leading-5 text-muted-foreground">{activityPayloadSummary(event.payload)}</div>
                     </Td>
                   </tr>
                 ))}
@@ -7316,6 +7337,15 @@ function Fact({ label, value, wide }: { label: string; value: unknown; wide?: bo
       <div className="text-[11px] uppercase tracking-normal text-muted-foreground">{label}</div>
       <div className="mt-1 truncate font-medium">{compactText(value)}</div>
     </div>
+  );
+}
+
+function DetailsBlock({ summary, children }: { summary: string; children: React.ReactNode }) {
+  return (
+    <details className="mt-3 rounded-md border border-border bg-background/35 px-3 py-2 text-sm">
+      <summary className="cursor-pointer select-none text-xs font-medium text-muted-foreground hover:text-foreground">{summary}</summary>
+      <div className="mt-3">{children}</div>
+    </details>
   );
 }
 
