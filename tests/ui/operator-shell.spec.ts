@@ -505,6 +505,7 @@ test("player detail sends managed rcon action for current server", async ({ page
   const consoleProblems: string[] = [];
   let rconPath = "";
   let rconPayload: { action?: string; target?: string; reason?: string } | undefined;
+  const serverHistoryRequests: string[] = [];
   const positionTrailRequests: string[] = [];
   const timelineRequests: string[] = [];
   const steamId = "76561198000000003";
@@ -593,7 +594,45 @@ test("player detail sends managed rcon action for current server", async ({ page
       return;
     }
     if (path.endsWith("/server-history")) {
-      await detailEnvelope({ player, current_server: currentServer, top_servers: [], recent_sessions: [], repeated_companions: [], evidence_servers: [], counts: {}, source_status: "ok" });
+      const pageNumber = Number(url.searchParams.get("page") ?? "1");
+      const perPage = Number(url.searchParams.get("per_page") ?? "25");
+      serverHistoryRequests.push(url.search);
+      const allSessions = Array.from({ length: 53 }, (_, index) => ({
+        id: `history-session-${index + 1}`,
+        server_id: currentServer.id,
+        server_name: `History Server ${index + 1}`,
+        battlemetrics_server_id: currentServer.battlemetrics_server_id,
+        started_at: `2026-07-03T10:${String(Math.max(0, 59 - index)).padStart(2, "0")}:00Z`,
+        ended_at: `2026-07-03T11:${String(Math.max(0, 59 - index)).padStart(2, "0")}:00Z`,
+        duration_seconds: 1800 + index,
+        source: "battlemetrics",
+        confidence: 90,
+      }));
+      const start = (pageNumber - 1) * perPage;
+      const slice = allSessions.slice(start, start + perPage);
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          data: {
+            target: { player, current_server: currentServer },
+            top_servers: [
+              {
+                server_name: currentServer.name,
+                battlemetrics_server_id: currentServer.battlemetrics_server_id,
+                session_count: allSessions.length,
+                total_duration: 3600,
+                last_seen_at: "2026-07-03T12:00:00Z",
+              },
+            ],
+            recent_sessions: slice,
+            companions: [],
+            evidence_servers: [],
+            counts: { top_servers: 1, recent_sessions: allSessions.length, companions: 0, evidence_servers: 0 },
+            source_status: "ok",
+          },
+          meta: { total: allSessions.length, page: pageNumber, per_page: perPage, count: slice.length },
+        }),
+      });
       return;
     }
     if (path.endsWith("/position-trail")) {
@@ -737,6 +776,13 @@ test("player detail sends managed rcon action for current server", async ({ page
   await expect(page.getByText("PX41", { exact: true })).toBeVisible();
   expect(positionTrailRequests.some((search) => search.includes("page=1") && search.includes("per_page=40"))).toBeTruthy();
   await page.getByRole("button", { name: "History" }).click();
+  await expect(page.getByTestId("player-server-history-page")).toContainText("53 recent sessions / page 1 of 3");
+  await expect(page.getByText("History Server 1", { exact: true })).toBeVisible();
+  await page.getByTestId("player-server-history-page-next").click();
+  await expect.poll(() => serverHistoryRequests.some((search) => search.includes("page=2") && search.includes("per_page=25"))).toBeTruthy();
+  await expect(page.getByTestId("player-server-history-page")).toContainText("53 recent sessions / page 2 of 3");
+  await expect(page.getByText("History Server 26", { exact: true })).toBeVisible();
+  expect(serverHistoryRequests.some((search) => search.includes("page=1") && search.includes("per_page=25"))).toBeTruthy();
   await expect(page.getByTestId("player-timeline-page")).toContainText("55 timeline events / page 1 of 2");
   await expect(page.getByText("Timeline Event 1", { exact: true })).toBeVisible();
   await page.getByTestId("player-timeline-page-next").click();

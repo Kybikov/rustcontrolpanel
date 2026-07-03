@@ -2158,9 +2158,11 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
   const [selectedBattleMetricsId, setSelectedBattleMetricsId] = useState("");
   const [activePlayerTab, setActivePlayerTab] = useState<PlayerDetailTab>("overview");
   const [knownPage, setKnownPage] = useState(1);
+  const [serverHistoryPage, setServerHistoryPage] = useState(1);
   const [positionTrailPage, setPositionTrailPage] = useState(1);
   const [timelinePage, setTimelinePage] = useState(1);
   const knownPerPage = 25;
+  const serverHistoryPerPage = 25;
   const positionTrailPerPage = 40;
   const timelinePerPage = 50;
   const knownPlayersQuery = useMemo<PlayersQuery>(
@@ -2170,6 +2172,10 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
   const timelineQuery = useMemo<ServerDetailListQuery>(
     () => ({ page: String(timelinePage), per_page: String(timelinePerPage) }),
     [timelinePage],
+  );
+  const serverHistoryQuery = useMemo<ServerDetailListQuery>(
+    () => ({ page: String(serverHistoryPage), per_page: String(serverHistoryPerPage) }),
+    [serverHistoryPage],
   );
   const positionTrailQuery = useMemo<ServerDetailListQuery>(
     () => ({ page: String(positionTrailPage), per_page: String(positionTrailPerPage) }),
@@ -2195,6 +2201,7 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
   const selectedLocalPlayer = localMatches.find((player) => player.id === selectedLocalPlayerId) ?? resolve.data?.local_player;
   const localPlayerId = selectedLocalPlayerId || resolve.data?.local_player?.id || "";
   useEffect(() => {
+    setServerHistoryPage(1);
     setPositionTrailPage(1);
     setTimelinePage(1);
   }, [localPlayerId]);
@@ -2234,9 +2241,10 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
     refetchInterval: 5_000,
   });
   const serverHistory = useQuery({
-    queryKey: ["playerServerHistory", localPlayerId],
-    queryFn: () => api.playerServerHistory(localPlayerId),
+    queryKey: ["playerServerHistory", localPlayerId, serverHistoryQuery],
+    queryFn: () => api.playerServerHistory(localPlayerId, serverHistoryQuery),
     enabled: localPlayerId.length > 0,
+    placeholderData: (previousData) => previousData,
     refetchInterval: 10_000,
   });
   const positionTrail = useQuery({
@@ -2257,6 +2265,8 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
   const knownItems = knownPlayers.data?.items ?? [];
   const knownTotal = knownPlayers.data?.meta?.total ?? knownPlayers.data?.stats?.total ?? knownItems.length;
   const knownPageCount = Math.max(1, Math.ceil(Number(knownTotal || 0) / knownPerPage));
+  const serverHistoryTotal = serverHistory.data?.meta?.total ?? serverHistory.data?.counts?.recent_sessions ?? serverHistory.data?.recent_sessions.length ?? 0;
+  const serverHistoryPageCount = Math.max(1, Math.ceil(Number(serverHistoryTotal || 0) / serverHistoryPerPage));
   const positionTrailTotal = positionTrail.data?.meta?.total ?? positionTrail.data?.counts?.samples ?? positionTrail.data?.items.length ?? 0;
   const positionTrailPageCount = Math.max(1, Math.ceil(Number(positionTrailTotal || 0) / positionTrailPerPage));
   const timelineTotal = timeline.data?.meta?.total ?? timeline.data?.counts?.total ?? timeline.data?.items.length ?? 0;
@@ -2709,7 +2719,17 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
                   void sessions.refetch();
                 }}
               />
-              <PlayerServerHistoryPanel data={serverHistory.data} loading={serverHistory.isFetching} onOpenPlayer={selectLocalPlayer} />
+              <PlayerServerHistoryPanel
+                data={serverHistory.data}
+                loading={serverHistory.isFetching}
+                total={Number(serverHistoryTotal || 0)}
+                page={serverHistoryPage}
+                pageCount={serverHistoryPageCount}
+                onRefresh={() => serverHistory.refetch()}
+                onPrev={() => setServerHistoryPage((value) => Math.max(1, value - 1))}
+                onNext={() => setServerHistoryPage((value) => Math.min(serverHistoryPageCount, value + 1))}
+                onOpenPlayer={selectLocalPlayer}
+              />
               <PlayerTimelinePanel
                 data={timeline.data}
                 loading={timeline.isFetching}
@@ -4631,10 +4651,22 @@ function PlayerNetworkNodeCard({
 function PlayerServerHistoryPanel({
   data,
   loading,
+  total,
+  page,
+  pageCount,
+  onRefresh,
+  onPrev,
+  onNext,
   onOpenPlayer,
 }: {
   data?: PlayerServerHistory;
   loading: boolean;
+  total: number;
+  page: number;
+  pageCount: number;
+  onRefresh: () => void;
+  onPrev: () => void;
+  onNext: () => void;
   onOpenPlayer: (player: PlayerIntel) => void;
 }) {
   const counts = data?.counts ?? {};
@@ -4768,9 +4800,26 @@ function PlayerServerHistoryPanel({
           </div>
 
           <div className="rounded-md border border-border bg-background/50 p-3">
-            <div className="mb-2 text-sm font-medium">Recent Cached Sessions</div>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <div className="text-sm font-medium">Recent Cached Sessions</div>
+              <Badge variant="outline">{compactText(sessions.length)} on page</Badge>
+            </div>
+            <div className="mb-2">
+              <PageStatusBar
+                total={total}
+                itemLabel="recent sessions"
+                page={page}
+                pageCount={pageCount}
+                sourceStatus={data?.source_status}
+                loading={loading}
+                onRefresh={onRefresh}
+                onPrev={onPrev}
+                onNext={onNext}
+                testId="player-server-history-page"
+              />
+            </div>
             <div className="grid max-h-[260px] gap-2 overflow-auto">
-              {sessions.slice(0, 12).map((session) => (
+              {sessions.map((session) => (
                 <div key={String(session.id)} className="grid gap-2 rounded-md border border-border p-2 md:grid-cols-[1fr_auto_auto]">
                   <div className="min-w-0">
                     <div className="truncate text-sm font-medium">{compactText(session.server_name ?? session.battlemetrics_server_id)}</div>

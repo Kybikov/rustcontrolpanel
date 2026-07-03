@@ -523,6 +523,7 @@ export type PlayerServerHistory = {
   recent_sessions: Array<Record<string, unknown>>;
   companions: Array<Record<string, unknown>>;
   evidence_servers: Array<Record<string, unknown>>;
+  meta?: ApiEnvelope<unknown>["meta"];
   counts?: Record<string, number>;
   source_status?: string;
   required_sources?: string[];
@@ -1063,8 +1064,11 @@ export function createApiClient(baseUrl: string, token?: string) {
         body: payload,
       });
     },
-    playerServerHistory(id: string) {
-      return request<PlayerServerHistory>(`/api/admin/rustcontrol/players/${encodeURIComponent(id)}/server-history`);
+    playerServerHistory(id: string, query?: ServerDetailListQuery) {
+      return requestEnvelope<Omit<PlayerServerHistory, "meta">>(withQuery(`/api/admin/rustcontrol/players/${encodeURIComponent(id)}/server-history`, query)).then((envelope) => ({
+        ...(envelope.data ?? { target: { player: {} as PlayerIntel }, top_servers: [], recent_sessions: [], companions: [], evidence_servers: [] }),
+        meta: envelope.meta,
+      }));
     },
     playerPositionTrail(id: string, query?: ServerDetailListQuery) {
       return requestEnvelope<Omit<PlayerPositionTrail, "meta">>(withQuery(`/api/admin/rustcontrol/players/${encodeURIComponent(id)}/position-trail`, query)).then((envelope) => ({
