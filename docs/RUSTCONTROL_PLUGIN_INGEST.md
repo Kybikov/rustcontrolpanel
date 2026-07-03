@@ -272,7 +272,7 @@ Player Intelligence also renders a Risk Evidence Digest from `watch`, `team_evid
 
 Alert panels in Dashboard, Live, and Watchlist act as a realtime triage center: operators can filter by severity and scope (`same server`, `near`, `online`), see critical/warning/same-server/near counters, open Intel, and change the player's risk with quick `Watch`, `Suspect`, and `Hostile` actions from the alert card.
 
-The global Activity page reads `GET /api/admin/rustcontrol/activity` as an operator investigation log with total/warning/error/operator-note counters, full-text payload search, severity filters, source chips, event-type chips, relative timestamps, and compact payload summaries instead of raw JSON-only rows.
+The global Activity page reads `GET /api/admin/rustcontrol/activity` as an operator investigation log with total/warning/error/operator-note counters, full-text payload search, severity filters, source chips, event-type chips, relative timestamps, backend-resolved server/player entity jump buttons, and compact payload summaries instead of raw JSON-only rows.
 
 `GET /api/admin/rustcontrol/servers/:id/live-context` is the one-shot server view. It accepts a local tracked server UUID or BattleMetrics server id and returns server summary, live roster, team clusters, watched players on that server, recent activity, and counts. Team clusters include `risk_score`, `risk_level`, and `risk_summary` counts for hostile/suspect/watch/friendly/watched/online members.
 
