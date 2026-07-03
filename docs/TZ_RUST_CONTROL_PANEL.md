@@ -608,6 +608,7 @@ Schema: `rustcontrol`.
 - Global Activity now acts as a filtered investigation log with total/warning/error/operator-note counters, full-text payload search, severity filters, source chips, event-type chips, relative timestamps, and compact payload summaries.
 - Global Activity filters now run on the backend (`q`, `severity`, `source`, `event_type`, `from`, `to`, pagination) and return matching stats/source/type facets, so the UI no longer filters only the first loaded page.
 - Servers now support backend-backed tracked filters (`tracked_q`, status, country, wipe window, server type/tag, freshness, online range, world-size range) with a compact filter bar and advanced filters collapsed by default.
+- Servers, Watchlist, and Global Activity now support compact saved filter presets stored locally in the browser and applied back into backend-backed query params.
 - `GET /api/admin/rustcontrol/players/:id/dossier` returns aggregate player intelligence: identity/watch/live context, alias/session/server/relation/evidence/activity counts, total playtime, top servers, active hours, and source/type breakdowns.
 - Player Intelligence now includes a Player Dossier panel with summary metrics, top servers, active-hours heatbar, activity/evidence type counts, and relation source counts.
 - The Oxide/uMod plugin streams `online_snapshot`, `team_snapshot`, connect/disconnect, death/combat relations, and optional chat events into `POST /webhooks/rustcontrol/:workspace_id/events`.

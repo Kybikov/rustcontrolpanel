@@ -89,6 +89,57 @@ test("operator shell command search and raid planner work in production build", 
   expect(consoleProblems).toEqual([]);
 });
 
+test("saved server filters persist and apply query presets", async ({ page }) => {
+  const consoleProblems: string[] = [];
+  const serverRequests: string[] = [];
+  page.on("console", (message) => {
+    if (["error", "warning"].includes(message.type())) {
+      consoleProblems.push(`${message.type()}: ${message.text()}`);
+    }
+  });
+  page.on("pageerror", (error) => consoleProblems.push(`pageerror: ${error.message}`));
+
+  await page.route(`${apiBaseUrl}/api/admin/rustcontrol/servers**`, async (route) => {
+    const url = new URL(route.request().url());
+    serverRequests.push(url.toString());
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          items: [],
+          source_status: "ok",
+        },
+        meta: { total: 0, page: Number(url.searchParams.get("page") ?? "1"), per_page: 25, count: 0 },
+      }),
+    });
+  });
+
+  await page.goto("/servers");
+  await expect(page.getByRole("heading", { name: "Servers", exact: true })).toBeVisible();
+
+  const trackedSearch = page.getByPlaceholder("Filter tracked servers");
+  const statusSelect = page.locator("select").first();
+  await trackedSearch.fill("eu trio");
+  await statusSelect.selectOption("online");
+  await page.getByTestId("servers-saved-filters").locator("summary").click();
+  await page.getByTestId("servers-saved-filters-name").fill("Online EU");
+  await page.getByTestId("servers-saved-filters-save").click();
+  await expect(page.getByTestId("servers-saved-filters-preset").filter({ hasText: "Online EU" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Clear" }).click();
+  await expect(trackedSearch).toHaveValue("");
+  await expect(statusSelect).toHaveValue("all");
+
+  await page.getByTestId("servers-saved-filters-preset").filter({ hasText: "Online EU" }).click();
+  await expect(trackedSearch).toHaveValue("eu trio");
+  await expect(statusSelect).toHaveValue("online");
+  await expect
+    .poll(() => serverRequests.some((url) => url.includes("tracked_q=eu+trio") && url.includes("status=online")))
+    .toBe(true);
+
+  expect(consoleProblems).toEqual([]);
+});
+
 test("server settings expose read-only rcon readiness test", async ({ page }) => {
   const consoleProblems: string[] = [];
   page.on("console", (message) => {

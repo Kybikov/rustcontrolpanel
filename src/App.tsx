@@ -358,6 +358,59 @@ function removeStoredValue(key: string) {
   }
 }
 
+type SavedFilterPreset = {
+  id: string;
+  name: string;
+  filters: Record<string, string>;
+  created_at: string;
+};
+
+function cleanFilterRecord(filters: Record<string, unknown>) {
+  const entries = Object.entries(filters)
+    .map(([key, value]) => [key, typeof value === "string" ? value.trim() : String(value ?? "").trim()] as const)
+    .filter(([, value]) => value.length > 0);
+  return Object.fromEntries(entries);
+}
+
+function readSavedFilterPresets(storageKey: string): SavedFilterPreset[] {
+  const raw = readStoredValue(storageKey, "[]");
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item) => {
+        if (!item || typeof item !== "object") return null;
+        const record = item as Record<string, unknown>;
+        const filters = record.filters && typeof record.filters === "object" ? cleanFilterRecord(record.filters as Record<string, unknown>) : {};
+        const name = String(record.name ?? "").trim();
+        if (!name || !Object.keys(filters).length) return null;
+        return {
+          id: String(record.id ?? `${name}-${record.created_at ?? ""}`),
+          name: name.slice(0, 48),
+          filters,
+          created_at: String(record.created_at ?? ""),
+        };
+      })
+      .filter((item): item is SavedFilterPreset => Boolean(item))
+      .slice(0, 8);
+  } catch {
+    return [];
+  }
+}
+
+function filterPresetLabel(filters: Record<string, string>) {
+  const first = Object.entries(filters)
+    .slice(0, 2)
+    .map(([, value]) => value)
+    .filter(Boolean)
+    .join(" ");
+  return (first || "Filter").slice(0, 40);
+}
+
+function oneOf<T extends string>(value: string | undefined, allowed: readonly T[], fallback: T): T {
+  return value && (allowed as readonly string[]).includes(value) ? (value as T) : fallback;
+}
+
 const savedBaseUrl = readStoredValue("rustcp.baseUrl", defaultApiBaseUrl());
 const savedToken = readStoredValue("rustcp.accessToken", "");
 
@@ -5491,6 +5544,14 @@ function WatchlistView({
   useEffect(() => {
     if (page > pageCount) setPage(pageCount);
   }, [page, pageCount]);
+  const watchlistSavedFilters = useMemo(
+    () => ({
+      q: searchText.trim(),
+      risk_level: riskFilter === "all" ? "" : riskFilter,
+      live: liveFilter === "all" ? "" : liveFilter,
+    }),
+    [liveFilter, riskFilter, searchText],
+  );
 
   function updateSearch(value: string) {
     setSearchText(value);
@@ -5504,6 +5565,13 @@ function WatchlistView({
 
   function updateLive(state: WatchlistLiveFilter) {
     setLiveFilter(state);
+    setPage(1);
+  }
+
+  function applySavedWatchlistFilters(filters: Record<string, string>) {
+    setSearchText(filters.q ?? "");
+    setRiskFilter(oneOf(filters.risk_level, ["all", "hostile", "suspect", "watch"] as const, "all"));
+    setLiveFilter(oneOf(filters.live, ["all", "online", "offline"] as const, "all"));
     setPage(1);
   }
 
@@ -5576,6 +5644,13 @@ function WatchlistView({
                 ))}
               </div>
             </div>
+            <SavedFilterBar
+              summary="Saved watchlist filters"
+              storageKey="rustcp.filters.watchlist"
+              filters={watchlistSavedFilters}
+              onApply={applySavedWatchlistFilters}
+              testId="watchlist-saved-filters"
+            />
           </div>
           <div className="overflow-auto">
             <Table>
@@ -7326,6 +7401,22 @@ function ServersView({
       minSizeFilter.trim() ||
       maxSizeFilter.trim(),
   );
+  const trackedSavedFilters = useMemo(
+    () => ({
+      tracked_q: trackedSearch.trim(),
+      status: statusFilter === "all" ? "" : statusFilter,
+      wipe_window: wipeWindowFilter === "all" ? "" : wipeWindowFilter,
+      server_type: serverTypeFilter === "all" ? "" : serverTypeFilter,
+      freshness: freshnessFilter === "all" ? "" : freshnessFilter,
+      country: countryFilter.trim(),
+      tag: tagFilter.trim(),
+      min_online: minOnlineFilter.trim(),
+      max_online: maxOnlineFilter.trim(),
+      min_size: minSizeFilter.trim(),
+      max_size: maxSizeFilter.trim(),
+    }),
+    [countryFilter, freshnessFilter, maxOnlineFilter, maxSizeFilter, minOnlineFilter, minSizeFilter, serverTypeFilter, statusFilter, tagFilter, trackedSearch, wipeWindowFilter],
+  );
   const selectedServerContext = useQuery({
     queryKey: ["serverLiveContext", selectedServerId],
     queryFn: () => api.serverLiveContext(selectedServerId),
@@ -7352,6 +7443,21 @@ function ServersView({
     setMaxOnlineFilter("");
     setMinSizeFilter("");
     setMaxSizeFilter("");
+    setTrackedPage(1);
+  }
+
+  function applySavedTrackedFilters(filters: Record<string, string>) {
+    setTrackedSearch(filters.tracked_q ?? "");
+    setStatusFilter(oneOf(filters.status, ["all", "online", "offline", "dead", "unknown"] as const, "all"));
+    setWipeWindowFilter(oneOf(filters.wipe_window, ["all", "24h", "7d", "30d", "overdue", "missing"] as const, "all"));
+    setServerTypeFilter(oneOf(filters.server_type, ["all", "official", "modded", "pve", "pvp"] as const, "all"));
+    setFreshnessFilter(oneOf(filters.freshness, ["all", "fresh", "stale", "missing"] as const, "all"));
+    setCountryFilter(filters.country ?? "");
+    setTagFilter(filters.tag ?? "");
+    setMinOnlineFilter(filters.min_online ?? "");
+    setMaxOnlineFilter(filters.max_online ?? "");
+    setMinSizeFilter(filters.min_size ?? "");
+    setMaxSizeFilter(filters.max_size ?? "");
     setTrackedPage(1);
   }
 
@@ -7412,6 +7518,13 @@ function ServersView({
               <Input type="number" min={0} value={maxSizeFilter} onChange={(event) => setMaxSizeFilter(event.target.value)} placeholder="Max size" />
             </div>
           </DetailsBlock>
+          <SavedFilterBar
+            summary="Saved tracked filters"
+            storageKey="rustcp.filters.servers"
+            filters={trackedSavedFilters}
+            onApply={applySavedTrackedFilters}
+            testId="servers-saved-filters"
+          />
         </CardContent>
       </Card>
       {search.error || track.error || sync.error ? <StatusLine tone="bad" text={(search.error ?? track.error ?? sync.error)?.message ?? "Request failed"} /> : null}
@@ -8760,6 +8873,15 @@ function ActivityView({ api }: { api: ReturnType<typeof createApiClient> }) {
   const total = activity.data?.meta?.total ?? stats.total ?? items.length;
   const pageCount = Math.max(1, Math.ceil(Number(total || 0) / perPage));
   const hasFilters = Boolean(searchText.trim() || severityFilter !== "all" || sourceFilter !== "all" || typeFilter !== "all" || page > 1);
+  const activitySavedFilters = useMemo(
+    () => ({
+      q: searchText.trim(),
+      severity: severityFilter === "all" ? "" : severityFilter,
+      source: sourceFilter === "all" ? "" : sourceFilter,
+      event_type: typeFilter === "all" ? "" : typeFilter,
+    }),
+    [searchText, severityFilter, sourceFilter, typeFilter],
+  );
 
   function updateSearch(value: string) {
     setSearchText(value);
@@ -8786,6 +8908,14 @@ function ActivityView({ api }: { api: ReturnType<typeof createApiClient> }) {
     setSeverityFilter("all");
     setSourceFilter("all");
     setTypeFilter("all");
+    setPage(1);
+  }
+
+  function applySavedActivityFilters(filters: Record<string, string>) {
+    setSearchText(filters.q ?? "");
+    setSeverityFilter(oneOf(filters.severity, ["all", "info", "warning", "error"] as const, "all"));
+    setSourceFilter(filters.source || "all");
+    setTypeFilter(filters.event_type || "all");
     setPage(1);
   }
 
@@ -8836,6 +8966,13 @@ function ActivityView({ api }: { api: ReturnType<typeof createApiClient> }) {
               onSelect={updateType}
             />
           </div>
+          <SavedFilterBar
+            summary="Saved activity filters"
+            storageKey="rustcp.filters.activity"
+            filters={activitySavedFilters}
+            onApply={applySavedActivityFilters}
+            testId="activity-saved-filters"
+          />
 
           {activity.error ? <StatusLine tone="bad" text={activity.error.message} /> : null}
 
@@ -8938,6 +9075,92 @@ function ActivityFilterChips({
         {!items.length ? <Badge variant="outline">empty</Badge> : null}
       </div>
     </div>
+  );
+}
+
+function SavedFilterBar({
+  summary,
+  storageKey,
+  filters,
+  onApply,
+  testId,
+}: {
+  summary: string;
+  storageKey: string;
+  filters: Record<string, unknown>;
+  onApply: (filters: Record<string, string>) => void;
+  testId?: string;
+}) {
+  const [name, setName] = useState("");
+  const [presets, setPresets] = useState<SavedFilterPreset[]>(() => readSavedFilterPresets(storageKey));
+  const currentFilters = useMemo(() => cleanFilterRecord(filters), [filters]);
+  const hasCurrentFilters = Object.keys(currentFilters).length > 0;
+
+  function persist(next: SavedFilterPreset[]) {
+    setPresets(next);
+    writeStoredValue(storageKey, JSON.stringify(next));
+  }
+
+  function saveCurrent() {
+    if (!hasCurrentFilters) return;
+    const presetName = (name.trim() || filterPresetLabel(currentFilters)).slice(0, 48);
+    const preset: SavedFilterPreset = {
+      id: `${Date.now()}-${presetName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+      name: presetName,
+      filters: currentFilters,
+      created_at: new Date().toISOString(),
+    };
+    persist([preset, ...presets.filter((item) => item.name.toLowerCase() !== presetName.toLowerCase())].slice(0, 8));
+    setName("");
+  }
+
+  function removePreset(id: string) {
+    persist(presets.filter((item) => item.id !== id));
+  }
+
+  return (
+    <DetailsBlock summary={summary} testId={testId}>
+      <div className="grid gap-3">
+        <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+          <Input
+            data-testid={testId ? `${testId}-name` : undefined}
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="Preset name"
+          />
+          <Button data-testid={testId ? `${testId}-save` : undefined} size="sm" variant="secondary" onClick={saveCurrent} disabled={!hasCurrentFilters}>
+            <Save className="h-4 w-4" />
+            Save current
+          </Button>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {presets.map((preset) => (
+            <div key={preset.id} className="flex overflow-hidden rounded-md border border-border">
+              <Button
+                data-testid={testId ? `${testId}-preset` : undefined}
+                className="rounded-none border-0"
+                size="sm"
+                variant="ghost"
+                onClick={() => onApply(preset.filters)}
+              >
+                {preset.name}
+              </Button>
+              <Button
+                data-testid={testId ? `${testId}-remove` : undefined}
+                className="rounded-none border-y-0 border-r-0"
+                size="icon"
+                variant="ghost"
+                onClick={() => removePreset(preset.id)}
+                aria-label={`Remove ${preset.name}`}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          ))}
+          {!presets.length ? <Badge variant="outline">none saved</Badge> : null}
+        </div>
+      </div>
+    </DetailsBlock>
   );
 }
 
@@ -10008,9 +10231,9 @@ function Fact({ label, value, wide }: { label: string; value: unknown; wide?: bo
   );
 }
 
-function DetailsBlock({ summary, children }: { summary: string; children: React.ReactNode }) {
+function DetailsBlock({ summary, children, testId }: { summary: string; children: React.ReactNode; testId?: string }) {
   return (
-    <details className="mt-3 rounded-md border border-border bg-background/35 px-3 py-2 text-sm">
+    <details data-testid={testId} className="mt-3 rounded-md border border-border bg-background/35 px-3 py-2 text-sm">
       <summary className="cursor-pointer select-none text-xs font-medium text-muted-foreground hover:text-foreground">{summary}</summary>
       <div className="mt-3">{children}</div>
     </details>
