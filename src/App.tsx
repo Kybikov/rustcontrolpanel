@@ -89,11 +89,19 @@ type WipeCalendarMode = "calendar" | "records";
 type WipeRangeFilter = "30" | "60" | "90" | "all";
 type RconActionType = RconActionInput["action"];
 type ProfileTab = "account" | "steam" | "stats" | "history" | "security";
+type PlayerDetailTab = "overview" | "identity" | "live" | "relations" | "history";
 type ServerDetailTab = "overview" | "history" | "wipes" | "players" | "map" | "activity" | "settings";
 type BadgeVariant = "default" | "secondary" | "outline" | "danger" | "success" | "warning";
 
 const quickRiskLevels: QuickRiskLevel[] = ["watch", "suspect", "hostile"];
 const profileTabValues: ProfileTab[] = ["account", "steam", "stats", "history", "security"];
+const playerDetailTabs: Array<{ value: PlayerDetailTab; label: string }> = [
+  { value: "overview", label: "Overview" },
+  { value: "identity", label: "Identity" },
+  { value: "live", label: "Live" },
+  { value: "relations", label: "Relations" },
+  { value: "history", label: "History" },
+];
 const editableWipeTypes = ["map_wipe", "bp_wipe", "full_wipe", "manual_wipe"];
 const selectClassName = "h-10 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
 const wipeReminderMinuteOptions = [
@@ -203,7 +211,7 @@ const savedToken = readStoredValue("rustcp.accessToken", "");
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
       <AppShell />
     </BrowserRouter>
   );
@@ -1626,6 +1634,7 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
   const [query, setQuery] = useState("");
   const [selectedLocalPlayerId, setSelectedLocalPlayerId] = useState("");
   const [selectedBattleMetricsId, setSelectedBattleMetricsId] = useState("");
+  const [activePlayerTab, setActivePlayerTab] = useState<PlayerDetailTab>("overview");
   const resolve = useMutation({
     mutationFn: () => api.resolvePlayer(query),
     onSuccess: (result) => {
@@ -1698,6 +1707,8 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
   const likelyTeammates = intel.data?.likely_teammates ?? [];
   const teamEvidence = intel.data?.team_evidence ?? [];
   const relationItems = relations.data?.items ?? [];
+  const currentIntel = intel.data;
+  const aliases = currentIntel?.player.aliases ?? [];
   const promoteLiveSearch = useMutation({
     mutationFn: ({ liveId, riskLevel }: { liveId: string; riskLevel?: QuickRiskLevel; open: boolean }) =>
       api.promoteLivePlayer(liveId, {
@@ -1825,6 +1836,11 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
     resolve.reset();
     search.reset();
     connect.mutate();
+  }
+
+  function selectLocalPlayer(player: PlayerIntel) {
+    setSelectedLocalPlayerId(player.id ?? "");
+    setSelectedBattleMetricsId(player.battlemetrics_player_id ?? "");
   }
 
   return (
@@ -1958,7 +1974,7 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
 
       <Card>
         <CardHeader>
-          <CardTitle>Player Detail / Team Evidence</CardTitle>
+          <CardTitle>Player Detail</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="mb-3 flex flex-wrap gap-2">
@@ -1998,66 +2014,90 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
             <Badge variant={Number(timeline.data?.counts?.total ?? 0) > 0 ? "success" : "outline"}>
               timeline {compactText(timeline.data?.counts?.total)}
             </Badge>
-            <Badge variant="secondary">Rust+ team layer ready</Badge>
-            <Badge variant="secondary">Plugin event layer ready</Badge>
           </div>
-          <BattleMetricsSessionSyncPanel
-            battleMetricsId={sessionBattleMetricsId}
-            data={sessions.data}
-            loading={sessions.isFetching}
-            error={sessions.error}
-            updatedAt={sessions.dataUpdatedAt}
-            onRefresh={() => {
-              void sessions.refetch();
-            }}
-          />
-          <PlayerIntelPanel
-            api={api}
-            intel={intel.data}
-            loading={intel.isFetching}
-            refreshing={intel.isFetching}
-            onRefresh={() => {
-              void intel.refetch();
-            }}
-            onOpenPlayer={(player) => {
-              setSelectedLocalPlayerId(player.id ?? "");
-              setSelectedBattleMetricsId(player.battlemetrics_player_id ?? "");
-            }}
-            onWatchChanged={invalidateCurrentPlayerContext}
-          />
-          <PlayerDossierPanel data={dossier.data} loading={dossier.isFetching} />
-          <PlayerPositionTrailPanel data={positionTrail.data} loading={positionTrail.isFetching} />
-          <RelationGraphPanel
-            data={relations.data}
-            loading={relations.isFetching}
-            onOpenPlayer={(player) => {
-              setSelectedLocalPlayerId(player.id ?? "");
-              setSelectedBattleMetricsId(player.battlemetrics_player_id ?? "");
-            }}
-          />
-          <PlayerNetworkPanel
-            api={api}
-            data={network.data}
-            loading={network.isFetching}
-            onOpenPlayer={(player) => {
-              setSelectedLocalPlayerId(player.id ?? "");
-              setSelectedBattleMetricsId(player.battlemetrics_player_id ?? "");
-            }}
-            onChanged={invalidateCurrentPlayerContext}
-          />
-          <PlayerServerHistoryPanel
-            data={serverHistory.data}
-            loading={serverHistory.isFetching}
-            onOpenPlayer={(player) => {
-              setSelectedLocalPlayerId(player.id ?? "");
-              setSelectedBattleMetricsId(player.battlemetrics_player_id ?? "");
-            }}
-          />
-          <PlayerTimelinePanel data={timeline.data} loading={timeline.isFetching} />
-          <div className="grid gap-4 xl:grid-cols-2">
-            <TeamProbabilityTable items={likelyTeammates} />
-            <TeamEvidenceTable items={teamEvidence} />
+
+          <div className="mb-4 flex flex-wrap gap-1">
+            {playerDetailTabs.map((tab) => (
+              <Button key={tab.value} size="sm" variant={activePlayerTab === tab.value ? "default" : "secondary"} onClick={() => setActivePlayerTab(tab.value)}>
+                {tab.label}
+              </Button>
+            ))}
           </div>
+
+          {activePlayerTab === "overview" ? (
+            <div className="grid gap-4">
+              <PlayerIntelPanel
+                api={api}
+                intel={currentIntel}
+                loading={intel.isFetching}
+                refreshing={intel.isFetching}
+                onRefresh={() => {
+                  void intel.refetch();
+                }}
+                onWatchChanged={invalidateCurrentPlayerContext}
+              />
+              <PlayerDossierPanel data={dossier.data} loading={dossier.isFetching} />
+              {currentIntel ? <PlayerRiskEvidenceDigestPanel intel={currentIntel} /> : null}
+            </div>
+          ) : null}
+
+          {activePlayerTab === "identity" ? (
+            <div className="grid gap-4">
+              {currentIntel ? (
+                <>
+                  <PlayerIdentitySummaryPanel intel={currentIntel} />
+                  <PlayerAliasHistoryPanel aliases={aliases} currentName={currentIntel.player.display_name ?? currentIntel.player.name} />
+                </>
+              ) : (
+                <EmptyState label={intel.isFetching ? "Loading identity" : "Resolve a local player to inspect identity"} />
+              )}
+            </div>
+          ) : null}
+
+          {activePlayerTab === "live" ? (
+            <div className="grid gap-4">
+              {currentIntel ? (
+                <PlayerRealtimeContextPanel
+                  api={api}
+                  context={currentIntel.realtime_context}
+                  nearbyPlayers={currentIntel.nearby_players ?? []}
+                  onOpenPlayer={selectLocalPlayer}
+                  onChanged={invalidateCurrentPlayerContext}
+                />
+              ) : (
+                <EmptyState label={intel.isFetching ? "Loading live context" : "Resolve a local player to inspect live context"} />
+              )}
+              <PlayerPositionTrailPanel data={positionTrail.data} loading={positionTrail.isFetching} />
+            </div>
+          ) : null}
+
+          {activePlayerTab === "relations" ? (
+            <div className="grid gap-4">
+              <RelationGraphPanel data={relations.data} loading={relations.isFetching} onOpenPlayer={selectLocalPlayer} />
+              <PlayerNetworkPanel api={api} data={network.data} loading={network.isFetching} onOpenPlayer={selectLocalPlayer} onChanged={invalidateCurrentPlayerContext} />
+              <div className="grid gap-4 xl:grid-cols-2">
+                <TeamProbabilityTable items={likelyTeammates} />
+                <TeamEvidenceTable items={teamEvidence} />
+              </div>
+            </div>
+          ) : null}
+
+          {activePlayerTab === "history" ? (
+            <div className="grid gap-4">
+              <BattleMetricsSessionSyncPanel
+                battleMetricsId={sessionBattleMetricsId}
+                data={sessions.data}
+                loading={sessions.isFetching}
+                error={sessions.error}
+                updatedAt={sessions.dataUpdatedAt}
+                onRefresh={() => {
+                  void sessions.refetch();
+                }}
+              />
+              <PlayerServerHistoryPanel data={serverHistory.data} loading={serverHistory.isFetching} onOpenPlayer={selectLocalPlayer} />
+              <PlayerTimelinePanel data={timeline.data} loading={timeline.isFetching} />
+            </div>
+          ) : null}
         </CardContent>
       </Card>
     </section>
@@ -2264,7 +2304,6 @@ function PlayerIntelPanel({
   loading,
   refreshing,
   onRefresh,
-  onOpenPlayer,
   onWatchChanged,
 }: {
   api: ReturnType<typeof createApiClient>;
@@ -2272,7 +2311,6 @@ function PlayerIntelPanel({
   loading: boolean;
   refreshing?: boolean;
   onRefresh?: () => void;
-  onOpenPlayer?: (player: PlayerIntel) => void;
   onWatchChanged: () => void;
 }) {
   if (!intel) {
@@ -2282,14 +2320,10 @@ function PlayerIntelPanel({
   const live = intel.live_player;
   const liveStatus = intel.live_status;
   const server = intel.current_server;
-  const activity = intel.recent_activity ?? [];
   const realtimeTeammates = (intel.realtime_teammates ?? []).filter((player): player is LivePlayer => Boolean(player && typeof player === "object"));
-  const realtimeContext = intel.realtime_context;
-  const nearbyPlayers = intel.nearby_players ?? [];
-  const aliases = intel.player.aliases ?? [];
 
   return (
-    <div className="mb-4 grid gap-4 xl:grid-cols-[360px_1fr]">
+    <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
       <div className="grid gap-3 rounded-md border border-border bg-background/45 p-3">
         <div className="flex items-start gap-3">
           {intel.player.avatar_url ? (
@@ -2361,44 +2395,6 @@ function PlayerIntelPanel({
         </div>
       </div>
 
-      <PlayerIdentitySummaryPanel intel={intel} />
-
-      <PlayerRiskEvidenceDigestPanel intel={intel} />
-
-      <PlayerAliasHistoryPanel aliases={aliases} currentName={intel.player.display_name ?? intel.player.name} />
-
-      <PlayerRealtimeContextPanel
-        api={api}
-        context={realtimeContext}
-        nearbyPlayers={nearbyPlayers}
-        onOpenPlayer={onOpenPlayer}
-        onChanged={onWatchChanged}
-      />
-
-      <div className="xl:col-span-2">
-        <div className="mb-2 text-sm font-medium">Recent Activity</div>
-        <div className="max-h-[190px] overflow-auto rounded-md border border-border">
-          <Table>
-            <thead>
-              <tr>
-                <Th>Time</Th>
-                <Th>Event</Th>
-                <Th>Source</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {activity.map((event) => (
-                <tr key={String(event.id)}>
-                  <Td>{formatDateTime(String(event.occurred_at ?? ""))}</Td>
-                  <Td>{compactText(event.event_type)}</Td>
-                  <Td>{compactText(event.source)}</Td>
-                </tr>
-              ))}
-            </tbody>
-          </Table>
-          {!activity.length ? <EmptyState label="No player activity yet" /> : null}
-        </div>
-      </div>
     </div>
   );
 }
