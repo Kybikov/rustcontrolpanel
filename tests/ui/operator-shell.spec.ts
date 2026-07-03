@@ -157,19 +157,42 @@ test("activity time range sends backend filters", async ({ page }) => {
       contentType: "application/json",
       body: JSON.stringify({
         data: {
-          items: [],
-          stats: { total: 0, warning: 0, error: 0, operator_notes: 0 },
+          items: [
+            {
+              id: "activity-entity-smoke",
+              event_type: "rcon_admin_action",
+              severity: "warning",
+              source: "rcon",
+              payload: { action: "kick", reason: "smoke" },
+              occurred_at: "2026-07-03T10:05:00Z",
+              server_id: "11111111-1111-1111-1111-111111111111",
+              server: {
+                id: "11111111-1111-1111-1111-111111111111",
+                name: "Smoke Server",
+                battlemetrics_server_id: "1234567",
+              },
+              player_id: "22222222-2222-2222-2222-222222222222",
+              player: {
+                id: "22222222-2222-2222-2222-222222222222",
+                display_name: "Smoke Target",
+                steam_id: "76561197960287930",
+              },
+            },
+          ],
+          stats: { total: 1, warning: 1, error: 0, operator_notes: 0 },
           sources: [],
           event_types: [],
-          source_status: "empty",
+          source_status: "ok",
         },
-        meta: { total: 0, page: Number(url.searchParams.get("page") ?? "1"), per_page: 50, count: 0 },
+        meta: { total: 1, page: Number(url.searchParams.get("page") ?? "1"), per_page: 50, count: 1 },
       }),
     });
   });
 
   await page.goto("/activity");
   await expect(page.getByRole("heading", { name: "Realtime Activity" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Smoke Target/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Smoke Server/ })).toBeVisible();
   await page.getByTestId("activity-time-range").locator("summary").click();
   await page.getByTestId("activity-from-filter").fill("2026-07-03T10:00");
   await page.getByTestId("activity-to-filter").fill("2026-07-03T12:30");
