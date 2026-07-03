@@ -279,6 +279,99 @@ test("wipe calendar switches day week month and records windows", async ({ page 
   expect(consoleProblems).toEqual([]);
 });
 
+test("battlemetrics integration saves tracked sync interval from compact controls", async ({ page }) => {
+  const consoleProblems: string[] = [];
+  let savedPayload: Record<string, any> | undefined;
+  page.on("console", (message) => {
+    if (["error", "warning"].includes(message.type())) {
+      consoleProblems.push(`${message.type()}: ${message.text()}`);
+    }
+  });
+  page.on("pageerror", (error) => consoleProblems.push(`pageerror: ${error.message}`));
+
+  const provider = {
+    provider: "battlemetrics",
+    label: "BattleMetrics",
+    configured: true,
+    enabled: true,
+    public_mode: true,
+    testable: true,
+    status: "configured",
+    use: "Server search, sessions and tracked sync.",
+    secret_source: "BATTLEMETRICS_API_TOKEN",
+    secret_configured: true,
+    secret_storage: "env",
+    secret_hint: "env",
+    updated_at: "2026-07-03T10:00:00Z",
+    config: {
+      auto_sync_enabled: true,
+      sync_interval_minutes: 5,
+      server_page_size: 25,
+      player_page_size: 25,
+    },
+  };
+
+  await page.route(`${apiBaseUrl}/api/admin/rustcontrol/integrations`, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          providers: [provider],
+          recent_sync_runs: [],
+        },
+      }),
+    });
+  });
+  await page.route(`${apiBaseUrl}/api/admin/rustcontrol/integrations/battlemetrics`, async (route) => {
+    savedPayload = route.request().postDataJSON();
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          provider: {
+            ...provider,
+            config: savedPayload?.config ?? provider.config,
+          },
+          dropped_secret_keys: [],
+        },
+      }),
+    });
+  });
+  await page.route(`${apiBaseUrl}/api/admin/rustcontrol/sync-runs**`, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: { items: [], source_status: "empty" },
+        meta: { total: 0, page: 1, per_page: 12, count: 0 },
+      }),
+    });
+  });
+  await page.route(`${apiBaseUrl}/api/admin/rustcontrol/realtime/health`, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          status: "ok",
+          counts: { live_online: 0, events_5m: 0 },
+          integrations: { rust_plus: { configured: false } },
+          sources: [],
+          recent_events: [],
+        },
+      }),
+    });
+  });
+
+  await page.goto("/integrations");
+  await expect(page.getByRole("heading", { name: "Integrations" })).toBeVisible();
+  await expect(page.getByText("Tracked server sync")).toBeVisible();
+  await page.getByTestId("battlemetrics-sync-interval").fill("10");
+  await page.getByTestId("integration-save-battlemetrics").click();
+
+  await expect.poll(() => savedPayload?.config?.sync_interval_minutes).toBe(10);
+  await expect.poll(() => savedPayload?.config?.auto_sync_enabled).toBe(true);
+  expect(consoleProblems).toEqual([]);
+});
+
 test("known players table shows cached steam ban summary", async ({ page }) => {
   const consoleProblems: string[] = [];
   page.on("console", (message) => {

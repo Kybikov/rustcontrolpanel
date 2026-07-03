@@ -9904,6 +9904,18 @@ function IntegrationSettingsCard({ api, provider }: { api: ReturnType<typeof cre
   const droppedSecretKeys = saveSettings.data?.dropped_secret_keys ?? [];
   const checks = testSettings.data?.checks ?? [];
   const testStatus = testSettings.data?.status;
+  const parsedConfig = useMemo(() => parseIntegrationConfig(configText), [configText]);
+  const configObject = parsedConfig.config ?? {};
+
+  function updateConfigPatch(patch: Record<string, unknown>) {
+    const parsed = parseIntegrationConfig(configText);
+    if (parsed.error) {
+      setLocalError(parsed.error);
+      return;
+    }
+    setLocalError("");
+    setConfigText(formatIntegrationConfig({ ...(parsed.config ?? {}), ...patch }));
+  }
 
   return (
     <Card data-testid={`integration-settings-${provider.provider}`}>
@@ -9960,20 +9972,26 @@ function IntegrationSettingsCard({ api, provider }: { api: ReturnType<typeof cre
           </div>
         ) : null}
 
-        <div className="grid gap-2">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="text-sm font-medium">Workspace config</div>
-            {provider.secret_source ? <Badge variant="outline">{provider.secret_source}</Badge> : null}
+        {provider.provider === "battlemetrics" ? (
+          <BattleMetricsSyncConfigControls config={configObject} onChange={updateConfigPatch} />
+        ) : null}
+
+        <DetailsBlock summary="Advanced workspace config">
+          <div className="grid gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-sm font-medium">JSON config</div>
+              {provider.secret_source ? <Badge variant="outline">{provider.secret_source}</Badge> : null}
+            </div>
+            <textarea
+              data-testid={`integration-config-${provider.provider}`}
+              value={configText}
+              onChange={(event) => setConfigText(event.target.value)}
+              spellCheck={false}
+              rows={8}
+              className="min-h-40 w-full resize-y rounded-md border border-input bg-background px-3 py-2 font-mono text-xs text-foreground outline-none transition-colors placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            />
           </div>
-          <textarea
-            data-testid={`integration-config-${provider.provider}`}
-            value={configText}
-            onChange={(event) => setConfigText(event.target.value)}
-            spellCheck={false}
-            rows={8}
-            className="min-h-40 w-full resize-y rounded-md border border-input bg-background px-3 py-2 font-mono text-xs text-foreground outline-none transition-colors placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
-          />
-        </div>
+        </DetailsBlock>
 
         <div className="flex flex-wrap items-center gap-2">
           <Button data-testid={`integration-save-${provider.provider}`} size="sm" onClick={onSave} disabled={saveSettings.isPending}>
@@ -10004,6 +10022,87 @@ function IntegrationSettingsCard({ api, provider }: { api: ReturnType<typeof cre
       </CardContent>
     </Card>
   );
+}
+
+function BattleMetricsSyncConfigControls({ config, onChange }: { config: Record<string, unknown>; onChange: (patch: Record<string, unknown>) => void }) {
+  const autoSync = integrationConfigBoolean(config.auto_sync_enabled ?? config.auto_sync, true);
+  const intervalMinutes = integrationConfigNumber(config.sync_interval_minutes, 5, 1, 60);
+  const serverPageSize = integrationConfigNumber(config.server_page_size ?? config.server_sync_limit ?? config.sync_limit, 25, 1, 250);
+  const playerPageSize = integrationConfigNumber(config.player_page_size, 25, 1, 250);
+
+  return (
+    <div className="rounded-md border border-border bg-background/50 p-3">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="text-sm font-medium">Tracked server sync</div>
+        <Badge variant={autoSync ? "success" : "outline"}>{autoSync ? "auto" : "manual"}</Badge>
+      </div>
+      <div className="grid gap-3 md:grid-cols-[150px_repeat(3,minmax(0,1fr))]">
+        <label className="flex h-10 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm">
+          <input
+            type="checkbox"
+            checked={autoSync}
+            onChange={(event) => onChange({ auto_sync_enabled: event.target.checked })}
+            className="h-4 w-4 rounded border-border accent-primary"
+          />
+          Auto sync
+        </label>
+        <label className="grid gap-1 text-xs text-muted-foreground">
+          <span>Interval min</span>
+          <Input
+            data-testid="battlemetrics-sync-interval"
+            type="number"
+            min={1}
+            max={60}
+            value={String(intervalMinutes)}
+            onChange={(event) => onChange({ sync_interval_minutes: clampConfigNumber(event.target.value, 1, 60) })}
+          />
+        </label>
+        <label className="grid gap-1 text-xs text-muted-foreground">
+          <span>Server batch</span>
+          <Input
+            type="number"
+            min={1}
+            max={250}
+            value={String(serverPageSize)}
+            onChange={(event) => onChange({ server_page_size: clampConfigNumber(event.target.value, 1, 250) })}
+          />
+        </label>
+        <label className="grid gap-1 text-xs text-muted-foreground">
+          <span>Player batch</span>
+          <Input
+            type="number"
+            min={1}
+            max={250}
+            value={String(playerPageSize)}
+            onChange={(event) => onChange({ player_page_size: clampConfigNumber(event.target.value, 1, 250) })}
+          />
+        </label>
+      </div>
+    </div>
+  );
+}
+
+function integrationConfigBoolean(value: unknown, fallback: boolean) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const normalized = value.toLowerCase();
+    if (normalized === "true") return true;
+    if (normalized === "false") return false;
+  }
+  if (typeof value === "number" && Number.isFinite(value)) return value !== 0;
+  return fallback;
+}
+
+function integrationConfigNumber(value: unknown, fallback: number, min: number, max: number) {
+  const parsed = numberFromUnknown(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.max(min, Math.min(max, Math.round(parsed)));
+}
+
+function clampConfigNumber(value: string, min: number, max: number) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return min;
+  return Math.max(min, Math.min(max, Math.round(parsed)));
 }
 
 function integrationStatusVariant(provider: IntegrationProvider): BadgeVariant {
