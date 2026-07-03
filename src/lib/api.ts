@@ -121,6 +121,14 @@ export type KnownPlayerItem = {
     sessions?: number;
     playtime_seconds?: number;
     probable_team_count?: number;
+    bans?: {
+      community_banned?: boolean;
+      vac_banned?: boolean;
+      number_of_vac_bans?: number;
+      number_of_game_bans?: number;
+      economy_ban?: string;
+      fetched_at?: string | null;
+    };
   };
   last_activity_at?: string;
 };

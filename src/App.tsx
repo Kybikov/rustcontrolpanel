@@ -2633,6 +2633,20 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
   );
 }
 
+function knownPlayerBanSummary(stats?: KnownPlayerItem["stats"]) {
+  const bans = stats?.bans;
+  if (!bans?.fetched_at) return { label: "unknown", variant: "outline" as const, title: "Steam bans not cached yet" };
+  const vac = Number(bans.number_of_vac_bans ?? 0);
+  const game = Number(bans.number_of_game_bans ?? 0);
+  const economy = String(bans.economy_ban ?? "").trim();
+  const economyFlag = economy && !economy.toLowerCase().includes("none");
+  if (bans.community_banned || bans.vac_banned || vac > 0 || game > 0 || economyFlag) {
+    const label = bans.vac_banned || vac > 0 ? `VAC ${vac || 1}` : game > 0 ? `game ${game}` : bans.community_banned ? "community" : economy;
+    return { label, variant: "danger" as const, title: `Community ${Boolean(bans.community_banned)} / VAC ${vac} / Game ${game} / Economy ${economy || "none"}` };
+  }
+  return { label: "clear", variant: "success" as const, title: `Steam bans clear at ${formatDateTime(bans.fetched_at)}` };
+}
+
 function KnownPlayersTable({
   items,
   total,
@@ -2673,6 +2687,7 @@ function KnownPlayersTable({
               <tr>
                 <Th>Player</Th>
                 <Th>Risk</Th>
+                <Th>Bans</Th>
                 <Th>Live</Th>
                 <Th>Server</Th>
                 <Th>Activity</Th>
@@ -2686,6 +2701,7 @@ function KnownPlayersTable({
                 const live = item.live_player;
                 const watch = item.watch;
                 const playerId = player.id ?? "";
+                const banSummary = knownPlayerBanSummary(item.stats);
                 return (
                   <tr key={playerId || player.steam_id || player.battlemetrics_player_id}>
                     <Td>
@@ -2705,6 +2721,9 @@ function KnownPlayersTable({
                     </Td>
                     <Td>
                       <Badge variant={watch ? riskBadgeVariant(watch.risk_level) : "outline"}>{compactText(watch?.risk_level ?? "clear")}</Badge>
+                    </Td>
+                    <Td>
+                      <Badge variant={banSummary.variant} title={banSummary.title}>{compactText(banSummary.label)}</Badge>
                     </Td>
                     <Td>
                       <Badge variant={live?.is_online ? "success" : live?.last_seen_at ? "outline" : "secondary"}>

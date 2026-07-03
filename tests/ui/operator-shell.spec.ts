@@ -194,6 +194,61 @@ test("activity time range sends backend filters", async ({ page }) => {
   expect(consoleProblems).toEqual([]);
 });
 
+test("known players table shows cached steam ban summary", async ({ page }) => {
+  const consoleProblems: string[] = [];
+  page.on("console", (message) => {
+    if (["error", "warning"].includes(message.type())) {
+      consoleProblems.push(`${message.type()}: ${message.text()}`);
+    }
+  });
+  page.on("pageerror", (error) => consoleProblems.push(`pageerror: ${error.message}`));
+
+  await page.route(`${apiBaseUrl}/api/admin/rustcontrol/players**`, async (route) => {
+    const url = new URL(route.request().url());
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          items: [
+            {
+              player: {
+                id: "player-bans",
+                display_name: "Ban Checked",
+                steam_id: "76561198000000002",
+                avatar_url: "",
+              },
+              stats: {
+                sessions: 4,
+                playtime_seconds: 7200,
+                probable_team_count: 1,
+                bans: {
+                  community_banned: false,
+                  vac_banned: true,
+                  number_of_vac_bans: 1,
+                  number_of_game_bans: 0,
+                  economy_ban: "none",
+                  fetched_at: "2026-07-03T12:00:00Z",
+                },
+              },
+              last_activity_at: "2026-07-03T12:00:00Z",
+            },
+          ],
+          stats: { total: 1, watched: 0, online: 0 },
+          source_status: "ok",
+        },
+        meta: { total: 1, page: Number(url.searchParams.get("page") ?? "1"), per_page: 25, count: 1 },
+      }),
+    });
+  });
+
+  await page.goto("/players");
+  await expect(page.getByRole("heading", { name: "Player Intelligence" })).toBeVisible();
+  await expect(page.getByText("Ban Checked")).toBeVisible();
+  await expect(page.getByText("VAC 1")).toBeVisible();
+
+  expect(consoleProblems).toEqual([]);
+});
+
 test("server settings expose read-only rcon readiness test", async ({ page }) => {
   const consoleProblems: string[] = [];
   page.on("console", (message) => {
