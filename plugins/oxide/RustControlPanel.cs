@@ -4,13 +4,14 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using Newtonsoft.Json;
+using Oxide.Core.Libraries.Covalence;
 using Oxide.Core.Libraries;
 using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("RustControlPanel", "WaterMelon", "0.1.1")]
-    [Description("Streams Rust player, team, combat, and position telemetry into Rust Control Panel.")]
+    [Info("RustControlPanel", "WaterMelon", "0.1.2")]
+    [Description("Streams Rust player, team, combat, command, and moderation telemetry into Rust Control Panel.")]
     public class RustControlPanel : RustPlugin
     {
         private PluginConfig _config;
@@ -50,6 +51,18 @@ namespace Oxide.Plugins
 
             [JsonProperty("send_chat_events")]
             public bool SendChatEvents = false;
+
+            [JsonProperty("send_command_usage_events")]
+            public bool SendCommandUsageEvents = true;
+
+            [JsonProperty("send_server_command_events")]
+            public bool SendServerCommandEvents = false;
+
+            [JsonProperty("send_admin_action_events")]
+            public bool SendAdminActionEvents = true;
+
+            [JsonProperty("max_command_args")]
+            public int MaxCommandArgs = 12;
 
             [JsonProperty("send_death_events")]
             public bool SendDeathEvents = true;
@@ -185,6 +198,64 @@ namespace Oxide.Plugins
             });
         }
 
+        private void OnPlayerCommand(BasePlayer player, string command, string[] args)
+        {
+            if (!_config.SendCommandUsageEvents || player == null || string.IsNullOrWhiteSpace(command))
+            {
+                return;
+            }
+            SendCommandUsageEvent("player_command", player, command, args);
+        }
+
+        private void OnServerCommand(ConsoleSystem.Arg arg)
+        {
+            if (!_config.SendCommandUsageEvents || arg?.cmd == null)
+            {
+                return;
+            }
+
+            var player = arg.Player();
+            if (player == null && !_config.SendServerCommandEvents)
+            {
+                return;
+            }
+
+            var command = arg.cmd.FullName ?? "";
+            if (IsChatCommand(command))
+            {
+                return;
+            }
+
+            SendCommandUsageEvent(player == null ? "server_command" : "player_console_command", player, command, arg.Args);
+        }
+
+        private void OnUserKicked(IPlayer player, string reason)
+        {
+            if (!_config.SendAdminActionEvents || player == null)
+            {
+                return;
+            }
+            SendAdminTargetEvent("player_kicked", "kick", player.Name, player.Id, reason, 0);
+        }
+
+        private void OnUserBanned(string name, string id, string address, string reason, long expiry)
+        {
+            if (!_config.SendAdminActionEvents)
+            {
+                return;
+            }
+            SendAdminTargetEvent("player_banned", "ban", name, id, reason, expiry);
+        }
+
+        private void OnUserUnbanned(string name, string id, string address)
+        {
+            if (!_config.SendAdminActionEvents)
+            {
+                return;
+            }
+            SendAdminTargetEvent("player_unbanned", "unban", name, id, "", 0);
+        }
+
         private void OnNewSave(string filename)
         {
             SendWipeEvent("map_wipe", filename, false);
@@ -284,6 +355,128 @@ namespace Oxide.Plugins
                     }
                 });
             }
+        }
+
+        private void SendCommandUsageEvent(string commandSource, BasePlayer player, string command, string[] args)
+        {
+            var payload = BuildCommandPayload(commandSource, player, command, args);
+            var envelope = new EventEnvelope
+            {
+                EventType = "command_usage",
+                Severity = "info",
+                Source = "oxide-plugin",
+                Server = BuildServer(),
+                Payload = payload
+            };
+            if (player != null)
+            {
+                envelope.Player = BuildPlayer(player, true);
+                envelope.RelatedPlayers = RelatedTeamPlayers(player, envelope.Player.TeamId, "same_team_command_context", "same live Rust team during command usage", 8);
+            }
+            SendEvent(envelope);
+        }
+
+        private void SendAdminTargetEvent(string eventType, string action, string name, string id, string reason, long expiry)
+        {
+            var payload = new Dictionary<string, object>
+            {
+                ["action"] = action,
+                ["target"] = id ?? "",
+                ["target_name"] = name ?? "",
+                ["reason"] = Truncate(reason, 250),
+                ["expiry"] = expiry
+            };
+            var envelope = new EventEnvelope
+            {
+                EventType = eventType,
+                Severity = "warning",
+                Source = "oxide-plugin",
+                Server = BuildServer(),
+                Payload = payload
+            };
+            if (LooksSteamId(id))
+            {
+                envelope.Player = new PlayerSnapshot
+                {
+                    SteamId = id,
+                    Name = name ?? "",
+                    IsOnline = false
+                };
+            }
+            SendEvent(envelope);
+        }
+
+        private Dictionary<string, object> BuildCommandPayload(string commandSource, BasePlayer player, string command, string[] args)
+        {
+            var safeCommand = SanitizeCommandPart(command);
+            var safeArgs = SafeCommandArgs(args);
+            var action = ModerationAction(command);
+            var payload = new Dictionary<string, object>
+            {
+                ["command_source"] = commandSource,
+                ["command"] = safeCommand,
+                ["args"] = safeArgs,
+                ["raw_command"] = BuildRawCommand(safeCommand, safeArgs, commandSource == "player_command"),
+                ["actor_steam_id"] = player?.UserIDString ?? "",
+                ["actor_name"] = player?.displayName ?? "",
+                ["actor_auth_level"] = player?.net?.connection != null ? (int)player.net.connection.authLevel : 0
+            };
+            if (!string.IsNullOrEmpty(action))
+            {
+                payload["action"] = action;
+                payload["target"] = FirstCommandArg(args);
+            }
+            return payload;
+        }
+
+        private List<string> SafeCommandArgs(string[] args)
+        {
+            return (args ?? new string[0])
+                .Take(Math.Max(1, _config.MaxCommandArgs))
+                .Select(SanitizeCommandPart)
+                .ToList();
+        }
+
+        private string BuildRawCommand(string command, List<string> args, bool playerChatCommand)
+        {
+            var prefix = playerChatCommand ? "/" : "";
+            var joined = args != null && args.Count > 0 ? " " + string.Join(" ", args) : "";
+            return Truncate(prefix + command + joined, 500);
+        }
+
+        private string SanitizeCommandPart(string value)
+        {
+            value = Truncate(value ?? "", 120);
+            var lowered = value.ToLowerInvariant();
+            if (lowered.Contains("password") || lowered.Contains("secret") || lowered.Contains("token") || lowered.Contains("apikey") || lowered.Contains("webhook") || lowered.Contains("rcon.login"))
+            {
+                return "[redacted]";
+            }
+            return value;
+        }
+
+        private string FirstCommandArg(string[] args)
+        {
+            var value = args != null && args.Length > 0 ? args[0] : "";
+            return SanitizeCommandPart(value);
+        }
+
+        private string ModerationAction(string command)
+        {
+            var normalized = (command ?? "").Trim().TrimStart('/').ToLowerInvariant();
+            var leaf = normalized.Split('.').LastOrDefault() ?? normalized;
+            if (leaf.StartsWith("unban")) return "unban";
+            if (leaf.StartsWith("unmute")) return "unmute";
+            if (leaf == "ban" || leaf.StartsWith("banid")) return "ban";
+            if (leaf.StartsWith("mute")) return "mute";
+            if (leaf.StartsWith("kick")) return "kick";
+            return "";
+        }
+
+        private bool IsChatCommand(string command)
+        {
+            var normalized = (command ?? "").Trim().ToLowerInvariant();
+            return normalized == "chat.say" || normalized == "chat.teamsay" || normalized == "chat.localsay";
         }
 
         private void SendWipeEvent(string wipeType, string filename, bool manual)
@@ -465,6 +658,11 @@ namespace Oxide.Plugins
         private bool IsConfigured()
         {
             return !string.IsNullOrWhiteSpace(_config?.WebhookUrl) && !string.IsNullOrWhiteSpace(_config.WebhookSecret);
+        }
+
+        private bool LooksSteamId(string value)
+        {
+            return !string.IsNullOrWhiteSpace(value) && value.Length >= 16 && value.All(char.IsDigit);
         }
 
         private string HmacSha256(string body, string secret)

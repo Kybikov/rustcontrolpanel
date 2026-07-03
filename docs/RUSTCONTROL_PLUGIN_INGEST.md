@@ -64,6 +64,9 @@ Minimal config:
   "send_position_snapshots": true,
   "send_team_snapshots": true,
   "send_chat_events": false,
+  "send_command_usage_events": true,
+  "send_server_command_events": false,
+  "send_admin_action_events": true,
   "send_death_events": true,
   "send_wipe_events": true
 }
@@ -83,8 +86,12 @@ The plugin streams:
 - `team_snapshot` with live Rust team members;
 - `player_connected` and `player_disconnected`;
 - `player_death` with attacker/victim combat relation;
+- `command_usage` for player chat commands and player console commands, with sensitive command parts redacted and `action` set for ban/kick/mute/unban/unmute commands;
+- `player_kicked`, `player_banned`, and `player_unbanned` moderation events when admin action events are enabled;
 - `wipe_detected` when the server reports a new save/wipe;
 - optional `player_chat` events when enabled in config.
+
+Server-console command usage is disabled by default to keep the feed clean. Enable `send_server_command_events` only when you need full console/RCON command auditing from the plugin side; backend-managed RCON actions are already audited by the panel.
 
 ## Local HMAC smoke test
 
