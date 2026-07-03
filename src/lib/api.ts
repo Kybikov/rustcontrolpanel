@@ -578,6 +578,21 @@ export type SyncRun = {
   duration_ms?: number | null;
 };
 
+export type SyncRunsQuery = {
+  provider?: string;
+  target_type?: string;
+  target_id?: string;
+  page?: string;
+  per_page?: string;
+};
+
+export type SyncRunsResult = {
+  items: SyncRun[];
+  meta?: ApiEnvelope<unknown>["meta"];
+  source?: string;
+  source_status?: string;
+};
+
 export type IntegrationStatus = {
   providers: IntegrationProvider[];
   recent_sync_runs?: SyncRun[];
@@ -665,22 +680,35 @@ export function createApiClient(baseUrl: string, token?: string) {
   const root = baseUrl.replace(/\/+$/, "");
 
   async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-    const response = await fetch(`${root}${path}`, {
-      method: options.method ?? "GET",
-      headers: {
-        "Content-Type": "application/json",
-        ...(options.headers ?? {}),
-        ...(token || options.token ? { Authorization: `Bearer ${options.token ?? token}` } : {}),
-      },
-      body: options.body ? JSON.stringify(options.body) : undefined,
-    });
+    const envelope = await requestEnvelope<T>(path, options);
+    return envelope.data as T;
+  }
+
+  async function requestEnvelope<T>(path: string, options: RequestOptions = {}): Promise<ApiEnvelope<T>> {
+    const url = `${root}${path}`;
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: options.method ?? "GET",
+        headers: {
+          "Content-Type": "application/json",
+          ...(options.headers ?? {}),
+          ...(token || options.token ? { Authorization: `Bearer ${options.token ?? token}` } : {}),
+        },
+        body: options.body ? JSON.stringify(options.body) : undefined,
+      });
+    } catch (error) {
+      const base = root || "same-origin API";
+      const detail = error instanceof Error ? error.message : "network request failed";
+      throw new Error(`Backend API is unreachable at ${base}: ${detail}`);
+    }
     const text = await response.text();
     const envelope = text ? (JSON.parse(text) as ApiEnvelope<T>) : {};
     if (!response.ok || envelope.error) {
       const message = envelope.error?.message ?? `HTTP ${response.status}`;
       throw new Error(message);
     }
-    return envelope.data as T;
+    return envelope;
   }
 
   async function requestItems<T>(path: string, options: RequestOptions = {}): Promise<T[]> {
@@ -720,8 +748,18 @@ export function createApiClient(baseUrl: string, token?: string) {
     integrations() {
       return request<IntegrationStatus>("/api/admin/rustcontrol/integrations");
     },
-    syncRuns() {
-      return requestItems<SyncRun>("/api/admin/rustcontrol/sync-runs");
+    async syncRuns(query?: SyncRunsQuery): Promise<SyncRunsResult> {
+      const envelope = await requestEnvelope<ApiListData<SyncRun>>(withQuery("/api/admin/rustcontrol/sync-runs", query));
+      const data = envelope.data;
+      if (Array.isArray(data)) {
+        return { items: data, meta: envelope.meta };
+      }
+      return {
+        items: data?.items ?? [],
+        meta: envelope.meta,
+        source: data?.source,
+        source_status: data?.source_status,
+      };
     },
     updateIntegration(provider: string, payload: IntegrationUpdatePayload) {
       return request<{ provider: IntegrationProvider; dropped_secret_keys?: string[] }>(

@@ -630,3 +630,5 @@ Schema: `rustcontrol`.
 - Global command search now supports keyboard navigation with selected-row highlighting, `ArrowUp`/`ArrowDown`, `Enter` to open, and `Escape` to close.
 - Integrations now exposes the guarded admin/local plugin event feed in a collapsed manual smoke block, with temporary webhook-secret entry, JSON validation, and realtime/activity refresh after accepted events.
 - Profile statistics no longer render no-op filter buttons: source/type summaries are static badges unless the same chip component is used on Activity with real backend-backed filters.
+- Integrations now uses the backend-backed `/sync-runs` audit feed with provider, target type, target id, refresh, clear, and page controls inside collapsed diagnostics instead of only showing the short recent list from the integrations payload.
+- API network failures now report the configured backend base URL instead of a generic `Failed to fetch`, making offline/local-backend issues actionable without adding debug clutter to primary screens.

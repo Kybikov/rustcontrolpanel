@@ -67,6 +67,7 @@ import {
   type ServerIntel,
   type ServerWipe,
   type SyncRun,
+  type SyncRunsQuery,
   type TeamProbability,
   type WatchlistItem,
   type WipeReminder,
@@ -8398,40 +8399,142 @@ function IntegrationsView({ api, baseUrl }: { api: ReturnType<typeof createApiCl
           </Card>
         ))}
       </div>
-      <IntegrationSyncRunsPanel items={syncRuns} loading={integrations.isFetching} />
+      <IntegrationSyncRunsPanel api={api} providers={providers} initialItems={syncRuns} loading={integrations.isFetching} />
       <IntegrationSettingsPanel api={api} providers={providers} loading={integrations.isFetching} />
       <RustPlusIntakePanel api={api} provider={rustPlus} health={health.data} loading={health.isFetching} baseUrl={baseUrl} />
     </section>
   );
 }
 
-function IntegrationSyncRunsPanel({ items, loading }: { items: SyncRun[]; loading: boolean }) {
+function IntegrationSyncRunsPanel({
+  api,
+  providers,
+  initialItems,
+  loading,
+}: {
+  api: ReturnType<typeof createApiClient>;
+  providers: IntegrationProvider[];
+  initialItems: SyncRun[];
+  loading: boolean;
+}) {
+  const [providerFilter, setProviderFilter] = useState("all");
+  const [targetTypeFilter, setTargetTypeFilter] = useState("all");
+  const [targetIdFilter, setTargetIdFilter] = useState("");
+  const [page, setPage] = useState(1);
+  const perPage = 12;
+  const query = useMemo<SyncRunsQuery>(
+    () => ({
+      provider: providerFilter === "all" ? undefined : providerFilter,
+      target_type: targetTypeFilter === "all" ? undefined : targetTypeFilter,
+      target_id: targetIdFilter.trim() || undefined,
+      page: String(page),
+      per_page: String(perPage),
+    }),
+    [page, providerFilter, targetIdFilter, targetTypeFilter],
+  );
+  const runs = useQuery({
+    queryKey: ["syncRuns", query],
+    queryFn: () => api.syncRuns(query),
+    refetchInterval: 15_000,
+  });
+  const hasFilters = providerFilter !== "all" || targetTypeFilter !== "all" || targetIdFilter.trim().length > 0 || page > 1;
+  const items = runs.data?.items ?? (hasFilters ? [] : initialItems);
+  const total = runs.data?.meta?.total ?? items.length;
+  const pageCount = Math.max(1, Math.ceil(Number(total || 0) / perPage));
+  const providerOptions = Array.from(new Set([...providers.map((provider) => provider.provider), "battlemetrics", "rust_plus", "steam", "rustmaps"]));
+  const targetTypeOptions = ["server", "integration", "event"];
+  const effectiveLoading = runs.isFetching || loading;
+
+  function updateProvider(value: string) {
+    setProviderFilter(value);
+    setPage(1);
+  }
+
+  function updateTargetType(value: string) {
+    setTargetTypeFilter(value);
+    setPage(1);
+  }
+
+  function updateTargetId(value: string) {
+    setTargetIdFilter(value);
+    setPage(1);
+  }
+
+  function clearFilters() {
+    setProviderFilter("all");
+    setTargetTypeFilter("all");
+    setTargetIdFilter("");
+    setPage(1);
+  }
+
   return (
-    <DetailsBlock summary="Recent sync runs">
-      <div className="grid gap-2">
-        {items.slice(0, 10).map((item) => {
-          const target = [item.target_type, item.target_id].filter(Boolean).join(" / ");
-          const note = item.error || item.message || target || item.provider;
-          const duration = formatMilliseconds(item.duration_ms);
-          return (
-            <div key={item.id} className="grid gap-2 rounded-md border border-border bg-background/45 p-2 md:grid-cols-[160px_minmax(0,1fr)_140px]">
-              <div className="flex min-w-0 items-center gap-2">
-                <Badge variant={integrationCheckVariant(item.status)}>{compactText(item.status)}</Badge>
-                <span className="truncate text-sm font-medium">{compactText(item.provider)}</span>
-              </div>
-              <div className="min-w-0">
-                <div className="truncate text-sm">{compactText(note)}</div>
-                <div className="truncate text-xs text-muted-foreground">
-                  scanned {compactText(item.items_scanned)} / changed {compactText(item.items_changed)}
-                  {duration ? ` / ${duration}` : ""}
-                  {target ? ` / ${target}` : ""}
+    <DetailsBlock summary="Sync runs audit">
+      <div className="grid gap-3">
+        <div className="grid gap-2 lg:grid-cols-[180px_180px_minmax(0,1fr)_auto_auto]">
+          <select className={selectClassName} value={providerFilter} onChange={(event) => updateProvider(event.target.value)}>
+            <option value="all">All providers</option>
+            {providerOptions.map((provider) => (
+              <option key={provider} value={provider}>
+                {provider}
+              </option>
+            ))}
+          </select>
+          <select className={selectClassName} value={targetTypeFilter} onChange={(event) => updateTargetType(event.target.value)}>
+            <option value="all">All targets</option>
+            {targetTypeOptions.map((targetType) => (
+              <option key={targetType} value={targetType}>
+                {targetType}
+              </option>
+            ))}
+          </select>
+          <Input value={targetIdFilter} onChange={(event) => updateTargetId(event.target.value)} placeholder="Target id" />
+          <Button size="sm" variant="secondary" onClick={() => runs.refetch()}>
+            <RefreshCw className={`h-4 w-4 ${runs.isFetching ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+          <Button size="sm" variant="secondary" onClick={clearFilters} disabled={!hasFilters}>
+            Clear
+          </Button>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+          <span>
+            {formatNumber(total)} runs / page {page} of {pageCount}
+          </span>
+          <Badge variant={runs.data?.source_status === "ok" ? "success" : "outline"}>{compactText(runs.data?.source_status ?? (effectiveLoading ? "loading" : "recent"))}</Badge>
+        </div>
+        <div className="grid gap-2">
+          {items.map((item) => {
+            const target = [item.target_type, item.target_id].filter(Boolean).join(" / ");
+            const note = item.error || item.message || target || item.provider;
+            const duration = formatMilliseconds(item.duration_ms);
+            return (
+              <div key={item.id} className="grid gap-2 rounded-md border border-border bg-background/45 p-2 md:grid-cols-[160px_minmax(0,1fr)_140px]">
+                <div className="flex min-w-0 items-center gap-2">
+                  <Badge variant={integrationCheckVariant(item.status)}>{compactText(item.status)}</Badge>
+                  <span className="truncate text-sm font-medium">{compactText(item.provider)}</span>
                 </div>
+                <div className="min-w-0">
+                  <div className="truncate text-sm">{compactText(note)}</div>
+                  <div className="truncate text-xs text-muted-foreground">
+                    scanned {compactText(item.items_scanned)} / changed {compactText(item.items_changed)}
+                    {duration ? ` / ${duration}` : ""}
+                    {target ? ` / ${target}` : ""}
+                  </div>
+                </div>
+                <div className="text-xs text-muted-foreground md:text-right">{formatRelativeTime(item.finished_at ?? item.started_at)}</div>
               </div>
-              <div className="text-xs text-muted-foreground md:text-right">{formatRelativeTime(item.finished_at ?? item.started_at)}</div>
-            </div>
-          );
-        })}
-        {!items.length ? <EmptyState label={loading ? "Loading sync history" : "No sync runs yet"} /> : null}
+            );
+          })}
+          {!items.length ? <EmptyState label={effectiveLoading ? "Loading sync history" : "No sync runs match current filters"} /> : null}
+        </div>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button size="sm" variant="secondary" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={page <= 1}>
+            Prev
+          </Button>
+          <Button size="sm" variant="secondary" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={page >= pageCount}>
+            Next
+          </Button>
+        </div>
       </div>
     </DetailsBlock>
   );
