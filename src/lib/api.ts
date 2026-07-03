@@ -1091,6 +1091,11 @@ export function createApiClient(baseUrl: string, token?: string) {
         body: { query },
       });
     },
+    disconnectMySteam() {
+      return request<Record<string, unknown>>("/api/admin/rustcontrol/me/steam", {
+        method: "DELETE",
+      });
+    },
     wipes(query?: WipesQuery) {
       return requestItems<ServerWipe>(withQuery("/api/admin/rustcontrol/wipes", query));
     },

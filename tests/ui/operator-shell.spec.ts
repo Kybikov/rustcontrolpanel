@@ -858,6 +858,7 @@ test("operator profile history pages watch changes and alerts", async ({ page })
   const activityRequests: string[] = [];
   const watchlistRequests: string[] = [];
   const alertRequests: string[] = [];
+  const disconnectRequests: string[] = [];
   page.on("console", (message) => {
     if (["error", "warning"].includes(message.type())) {
       consoleProblems.push(`${message.type()}: ${message.text()}`);
@@ -897,6 +898,27 @@ test("operator profile history pages watch changes and alerts", async ({ page })
           recent_sync_runs: [],
         },
       }),
+    });
+  });
+  await page.route(`${apiBaseUrl}/api/admin/rustcontrol/me/steam`, async (route) => {
+    if (route.request().method() === "DELETE") {
+      disconnectRequests.push(route.request().url());
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          data: {
+            connected: false,
+            steam_id: "76561197960287930",
+            source_status: "steam_disconnected",
+          },
+        }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 405,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "unexpected method" }),
     });
   });
   await page.route(`${apiBaseUrl}/api/admin/rustcontrol/activity**`, async (route) => {
@@ -1014,6 +1036,12 @@ test("operator profile history pages watch changes and alerts", async ({ page })
   await page.getByTestId("profile-alerts-pager-next").click();
   await expect(page.getByText("Alert Player 2")).toBeVisible();
   await expect(page.getByTestId("profile-alerts-pager")).toContainText("page 2 of 2");
+
+  await page.getByRole("button", { name: "Steam Link" }).click();
+  await expect(page.getByRole("button", { name: "Disconnect" })).toBeVisible();
+  await page.getByRole("button", { name: "Disconnect" }).click();
+  await expect(page.getByText("Steam disconnected: 76561197960287930")).toBeVisible();
+  await expect.poll(() => disconnectRequests.length).toBe(1);
 
   expect(consoleProblems).toEqual([]);
 });

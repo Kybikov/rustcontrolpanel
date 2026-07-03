@@ -8291,16 +8291,25 @@ function ProfileView({
     retry: false,
   });
   const integrations = useQuery({ queryKey: ["integrations"], queryFn: api.integrations });
+  function refreshProfileContext() {
+    queryClient.invalidateQueries({ queryKey: ["myLiveContext"] });
+    queryClient.invalidateQueries({ queryKey: ["livePlayers"] });
+    queryClient.invalidateQueries({ queryKey: ["realtimeHealth"] });
+    queryClient.invalidateQueries({ queryKey: ["activity"] });
+    queryClient.invalidateQueries({ queryKey: ["rustAlerts"] });
+    queryClient.invalidateQueries({ queryKey: ["overview"] });
+  }
   const connectSteam = useMutation({
     mutationFn: () => api.connectMySteam(steamQuery),
     onSuccess: () => {
       setSteamQuery("");
-      queryClient.invalidateQueries({ queryKey: ["myLiveContext"] });
-      queryClient.invalidateQueries({ queryKey: ["livePlayers"] });
-      queryClient.invalidateQueries({ queryKey: ["realtimeHealth"] });
-      queryClient.invalidateQueries({ queryKey: ["activity"] });
-      queryClient.invalidateQueries({ queryKey: ["rustAlerts"] });
-      queryClient.invalidateQueries({ queryKey: ["overview"] });
+      refreshProfileContext();
+    },
+  });
+  const disconnectSteam = useMutation({
+    mutationFn: api.disconnectMySteam,
+    onSuccess: () => {
+      refreshProfileContext();
     },
   });
   const steam = objectFrom(myContext.data?.steam);
@@ -8377,7 +8386,9 @@ function ProfileView({
 
       {myContext.error ? <StatusLine tone="bad" text={myContext.error.message} /> : null}
       {connectSteam.error ? <StatusLine tone="bad" text={connectSteam.error.message} /> : null}
+      {disconnectSteam.error ? <StatusLine tone="bad" text={disconnectSteam.error.message} /> : null}
       {connectSteam.data ? <StatusLine tone="ok" text={`Steam connected: ${compactText(connectSteam.data.steam_id)}`} /> : null}
+      {disconnectSteam.data ? <StatusLine tone="ok" text={`Steam disconnected: ${compactText(disconnectSteam.data.steam_id ?? "account")}`} /> : null}
 
       {activeTab === "account" && (
         <ProfileAccountTab claims={claims} baseUrl={baseUrl} myContext={myContext.data} integrations={integrations.data} health={health.data} />
@@ -8387,7 +8398,9 @@ function ProfileView({
           steamQuery={steamQuery}
           onSteamQuery={setSteamQuery}
           onConnect={() => connectSteam.mutate()}
+          onDisconnect={() => disconnectSteam.mutate()}
           connecting={connectSteam.isPending}
+          disconnecting={disconnectSteam.isPending}
           myContext={myContext.data}
           health={health.data}
         />
@@ -8519,20 +8532,25 @@ function ProfileSteamTab({
   steamQuery,
   onSteamQuery,
   onConnect,
+  onDisconnect,
   connecting,
+  disconnecting,
   myContext,
   health,
 }: {
   steamQuery: string;
   onSteamQuery: (value: string) => void;
   onConnect: () => void;
+  onDisconnect: () => void;
   connecting: boolean;
+  disconnecting: boolean;
   myContext?: MyLiveContext;
   health?: RealtimeHealth;
 }) {
   const steam = objectFrom(myContext?.steam);
   const live = myContext?.live_player;
   const teammates = myContext?.teammates ?? [];
+  const canDisconnect = Boolean(myContext?.connected);
   return (
     <div className="grid gap-4 xl:grid-cols-[420px_1fr]">
       <div className="rounded-md border border-border bg-background/45 p-3">
@@ -8543,12 +8561,18 @@ function ProfileSteamTab({
           </div>
           <Badge variant={myContext?.connected ? "success" : "warning"}>{myContext?.connected ? "connected" : "not connected"}</Badge>
         </div>
-        <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+        <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto]">
           <Input value={steamQuery} onChange={(event) => onSteamQuery(event.target.value)} placeholder="SteamID or profile URL" />
           <Button onClick={onConnect} disabled={!steamQuery.trim() || connecting}>
             {connecting ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
             Link
           </Button>
+          {canDisconnect ? (
+            <Button variant="secondary" onClick={onDisconnect} disabled={disconnecting}>
+              {disconnecting ? <RefreshCw className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
+              Disconnect
+            </Button>
+          ) : null}
         </div>
         <div className="mt-3 grid grid-cols-2 gap-2">
           <Fact label="Steam ID" value={steam.steam_id} wide />
