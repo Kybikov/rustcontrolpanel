@@ -1767,10 +1767,11 @@ function Dashboard({ api, onOpenPlayer }: { api: ReturnType<typeof createApiClie
       <Header title="Overview" subtitle="Servers, players, realtime and source health" />
       <div className="grid gap-4 md:grid-cols-4">
         <MetricCard label="Tracked servers" value={data.tracked_servers} icon={<Server />} />
+        <MetricCard label="Tracked online" value={numberFromUnknown(data.tracked_online)} icon={<Activity />} />
         <MetricCard label="Known players" value={data.known_players} icon={<Users />} />
-        <MetricCard label="Team edges" value={data.team_edges} icon={<Crosshair />} />
         <MetricCard label="Watched online" value={data.watched_online} icon={<ShieldAlert />} />
       </div>
+      <DashboardOpsSnapshot data={data} loading={overview.isFetching} />
       <AlertsPanel
         api={api}
         title="Realtime Alerts"
@@ -1800,6 +1801,111 @@ function Dashboard({ api, onOpenPlayer }: { api: ReturnType<typeof createApiClie
         </CardContent>
       </Card>
     </section>
+  );
+}
+
+function DashboardOpsSnapshot({ data, loading }: { data: Record<string, unknown>; loading: boolean }) {
+  const topServers = recordList(data.top_servers);
+  const upcomingWipes = recordList(data.upcoming_wipes);
+  const trackedOnline = numberFromUnknown(data.tracked_online);
+  const trackedCapacity = numberFromUnknown(data.tracked_capacity);
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-2">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex flex-wrap items-center justify-between gap-2">
+            Tracked Server Snapshot
+            <Badge variant={trackedOnline > 0 ? "success" : "outline"}>
+              {formatNumber(trackedOnline)} / {formatNumber(trackedCapacity)}
+            </Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {topServers.length ? (
+            <div className="overflow-auto">
+              <Table>
+                <thead>
+                  <tr>
+                    <Th>Server</Th>
+                    <Th>Online</Th>
+                    <Th>Trend</Th>
+                    <Th>Next wipe</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {topServers.map((server, index) => {
+                    const online = numberFromUnknown(server.snapshot_players ?? server.players);
+                    const maxPlayers = numberFromUnknown(server.snapshot_max_players ?? server.max_players);
+                    const delta = numberFromRecord(server, "player_delta");
+                    return (
+                      <tr key={`${String(server.id ?? server.battlemetrics_server_id)}-${index}`}>
+                        <Td>
+                          <div className="max-w-[260px] truncate font-medium">{compactText(server.name)}</div>
+                          <div className="text-xs text-muted-foreground">{compactText(server.battlemetrics_server_id)}</div>
+                        </Td>
+                        <Td>{formatNumber(online)} / {formatNumber(maxPlayers)}</Td>
+                        <Td>
+                          <Badge variant={delta > 0 ? "success" : delta < 0 ? "warning" : "outline"}>{formatSignedNumber(delta)}</Badge>
+                        </Td>
+                        <Td>{formatDateTime(stringFromUnknown(server.next_wipe_at))}</Td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </Table>
+            </div>
+          ) : (
+            <EmptyState label={loading ? "Loading tracked servers" : "No tracked server snapshots yet"} />
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex flex-wrap items-center justify-between gap-2">
+            Upcoming Wipes
+            <Badge variant={upcomingWipes.length ? "warning" : "outline"}>{upcomingWipes.length}</Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {upcomingWipes.length ? (
+            <div className="overflow-auto">
+              <Table>
+                <thead>
+                  <tr>
+                    <Th>Server</Th>
+                    <Th>Wipe</Th>
+                    <Th>Online</Th>
+                    <Th>Map</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {upcomingWipes.map((wipe, index) => {
+                    const hours = (dateMs(wipe.next_wipe_at) - Date.now()) / 3_600_000;
+                    return (
+                      <tr key={`${String(wipe.id ?? wipe.battlemetrics_server_id)}-${index}`}>
+                        <Td>
+                          <div className="max-w-[260px] truncate font-medium">{compactText(wipe.name)}</div>
+                          <div className="text-xs text-muted-foreground">{compactText(wipe.battlemetrics_server_id)}</div>
+                        </Td>
+                        <Td>
+                          <Badge variant={hours > 0 && hours <= 24 ? "warning" : "secondary"}>{formatDateTime(stringFromUnknown(wipe.next_wipe_at))}</Badge>
+                        </Td>
+                        <Td>{formatNumber(numberFromRecord(wipe, "players"))} / {formatNumber(numberFromRecord(wipe, "max_players"))}</Td>
+                        <Td>{compactText(wipe.rust_map)}</Td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </Table>
+            </div>
+          ) : (
+            <EmptyState label={loading ? "Loading upcoming wipes" : "No upcoming tracked wipes"} />
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 
