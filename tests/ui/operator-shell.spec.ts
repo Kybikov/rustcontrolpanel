@@ -619,7 +619,47 @@ test("server settings expose read-only rcon readiness test", async ({ page }) =>
           },
           snapshots: [],
           wipes: [],
-          activity: [],
+          activity: [
+            {
+              id: "chat-1",
+              occurred_at: "2026-07-03T12:11:00Z",
+              severity: "info",
+              source: "oxide-plugin",
+              event_type: "player_chat",
+              payload: {
+                message: "raid later?",
+                player_name: "Player One",
+                steam_id: "76561198000000001",
+                team_id: "team-smoke",
+                map_grid: "G12",
+              },
+            },
+            {
+              id: "command-1",
+              occurred_at: "2026-07-03T12:12:00Z",
+              severity: "info",
+              source: "oxide-plugin",
+              event_type: "command_usage",
+              payload: {
+                command: "oxide.reload RustControlPanel",
+                player_name: "Console Operator",
+              },
+            },
+            {
+              id: "admin-1",
+              occurred_at: "2026-07-03T12:13:00Z",
+              severity: "warning",
+              source: "rcon",
+              event_type: "rcon_admin_action",
+              payload: {
+                action: "ban",
+                target: "76561198000000001",
+                command: "ban 76561198000000001 smoke",
+                reason: "smoke test",
+                created_by: "operator-smoke",
+              },
+            },
+          ],
           settings: {
             battlemetrics_server_id: "12345678",
             plugin_webhook_ready: true,
@@ -774,6 +814,18 @@ test("server settings expose read-only rcon readiness test", async ({ page }) =>
   await expect(page.getByText("RCON test: ok")).toBeVisible();
   await page.getByText("RCON test details").click();
   await expect(page.getByText("WebRCON serverinfo responded.")).toBeVisible();
+  await page.getByRole("button", { name: "Activity" }).last().click();
+  const chatCommandBlock = page.getByTestId("server-chat-command-events");
+  await chatCommandBlock.locator("summary").click();
+  await expect(chatCommandBlock.getByText("chat 1")).toBeVisible();
+  await expect(chatCommandBlock.getByText("commands 1")).toBeVisible();
+  await expect(chatCommandBlock.getByText("admin 1")).toBeVisible();
+  await expect(chatCommandBlock.getByText("raid later?")).toBeVisible();
+  await chatCommandBlock.getByRole("button", { name: "Commands" }).click();
+  await expect(chatCommandBlock.getByText("oxide.reload RustControlPanel")).toBeVisible();
+  await chatCommandBlock.getByRole("button", { name: "All" }).click();
+  await chatCommandBlock.getByTestId("server-chat-command-search").fill("operator-smoke");
+  await expect(chatCommandBlock.getByText("ban 76561198000000001 smoke")).toBeVisible();
 
   expect(consoleProblems).toEqual([]);
 });

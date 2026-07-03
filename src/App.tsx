@@ -107,6 +107,8 @@ type PlayerRconActionType = Exclude<RconActionType, "say">;
 type ProfileTab = "account" | "steam" | "stats" | "history" | "security";
 type PlayerDetailTab = "overview" | "identity" | "live" | "relations" | "history";
 type ServerDetailTab = "overview" | "history" | "wipes" | "players" | "map" | "activity" | "settings";
+type ChatCommandKind = "chat" | "command" | "admin";
+type ChatCommandFilter = "all" | ChatCommandKind;
 type BadgeVariant = "default" | "secondary" | "outline" | "danger" | "success" | "warning";
 
 const quickRiskLevels: QuickRiskLevel[] = ["watch", "suspect", "hostile"];
@@ -120,6 +122,12 @@ const wipeCalendarModes: Array<{ value: WipeCalendarMode; label: string; icon: R
   { value: "week", label: "Week", icon: <CalendarClock className="h-4 w-4" /> },
   { value: "month", label: "Month", icon: <CalendarClock className="h-4 w-4" /> },
   { value: "records", label: "Records", icon: <History className="h-4 w-4" /> },
+];
+const chatCommandFilters: Array<{ value: ChatCommandFilter; label: string }> = [
+  { value: "all", label: "All" },
+  { value: "chat", label: "Chat" },
+  { value: "command", label: "Commands" },
+  { value: "admin", label: "Admin" },
 ];
 const wipeCalendarModeDays: Record<Exclude<WipeCalendarMode, "records">, number> = {
   day: 1,
@@ -5365,6 +5373,99 @@ function activityPayloadSummary(value: unknown) {
   return payloadJSON(value);
 }
 
+function activityPayloadRecord(value: unknown) {
+  const parsed = typeof value === "string" ? safeJSON(value) : value;
+  return objectFrom(parsed);
+}
+
+function activityPayloadString(payload: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = payload[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (typeof value === "number" || typeof value === "boolean") return String(value);
+  }
+  return "";
+}
+
+function activityNestedPayloadString(payload: Record<string, unknown>, containers: string[], keys: string[]) {
+  for (const container of containers) {
+    const nested = objectFrom(payload[container]);
+    const value = activityPayloadString(nested, keys);
+    if (value) return value;
+  }
+  return "";
+}
+
+function activityChatCommandKind(event: Record<string, unknown>): ChatCommandKind | undefined {
+  const payload = activityPayloadRecord(event.payload);
+  const eventType = stringFromUnknown(event.event_type).toLowerCase();
+  const payloadSignal = [
+    payload.type,
+    payload.event,
+    payload.event_type,
+    payload.kind,
+    payload.channel,
+    payload.action,
+  ]
+    .map(stringFromUnknown)
+    .join(" ")
+    .toLowerCase();
+  const action = activityPayloadString(payload, ["action", "moderation_action"]).toLowerCase();
+  const command = activityPayloadString(payload, ["command", "raw_command", "command_line", "command_name", "cmd"]).trim();
+  const moderationTokens = ["ban", "kick", "mute", "unban", "unmute"];
+
+  if (moderationTokens.some((token) => eventType.includes(token) || action === token || action.includes(token))) return "admin";
+  if (eventType.includes("admin_action")) return "admin";
+  if (eventType.includes("rcon") && command) return "admin";
+  if (eventType.includes("chat") || payloadSignal.includes("chat")) return "chat";
+  if (eventType.includes("message") && activityPayloadString(payload, ["message", "text", "content"])) return "chat";
+  if (eventType.includes("command") || eventType.includes("_cmd") || payloadSignal.includes("command") || command) return "command";
+  return undefined;
+}
+
+function chatCommandActor(event: Record<string, unknown>) {
+  const payload = activityPayloadRecord(event.payload);
+  return (
+    activityPayloadString(payload, ["player_name", "display_name", "name", "username", "actor_name", "user_name", "created_by", "steam_id"]) ||
+    activityNestedPayloadString(payload, ["player", "actor", "user", "target"], ["display_name", "player_name", "name", "username", "steam_id", "id"])
+  );
+}
+
+function chatCommandText(event: Record<string, unknown>) {
+  const payload = activityPayloadRecord(event.payload);
+  const kind = activityChatCommandKind(event);
+  const command = activityPayloadString(payload, ["command", "raw_command", "command_line", "command_name", "cmd"]);
+  const args = activityPayloadString(payload, ["args", "arguments", "parameters"]);
+  if ((kind === "command" || kind === "admin") && command) {
+    return compactText(args && !command.includes(args) ? `${command} ${args}` : command);
+  }
+  return compactText(
+    activityPayloadString(payload, ["message", "text", "content", "chat_message", "reason", "note", "response_preview"]) ||
+      activityPayloadTitle(event.payload) ||
+      activityPayloadSummary(event.payload),
+  );
+}
+
+function chatCommandSearchText(event: Record<string, unknown>) {
+  const payload = activityPayloadRecord(event.payload);
+  return [
+    event.event_type,
+    event.severity,
+    event.source,
+    chatCommandActor(event),
+    chatCommandText(event),
+    payload.server_name,
+    payload.server_key,
+    payload.battlemetrics_server_id,
+    payload.steam_id,
+    payload.team_id,
+    payload.map_grid,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
 function timelineTypeMatches(item: PlayerTimelineItem, filter: PlayerTimelineFilter) {
   return filter === "all" || item.item_type === filter;
 }
@@ -7309,13 +7410,116 @@ function mapOverlayMarkerClass(marker: MapOverlayMarker) {
   return "h-3 w-3 bg-secondary ring-4 ring-secondary/20";
 }
 
+function chatCommandVariant(kind: ChatCommandKind): BadgeVariant {
+  if (kind === "chat") return "success";
+  if (kind === "admin") return "warning";
+  return "secondary";
+}
+
 function ServerActivityTab({ items, loading }: { items: Array<Record<string, unknown>>; loading?: boolean }) {
+  const [chatFilter, setChatFilter] = useState<ChatCommandFilter>("all");
+  const [chatSearch, setChatSearch] = useState("");
+  const chatCommandEvents = useMemo(
+    () =>
+      items
+        .map((event) => ({ event, kind: activityChatCommandKind(event) }))
+        .filter((item): item is { event: Record<string, unknown>; kind: ChatCommandKind } => Boolean(item.kind)),
+    [items],
+  );
+  const chatStats = useMemo(
+    () =>
+      chatCommandEvents.reduce(
+        (acc, item) => {
+          acc[item.kind] += 1;
+          return acc;
+        },
+        { chat: 0, command: 0, admin: 0 } satisfies Record<ChatCommandKind, number>,
+      ),
+    [chatCommandEvents],
+  );
+  const filteredChatCommandEvents = useMemo(() => {
+    const query = chatSearch.trim().toLowerCase();
+    return chatCommandEvents
+      .filter((item) => chatFilter === "all" || item.kind === chatFilter)
+      .filter((item) => !query || chatCommandSearchText(item.event).includes(query));
+  }, [chatCommandEvents, chatFilter, chatSearch]);
+  const visibleChatCommandEvents = filteredChatCommandEvents.slice(0, 25);
+
   return (
     <Card>
       <CardHeader>
         <CardTitle>Server Activity</CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="grid gap-3">
+        <DetailsBlock summary={`Chat And Commands (${chatCommandEvents.length})`} testId="server-chat-command-events">
+          <div className="grid gap-3">
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <Badge variant={chatStats.chat ? "success" : "outline"}>chat {chatStats.chat}</Badge>
+              <Badge variant={chatStats.command ? "secondary" : "outline"}>commands {chatStats.command}</Badge>
+              <Badge variant={chatStats.admin ? "warning" : "outline"}>admin {chatStats.admin}</Badge>
+            </div>
+            <div className="grid gap-2 xl:grid-cols-[1fr_auto]">
+              <Input
+                data-testid="server-chat-command-search"
+                value={chatSearch}
+                onChange={(event) => setChatSearch(event.target.value)}
+                placeholder="Search actor, SteamID, command, message or grid"
+              />
+              <div className="flex flex-wrap gap-1">
+                {chatCommandFilters.map((filter) => (
+                  <Button
+                    key={filter.value}
+                    size="sm"
+                    variant={chatFilter === filter.value ? "default" : "secondary"}
+                    onClick={() => setChatFilter(filter.value)}
+                  >
+                    {filter.label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+            <div className="overflow-auto rounded-md border border-border">
+              <Table>
+                <thead>
+                  <tr>
+                    <Th>Time</Th>
+                    <Th>Kind</Th>
+                    <Th>Actor</Th>
+                    <Th>Text</Th>
+                    <Th>Source</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleChatCommandEvents.map(({ event, kind }, index) => (
+                    <tr key={String(event.id ?? `${event.occurred_at ?? "chat"}-${index}`)}>
+                      <Td>
+                        <div>{formatDateTime(String(event.occurred_at ?? ""))}</div>
+                        <div className="text-xs text-muted-foreground">{formatRelativeTime(event.occurred_at)}</div>
+                      </Td>
+                      <Td>
+                        <Badge variant={chatCommandVariant(kind)}>{kind}</Badge>
+                      </Td>
+                      <Td>{compactText(chatCommandActor(event))}</Td>
+                      <Td>
+                        <div className="max-w-[520px] truncate text-sm">{chatCommandText(event)}</div>
+                        <div className="text-xs text-muted-foreground">{compactText(activityPayloadString(activityPayloadRecord(event.payload), ["team_id", "map_grid"]))}</div>
+                      </Td>
+                      <Td>
+                        <Badge variant="outline">{compactText(event.source)}</Badge>
+                      </Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+              {!visibleChatCommandEvents.length ? (
+                <EmptyState label={chatCommandEvents.length ? "No chat or command events match current filters" : loading ? "Loading chat and commands" : "No chat or command events in this server feed"} />
+              ) : null}
+            </div>
+            {filteredChatCommandEvents.length > visibleChatCommandEvents.length ? (
+              <div className="text-xs text-muted-foreground">Showing {visibleChatCommandEvents.length} of {filteredChatCommandEvents.length} matching chat, command, and admin events.</div>
+            ) : null}
+          </div>
+        </DetailsBlock>
         <div className="overflow-auto rounded-md border border-border">
           <Table>
             <thead>
