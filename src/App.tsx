@@ -5,6 +5,7 @@ import {
   Activity,
   BarChart3,
   Bell,
+  BookOpen,
   CalendarClock,
   Calculator,
   Crosshair,
@@ -87,6 +88,7 @@ type ServerRosterFilter = "all" | "watched" | QuickRiskLevel | "online" | "clear
 type LiveMapFilter = "all" | "watched" | QuickRiskLevel | "team" | "near150" | "near400" | "same_grid" | "online" | "clear";
 type ActivitySeverityFilter = "all" | "info" | "warning" | "error";
 type RaidToolKey = "best" | "rocket" | "c4" | "satchel" | "explosive_ammo";
+type ToolsTab = "raid" | "guides";
 type WipeCalendarMode = "calendar" | "records";
 type WipeRangeFilter = "30" | "60" | "90" | "all";
 type RconActionType = RconActionInput["action"];
@@ -96,6 +98,10 @@ type ServerDetailTab = "overview" | "history" | "wipes" | "players" | "map" | "a
 type BadgeVariant = "default" | "secondary" | "outline" | "danger" | "success" | "warning";
 
 const quickRiskLevels: QuickRiskLevel[] = ["watch", "suspect", "hostile"];
+const toolsTabs: Array<{ value: ToolsTab; label: string; icon: React.ReactElement }> = [
+  { value: "raid", label: "Raid Planner", icon: <Calculator className="h-4 w-4" /> },
+  { value: "guides", label: "Field Guides", icon: <BookOpen className="h-4 w-4" /> },
+];
 const raidTools: Array<{ key: Exclude<RaidToolKey, "best">; label: string; sulfur: number; unit: string }> = [
   { key: "rocket", label: "Rocket", sulfur: 1400, unit: "rockets" },
   { key: "c4", label: "C4", sulfur: 2200, unit: "C4" },
@@ -114,6 +120,84 @@ const raidTargets: Array<{
   { key: "sheet_door", label: "Sheet metal door", group: "Doors", costs: { rocket: 2, c4: 1, satchel: 4, explosive_ammo: 63 } },
   { key: "garage_door", label: "Garage door", group: "Doors", costs: { rocket: 3, c4: 2, satchel: 9, explosive_ammo: 150 } },
   { key: "armored_door", label: "Armored door", group: "Doors", costs: { rocket: 5, c4: 3, explosive_ammo: 250 } },
+];
+const rustFieldGuides: Array<{
+  key: string;
+  title: string;
+  scope: string;
+  version: string;
+  signals: string[];
+  checklist: string[];
+  notes: string[];
+}> = [
+  {
+    key: "raid-prep",
+    title: "Raid Prep",
+    scope: "Before leaving base",
+    version: "local 2026.07",
+    signals: ["target material", "boom route", "counter risk"],
+    checklist: [
+      "Confirm the target path and count the real blockers before crafting final boom.",
+      "Add reserve for splash misses, doors behind doors, and emergency exits.",
+      "Split sulfur, meds, ladders, bags, walls, and building plan across players.",
+      "Mark flank bags, roof angles, turret arcs, and likely counter paths.",
+    ],
+    notes: [
+      "Use the Raid Planner first, then validate the path with scouting.",
+      "Keep raw scouting notes in operator notes or Activity, not on the main dashboard.",
+    ],
+  },
+  {
+    key: "wipe-start",
+    title: "Wipe Start",
+    scope: "First hour",
+    version: "local 2026.07",
+    signals: ["starter location", "TC secured", "tool progression"],
+    checklist: [
+      "Pick a build zone with road, recycler, node, and monument access before committing.",
+      "Place bag, tool cupboard, door lock, and at least one fallback spawn early.",
+      "Stabilize cloth, furnace, workbench, and scrap flow before extended roaming.",
+      "Flag early hostile neighbors in Watchlist so their sessions and teams start building context.",
+    ],
+    notes: [
+      "Use Wipe Calendar for tracked wipe timing and reminders.",
+      "Use Server Detail history for population and map context before choosing a server.",
+    ],
+  },
+  {
+    key: "live-hunt",
+    title: "Live Hunt",
+    scope: "When feed is online",
+    version: "local 2026.07",
+    signals: ["same server", "same grid", "watched nearby"],
+    checklist: [
+      "Check Feed Health before assuming a watched player is offline.",
+      "Open Live Control and keep My server or Top server mode explicit.",
+      "Filter Live Online Map by watched, same grid, or near range before opening Intel.",
+      "Promote live-only rows before setting long-term risk when identity is useful.",
+    ],
+    notes: [
+      "Live rows are operational state; long-term proof belongs in Intel, Relations, History, and Activity.",
+      "Use quick risk actions only for triage, then write operator notes when context matters.",
+    ],
+  },
+  {
+    key: "plugin-smoke",
+    title: "Plugin Smoke",
+    scope: "Before real server intake",
+    version: "local 2026.07",
+    signals: ["secret ready", "source fresh", "snapshot created"],
+    checklist: [
+      "Verify Rust+ / Plugin Intake readiness in Integrations.",
+      "Send a test event and check Realtime Health for fresh source activity.",
+      "Run Full Snapshot to populate connected operator, tracked server, roster, positions, watch flag, and team evidence.",
+      "Open Live, Watchlist, Player Intel, and Activity to confirm the synthetic chain is visible end to end.",
+    ],
+    notes: [
+      "This keeps plugin validation away from production server state until the ingest path is trusted.",
+      "Use collapsed sync runs for request details instead of exposing raw debug blocks on primary screens.",
+    ],
+  },
 ];
 const profileTabValues: ProfileTab[] = ["account", "steam", "stats", "history", "security"];
 const playerDetailTabs: Array<{ value: PlayerDetailTab; label: string }> = [
@@ -7910,6 +7994,25 @@ function ActivityFilterChips({
 }
 
 function ToolsView() {
+  const [activeTab, setActiveTab] = useState<ToolsTab>("raid");
+
+  return (
+    <section className="grid gap-4">
+      <Header title="Tools" subtitle="Local-first Rust calculators and field knowledge" />
+      <div className="flex flex-wrap gap-2">
+        {toolsTabs.map((tab) => (
+          <Button key={tab.value} size="sm" variant={activeTab === tab.value ? "default" : "secondary"} onClick={() => setActiveTab(tab.value)}>
+            {tab.icon}
+            {tab.label}
+          </Button>
+        ))}
+      </div>
+      {activeTab === "raid" ? <RaidPlannerTool /> : <FieldGuidesTool />}
+    </section>
+  );
+}
+
+function RaidPlannerTool() {
   const [targetKey, setTargetKey] = useState(raidTargets[0]?.key ?? "");
   const [toolKey, setToolKey] = useState<RaidToolKey>("best");
   const [quantity, setQuantity] = useState("1");
@@ -7931,120 +8034,183 @@ function ToolsView() {
   const farmMinutes = Math.ceil((nodesNeeded / nodesPerHourValue) * 60);
 
   return (
-    <section className="grid gap-4">
-      <Header title="Tools" subtitle="Local-first Rust calculators for raid prep and farming" />
-      <Card>
-        <CardHeader>
-          <CardTitle>Raid Budget Planner</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-4">
-          <div className="grid gap-3 lg:grid-cols-[1fr_150px_170px_140px_140px_140px]">
-            <select data-testid="raid-target-select" className={selectClassName} value={targetKey} onChange={(event) => setTargetKey(event.target.value)}>
-              {raidTargets.map((item) => (
-                <option key={item.key} value={item.key}>{item.label}</option>
-              ))}
-            </select>
-            <Input data-testid="raid-quantity-input" type="number" min={1} value={quantity} onChange={(event) => setQuantity(event.target.value)} placeholder="Targets" />
-            <select data-testid="raid-tool-select" className={selectClassName} value={toolKey} onChange={(event) => setToolKey(event.target.value as RaidToolKey)}>
-              <option value="best">Best sulfur</option>
-              {raidTools.map((tool) => (
-                <option key={tool.key} value={tool.key} disabled={!target?.costs[tool.key]}>
-                  {tool.label}
-                </option>
-              ))}
-            </select>
-            <Input data-testid="raid-reserve-input" type="number" min={0} value={reservePercent} onChange={(event) => setReservePercent(event.target.value)} placeholder="Reserve %" />
-            <Input data-testid="raid-sulfur-node-input" type="number" min={1} value={sulfurPerNode} onChange={(event) => setSulfurPerNode(event.target.value)} placeholder="Sulfur/node" />
-            <Input data-testid="raid-nodes-hour-input" type="number" min={1} value={nodesPerHour} onChange={(event) => setNodesPerHour(event.target.value)} placeholder="Nodes/hour" />
-          </div>
+    <Card>
+      <CardHeader>
+        <CardTitle>Raid Budget Planner</CardTitle>
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        <div className="grid gap-3 lg:grid-cols-[1fr_150px_170px_140px_140px_140px]">
+          <select data-testid="raid-target-select" className={selectClassName} value={targetKey} onChange={(event) => setTargetKey(event.target.value)}>
+            {raidTargets.map((item) => (
+              <option key={item.key} value={item.key}>{item.label}</option>
+            ))}
+          </select>
+          <Input data-testid="raid-quantity-input" type="number" min={1} value={quantity} onChange={(event) => setQuantity(event.target.value)} placeholder="Targets" />
+          <select data-testid="raid-tool-select" className={selectClassName} value={toolKey} onChange={(event) => setToolKey(event.target.value as RaidToolKey)}>
+            <option value="best">Best sulfur</option>
+            {raidTools.map((tool) => (
+              <option key={tool.key} value={tool.key} disabled={!target?.costs[tool.key]}>
+                {tool.label}
+              </option>
+            ))}
+          </select>
+          <Input data-testid="raid-reserve-input" type="number" min={0} value={reservePercent} onChange={(event) => setReservePercent(event.target.value)} placeholder="Reserve %" />
+          <Input data-testid="raid-sulfur-node-input" type="number" min={1} value={sulfurPerNode} onChange={(event) => setSulfurPerNode(event.target.value)} placeholder="Sulfur/node" />
+          <Input data-testid="raid-nodes-hour-input" type="number" min={1} value={nodesPerHour} onChange={(event) => setNodesPerHour(event.target.value)} placeholder="Nodes/hour" />
+        </div>
 
-          <div data-testid="raid-summary" className="grid gap-3 md:grid-cols-5">
-            <Fact label="Selected method" value={selectedOption ? selectedOption.tool.label : "-"} />
-            <Fact label="Boom count" value={selectedOption ? `${selectedOption.count} ${selectedOption.tool.unit}` : "-"} />
-            <Fact label="Total sulfur" value={formatNumber(totalSulfur)} />
-            <Fact label="Nodes needed" value={formatNumber(nodesNeeded)} />
-            <Fact label="Farm time" value={formatDurationMinutes(farmMinutes)} />
-          </div>
+        <div data-testid="raid-summary" className="grid gap-3 md:grid-cols-5">
+          <Fact label="Selected method" value={selectedOption ? selectedOption.tool.label : "-"} />
+          <Fact label="Boom count" value={selectedOption ? `${selectedOption.count} ${selectedOption.tool.unit}` : "-"} />
+          <Fact label="Total sulfur" value={formatNumber(totalSulfur)} />
+          <Fact label="Nodes needed" value={formatNumber(nodesNeeded)} />
+          <Fact label="Farm time" value={formatDurationMinutes(farmMinutes)} />
+        </div>
 
-          <DetailsBlock summary="Method comparison">
-            <div className="mb-3 grid gap-3 text-sm text-muted-foreground sm:grid-cols-2">
-              <div>Base sulfur: <span className="font-medium text-foreground">{formatNumber(selectedOption?.sulfur ?? 0)}</span></div>
-              <div>Reserve added: <span className="font-medium text-foreground">{formatNumber(reserveSulfur)}</span></div>
+        <DetailsBlock summary="Method comparison">
+          <div className="mb-3 grid gap-3 text-sm text-muted-foreground sm:grid-cols-2">
+            <div>Base sulfur: <span className="font-medium text-foreground">{formatNumber(selectedOption?.sulfur ?? 0)}</span></div>
+            <div>Reserve added: <span className="font-medium text-foreground">{formatNumber(reserveSulfur)}</span></div>
+          </div>
+          <div className="overflow-auto rounded-md border border-border bg-background/50">
+            <Table>
+              <thead>
+                <tr>
+                  <Th>Method</Th>
+                  <Th>Count</Th>
+                  <Th>Sulfur</Th>
+                  <Th>Per target</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {options.map((option) => (
+                  <tr key={option.tool.key}>
+                    <Td>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-medium">{option.tool.label}</span>
+                        {options[0]?.tool.key === option.tool.key ? <Badge variant="success">cheapest</Badge> : null}
+                      </div>
+                    </Td>
+                    <Td>{formatNumber(option.count)} {option.tool.unit}</Td>
+                    <Td>{formatNumber(option.sulfur)}</Td>
+                    <Td>{formatNumber(option.baseCount)} / target</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+            {!options.length ? <EmptyState label="No raid method for selected target" /> : null}
+          </div>
+        </DetailsBlock>
+
+        <DetailsBlock summary="Editable vanilla defaults">
+          <div className="mb-3 text-sm text-muted-foreground">Data version: <span className="font-medium text-foreground">local 2026.07</span></div>
+          <div className="grid gap-3 lg:grid-cols-[280px_1fr]">
+            <div className="rounded-md border border-border bg-background/50 p-3">
+              <div className="text-sm font-medium">Explosive sulfur</div>
+              <div className="mt-3 grid gap-2">
+                {raidTools.map((tool) => (
+                  <div key={tool.key} className="flex items-center justify-between gap-3 text-sm">
+                    <span>{tool.label}</span>
+                    <span className="font-medium">{formatNumber(tool.sulfur)}</span>
+                  </div>
+                ))}
+              </div>
             </div>
             <div className="overflow-auto rounded-md border border-border bg-background/50">
               <Table>
                 <thead>
                   <tr>
-                    <Th>Method</Th>
-                    <Th>Count</Th>
-                    <Th>Sulfur</Th>
-                    <Th>Per target</Th>
+                    <Th>Target</Th>
+                    <Th>Rocket</Th>
+                    <Th>C4</Th>
+                    <Th>Satchel</Th>
+                    <Th>Explo ammo</Th>
                   </tr>
                 </thead>
                 <tbody>
-                  {options.map((option) => (
-                    <tr key={option.tool.key}>
-                      <Td>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-medium">{option.tool.label}</span>
-                          {options[0]?.tool.key === option.tool.key ? <Badge variant="success">cheapest</Badge> : null}
-                        </div>
-                      </Td>
-                      <Td>{formatNumber(option.count)} {option.tool.unit}</Td>
-                      <Td>{formatNumber(option.sulfur)}</Td>
-                      <Td>{formatNumber(option.baseCount)} / target</Td>
+                  {raidTargets.map((item) => (
+                    <tr key={item.key}>
+                      <Td>{item.label}</Td>
+                      <Td>{compactText(item.costs.rocket)}</Td>
+                      <Td>{compactText(item.costs.c4)}</Td>
+                      <Td>{compactText(item.costs.satchel)}</Td>
+                      <Td>{compactText(item.costs.explosive_ammo)}</Td>
                     </tr>
                   ))}
                 </tbody>
               </Table>
-              {!options.length ? <EmptyState label="No raid method for selected target" /> : null}
             </div>
-          </DetailsBlock>
-
-          <DetailsBlock summary="Editable vanilla defaults">
-            <div className="mb-3 text-sm text-muted-foreground">Data version: <span className="font-medium text-foreground">local 2026.07</span></div>
-            <div className="grid gap-3 lg:grid-cols-[280px_1fr]">
-              <div className="rounded-md border border-border bg-background/50 p-3">
-                <div className="text-sm font-medium">Explosive sulfur</div>
-                <div className="mt-3 grid gap-2">
-                  {raidTools.map((tool) => (
-                    <div key={tool.key} className="flex items-center justify-between gap-3 text-sm">
-                      <span>{tool.label}</span>
-                      <span className="font-medium">{formatNumber(tool.sulfur)}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div className="overflow-auto rounded-md border border-border bg-background/50">
-                <Table>
-                  <thead>
-                    <tr>
-                      <Th>Target</Th>
-                      <Th>Rocket</Th>
-                      <Th>C4</Th>
-                      <Th>Satchel</Th>
-                      <Th>Explo ammo</Th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {raidTargets.map((item) => (
-                      <tr key={item.key}>
-                        <Td>{item.label}</Td>
-                        <Td>{compactText(item.costs.rocket)}</Td>
-                        <Td>{compactText(item.costs.c4)}</Td>
-                        <Td>{compactText(item.costs.satchel)}</Td>
-                        <Td>{compactText(item.costs.explosive_ammo)}</Td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </Table>
-              </div>
-            </div>
-          </DetailsBlock>
-        </CardContent>
-      </Card>
-    </section>
+          </div>
+        </DetailsBlock>
+      </CardContent>
+    </Card>
   );
+}
+
+function FieldGuidesTool() {
+  const [query, setQuery] = useState("");
+  const deferredQuery = useDeferredValue(query);
+  const guides = useMemo(
+    () => rustFieldGuides.filter((guide) => fieldGuideMatches(guide, deferredQuery)),
+    [deferredQuery],
+  );
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Field Guides</CardTitle>
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search raid, wipe, live, plugin" />
+        <div className="grid gap-3 lg:grid-cols-2">
+          {guides.map((guide) => (
+            <div key={guide.key} className="rounded-md border border-border bg-background/55 p-3">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="truncate font-semibold">{guide.title}</div>
+                  <div className="text-xs text-muted-foreground">{guide.scope}</div>
+                </div>
+                <Badge variant="outline">{guide.version}</Badge>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-1">
+                {guide.signals.map((signal) => (
+                  <Badge key={signal} variant="secondary">{signal}</Badge>
+                ))}
+              </div>
+              <DetailsBlock summary="Checklist">
+                <ol className="grid list-decimal gap-2 pl-5 text-sm text-muted-foreground">
+                  {guide.checklist.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ol>
+              </DetailsBlock>
+              <DetailsBlock summary="Reference notes">
+                <ul className="grid list-disc gap-2 pl-5 text-sm text-muted-foreground">
+                  {guide.notes.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </DetailsBlock>
+            </div>
+          ))}
+        </div>
+        {!guides.length ? <EmptyState label="No field guides match current search" /> : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+function fieldGuideMatches(guide: (typeof rustFieldGuides)[number], value: string) {
+  const search = value.trim().toLowerCase();
+  if (!search) return true;
+  return [
+    guide.title,
+    guide.scope,
+    guide.version,
+    ...guide.signals,
+    ...guide.checklist,
+    ...guide.notes,
+  ].some((item) => item.toLowerCase().includes(search));
 }
 
 function raidCostOptions(target: (typeof raidTargets)[number] | undefined, quantity: number) {
