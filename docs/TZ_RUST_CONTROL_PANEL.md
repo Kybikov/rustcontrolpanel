@@ -566,6 +566,7 @@ Schema: `rustcontrol`.
 - `rustcontrol.player_flags` stores operator watchlist state: watched flag, risk level, reason, note, labels, and audit fields.
 - `GET /api/admin/rustcontrol/watchlist` returns flagged players with latest live/current-server context; `PUT /api/admin/rustcontrol/players/:id/watch` updates the flag.
 - Player Intelligence includes inline watch controls and the Watchlist page can open the same local player profile for deeper team/session review.
+- Watch changes, live-player promotion, and operator Steam account binding now write `rustcontrol.activity_events`, so write actions are visible in Activity/Profile history instead of only mutating local state.
 - Watchlist now works as a live triage queue with total/hostile/suspect/online counters, risk/live filters, identity/server/grid/team/note search, quick `Watch`/`Suspect`/`Hostile` actions, and inline editing for reason, note, labels, and risk.
 - `GET /api/admin/rustcontrol/servers/:id/live-context` returns a full live server context: server summary, roster, team clusters, watched players, activity, and counts. Team clusters now include `risk_score`, `risk_level`, and hostile/suspect/watch/friendly/watched/online `risk_summary`.
 - Live and Servers views now use the server context payload so "my current server" can show roster/team clusters and open any known local player directly in Player Intelligence.
