@@ -166,8 +166,8 @@ export type RustAlertItem = {
     map_grid?: string;
     last_seen_at?: string | null;
   };
-  player: PlayerIntel;
-  watch: PlayerWatchState;
+  player?: PlayerIntel | null;
+  watch?: PlayerWatchState | null;
   live_player?: LivePlayer | null;
   current_server?: ServerIntel | null;
 };
@@ -490,6 +490,24 @@ export type IntegrationTestResult = {
   checks?: Array<Record<string, unknown>>;
 };
 
+export type RconActionInput = {
+  action: "say" | "kick" | "ban" | "unban" | "mute" | "unmute";
+  target?: string;
+  message?: string;
+  reason?: string;
+};
+
+export type RconActionResult = {
+  status: string;
+  message?: string;
+  activity_id?: string;
+  server_id?: string;
+  battlemetrics_id?: string;
+  action?: string;
+  target?: string;
+  response_preview?: string;
+};
+
 export type RealtimeHealth = {
   status: string;
   counts?: Record<string, unknown>;
@@ -615,6 +633,12 @@ export function createApiClient(baseUrl: string, token?: string) {
     },
     serverLiveContext(id: string) {
       return request<ServerLiveContext>(`/api/admin/rustcontrol/servers/${encodeURIComponent(id)}/live-context`);
+    },
+    serverRconAction(id: string, payload: RconActionInput) {
+      return request<RconActionResult>(`/api/admin/rustcontrol/servers/${encodeURIComponent(id)}/rcon/actions`, {
+        method: "POST",
+        body: payload,
+      });
     },
     watchlist() {
       return requestItems<WatchlistItem>("/api/admin/rustcontrol/watchlist");

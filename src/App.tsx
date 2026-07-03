@@ -52,6 +52,7 @@ import {
   type PlayerTimelineItem,
   type PlayerWatchState,
   type RealtimeHealth,
+  type RconActionInput,
   type RustAlertItem,
   type ServerDetail,
   type ServerLiveContext,
@@ -80,6 +81,7 @@ type PlayerTimelineFilter = "all" | "live" | "session" | "evidence" | "activity"
 type ServerRosterFilter = "all" | "watched" | QuickRiskLevel | "online" | "clear";
 type LiveMapFilter = "all" | "watched" | QuickRiskLevel | "team" | "near150" | "near400" | "same_grid" | "online" | "clear";
 type ActivitySeverityFilter = "all" | "info" | "warning" | "error";
+type RconActionType = RconActionInput["action"];
 type ProfileTab = "account" | "steam" | "stats" | "history" | "security";
 type ServerDetailTab = "overview" | "history" | "wipes" | "players" | "map" | "activity" | "settings";
 type BadgeVariant = "default" | "secondary" | "outline" | "danger" | "success" | "warning";
@@ -1331,12 +1333,12 @@ function AlertsPanel({
             <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
               {filteredItems.slice(0, 9).map((item) => (
                 <AlertCard
-                  key={`${item.alert_type}-${item.player.id ?? item.player.steam_id ?? item.live_player?.id}`}
+                  key={`${item.alert_type}-${item.player?.id ?? item.player?.steam_id ?? item.watch?.player_id ?? item.live_player?.id}`}
                   item={item}
                   busy={updateRisk.isPending}
                   onOpenPlayer={onOpenPlayer}
                   onRisk={(riskLevel) => {
-                    const playerId = item.player.id ?? item.watch?.player_id;
+                    const playerId = item.player?.id ?? item.watch?.player_id;
                     if (playerId) updateRisk.mutate({ playerId, riskLevel });
                   }}
                 />
@@ -1364,14 +1366,15 @@ function AlertCard({
   onRisk?: (riskLevel: QuickRiskLevel) => void;
 }) {
   const watch = item.watch;
-  const playerId = item.player.id ?? watch?.player_id;
+  const player = item.player ?? {};
+  const playerId = player.id ?? watch?.player_id;
   const proximityLabel = alertProximityLabel(item);
   return (
     <div className="rounded-md border border-border bg-background/55 p-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="truncate font-semibold">{compactText(item.player.display_name ?? item.player.name ?? item.live_player?.display_name)}</div>
-          <div className="text-xs text-muted-foreground">{compactText(item.player.steam_id ?? item.live_player?.steam_id ?? item.player.battlemetrics_player_id)}</div>
+          <div className="truncate font-semibold">{compactText(player.display_name ?? player.name ?? item.live_player?.display_name)}</div>
+          <div className="text-xs text-muted-foreground">{compactText(player.steam_id ?? item.live_player?.steam_id ?? player.battlemetrics_player_id)}</div>
         </div>
         <Badge variant={alertSeverityVariant(item.severity)}>{compactText(item.alert_type)}</Badge>
       </div>
@@ -1393,7 +1396,7 @@ function AlertCard({
         <div className="flex flex-wrap justify-end gap-2">
           {onRisk ? <QuickRiskActions busy={busy} canAct={Boolean(playerId)} onSelect={onRisk} /> : null}
           {onOpenPlayer ? (
-            <Button size="sm" variant="secondary" onClick={() => onOpenPlayer(playerId)} disabled={!playerId || busy}>
+            <Button size="sm" variant="secondary" onClick={() => playerId && onOpenPlayer(playerId)} disabled={!playerId || busy}>
               Intel
             </Button>
           ) : null}
@@ -5560,6 +5563,7 @@ function ServerDetailView({
       {activeTab === "activity" ? <ServerActivityTab items={activity} loading={detail.isFetching || liveContext.isFetching} /> : null}
       {activeTab === "settings" ? (
         <ServerSettingsTab
+          api={api}
           server={server}
           detail={detail.data}
           settings={settings}
@@ -5922,6 +5926,7 @@ function ServerActivityTab({ items, loading }: { items: Array<Record<string, unk
 }
 
 function ServerSettingsTab({
+  api,
   server,
   detail,
   settings,
@@ -5931,6 +5936,7 @@ function ServerSettingsTab({
   syncing,
   onSync,
 }: {
+  api: ReturnType<typeof createApiClient>;
   server?: ServerIntel | null;
   detail?: ServerDetail;
   settings: Record<string, unknown>;
@@ -5943,6 +5949,8 @@ function ServerSettingsTab({
   const battleMetricsUrl = battleMetricsServerUrl(serverKey);
   const pluginReady = Boolean(settings.plugin_webhook_ready);
   const rconConfigured = Boolean(settings.rcon_configured);
+  const rconActionsEnabled = Boolean(settings.rcon_actions_enabled);
+  const rconReadOnly = Boolean(settings.rcon_read_only);
   const rconStatus = String(settings.rcon_status ?? (rconConfigured ? "configured" : "not_configured"));
 
   return (
@@ -5977,6 +5985,16 @@ function ServerSettingsTab({
               </a>
             ) : null}
           </div>
+
+          <ServerRconActionsPanel
+            api={api}
+            serverId={serverId}
+            serverName={server?.name ?? serverKey}
+            rconConfigured={rconConfigured}
+            rconActionsEnabled={rconActionsEnabled}
+            rconReadOnly={rconReadOnly}
+            rconStatus={rconStatus}
+          />
         </CardContent>
       </Card>
 
@@ -5994,16 +6012,124 @@ function ServerSettingsTab({
             <Badge variant={pluginReady ? "success" : "warning"}>{pluginReady ? "ready" : "configure"}</Badge>
           </div>
           <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-background/50 p-3">
-            <span className="text-sm">RCON read-only test</span>
-            <Badge variant={rconConfigured ? "success" : rconStatus.includes("missing") || rconStatus.includes("needs") ? "warning" : "outline"}>
-              {compactText(rconStatus)}
-            </Badge>
-          </div>
-          <div className="rounded-md border border-border bg-background/50 p-3 text-xs text-muted-foreground">
-            RCON Test on the Integrations page runs a fixed read-only serverinfo command. Kick, ban, mute and other admin actions stay disabled until the command path is audited.
+            <span className="text-sm">RCON actions</span>
+            <Badge variant={rconActionsEnabled ? "success" : rconConfigured ? "warning" : "outline"}>{rconActionsEnabled ? "enabled" : compactText(rconStatus)}</Badge>
           </div>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+const rconActionOptions: Array<{ value: RconActionType; label: string }> = [
+  { value: "say", label: "Say" },
+  { value: "kick", label: "Kick" },
+  { value: "ban", label: "Ban" },
+  { value: "mute", label: "Mute" },
+  { value: "unban", label: "Unban" },
+  { value: "unmute", label: "Unmute" },
+];
+
+function ServerRconActionsPanel({
+  api,
+  serverId,
+  serverName,
+  rconConfigured,
+  rconActionsEnabled,
+  rconReadOnly,
+  rconStatus,
+}: {
+  api: ReturnType<typeof createApiClient>;
+  serverId: string;
+  serverName: string;
+  rconConfigured: boolean;
+  rconActionsEnabled: boolean;
+  rconReadOnly: boolean;
+  rconStatus: string;
+}) {
+  const queryClient = useQueryClient();
+  const [action, setAction] = useState<RconActionType>("say");
+  const [target, setTarget] = useState("");
+  const [message, setMessage] = useState("");
+  const [reason, setReason] = useState("");
+  const sendAction = useMutation({
+    mutationFn: () =>
+      api.serverRconAction(serverId, {
+        action,
+        target,
+        message,
+        reason,
+      }),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["serverDetail", serverId] });
+      queryClient.invalidateQueries({ queryKey: ["serverLiveContext", serverId] });
+      queryClient.invalidateQueries({ queryKey: ["activity"] });
+      if (result.status !== "error") {
+        if (action === "say") setMessage("");
+        setReason("");
+      }
+    },
+  });
+  const targetRequired = action !== "say";
+  const messageRequired = action === "say";
+  const canSend = Boolean(rconActionsEnabled && !sendAction.isPending && (!targetRequired || target.trim()) && (!messageRequired || message.trim()));
+  const guardLabel = rconActionsEnabled ? "actions enabled" : rconReadOnly ? "read-only" : rconConfigured ? "actions locked" : rconStatus;
+  const result = sendAction.data;
+
+  return (
+    <div className="grid gap-3 rounded-md border border-border bg-background/50 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate text-sm font-medium">RCON Actions</div>
+          <div className="truncate text-xs text-muted-foreground">{compactText(serverName)}</div>
+        </div>
+        <Badge variant={rconActionsEnabled ? "success" : rconConfigured ? "warning" : "outline"}>{compactText(guardLabel)}</Badge>
+      </div>
+
+      <div className="grid gap-2 lg:grid-cols-[130px_minmax(160px,1fr)_minmax(180px,1fr)_minmax(180px,1fr)_auto]">
+        <select
+          className="h-10 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+          value={action}
+          onChange={(event) => setAction(event.target.value as RconActionType)}
+          disabled={!rconActionsEnabled || sendAction.isPending}
+        >
+          {rconActionOptions.map((item) => (
+            <option key={item.value} value={item.value}>
+              {item.label}
+            </option>
+          ))}
+        </select>
+        <Input
+          value={target}
+          onChange={(event) => setTarget(event.target.value)}
+          placeholder={action === "ban" || action === "unban" ? "SteamID64" : "Target"}
+          disabled={!rconActionsEnabled || action === "say" || sendAction.isPending}
+        />
+        <Input
+          value={message}
+          onChange={(event) => setMessage(event.target.value)}
+          placeholder="Message"
+          disabled={!rconActionsEnabled || action !== "say" || sendAction.isPending}
+        />
+        <Input
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
+          placeholder="Reason"
+          disabled={!rconActionsEnabled || action === "say" || sendAction.isPending}
+        />
+        <Button onClick={() => sendAction.mutate()} disabled={!canSend}>
+          <Gamepad2 className="h-4 w-4" />
+          Send
+        </Button>
+      </div>
+
+      {sendAction.error ? <StatusLine tone="bad" text={sendAction.error.message} /> : null}
+      {result ? <StatusLine tone={result.status === "error" ? "bad" : "ok"} text={`${compactText(result.action)}: ${compactText(result.message ?? result.status)}`} /> : null}
+      {result?.response_preview ? (
+        <DetailsBlock summary="RCON response">
+          <div className="whitespace-pre-wrap text-xs leading-5 text-muted-foreground">{compactText(result.response_preview)}</div>
+        </DetailsBlock>
+      ) : null}
     </div>
   );
 }
@@ -6076,6 +6202,7 @@ function ServersView({
         actionLabel="Sync"
         onAction={(server) => sync.mutate(server.id ?? server.battlemetrics_server_id)}
         onOpen={openServer}
+        loading={tracked.isFetching}
       />
 
       {selectedServerId ? (
@@ -6111,12 +6238,14 @@ function ServerTable({
   actionLabel,
   onAction,
   onOpen,
+  loading,
 }: {
   title: string;
   items: ServerIntel[];
   actionLabel: string;
   onAction: (server: ServerIntel) => void;
   onOpen?: (server: ServerIntel) => void;
+  loading?: boolean;
 }) {
   return (
     <Card>
@@ -6177,6 +6306,7 @@ function ServerTable({
               ))}
             </tbody>
           </Table>
+          {!items.length ? <EmptyState label={loading ? "Loading servers" : "No servers tracked yet"} /> : null}
         </div>
       </CardContent>
     </Card>
@@ -6627,19 +6757,24 @@ function ProfileHistoryTab({
             <Badge variant={alerts.length ? "danger" : "outline"}>{alerts.length}</Badge>
           </div>
           <div className="grid gap-2">
-            {alerts.slice(0, 6).map((alert) => (
-              <button
-                key={`${alert.player.id ?? alert.player.steam_id}-${alert.alert_type}`}
-                className="grid grid-cols-[1fr_auto] items-center gap-2 rounded-md border border-border bg-background/50 p-2 text-left hover:bg-secondary"
-                onClick={() => alert.player.id && onOpenPlayer(alert.player.id)}
-              >
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-medium">{compactText(alert.player.display_name ?? alert.player.name)}</div>
-                  <div className="truncate text-xs text-muted-foreground">{compactText(alert.alert_type)} / {compactText(alert.current_server?.name)}</div>
-                </div>
-                <Badge variant={alertSeverityVariant(alert.severity)}>{compactText(alert.severity)}</Badge>
-              </button>
-            ))}
+            {alerts.slice(0, 6).map((alert) => {
+              const player = alert.player ?? {};
+              const playerId = player.id ?? alert.watch?.player_id;
+              return (
+                <button
+                  key={`${player.id ?? player.steam_id ?? alert.watch?.player_id ?? alert.live_player?.id}-${alert.alert_type}`}
+                  className="grid grid-cols-[1fr_auto] items-center gap-2 rounded-md border border-border bg-background/50 p-2 text-left hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-70"
+                  onClick={() => playerId && onOpenPlayer(playerId)}
+                  disabled={!playerId}
+                >
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium">{compactText(player.display_name ?? player.name ?? alert.live_player?.display_name)}</div>
+                    <div className="truncate text-xs text-muted-foreground">{compactText(alert.alert_type)} / {compactText(alert.current_server?.name)}</div>
+                  </div>
+                  <Badge variant={alertSeverityVariant(alert.severity)}>{compactText(alert.severity)}</Badge>
+                </button>
+              );
+            })}
             {!alerts.length ? <EmptyState label="No active watched-player alerts" /> : null}
           </div>
         </div>
