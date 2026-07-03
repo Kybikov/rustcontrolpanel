@@ -2220,43 +2220,49 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
           <CardTitle>Player Detail</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="mb-3 flex flex-wrap gap-2">
-            <Badge variant={sessions.data?.source_status === "ok" ? "success" : "outline"}>
-              {compactText(sessions.data?.source_status ?? resolve.data?.team_lookup_status)}
-            </Badge>
-            <Badge variant={Number(sessions.data?.stored_sessions ?? 0) > 0 ? "success" : "outline"}>
-              stored sessions {compactText(sessions.data?.stored_sessions)}
-            </Badge>
-            <Badge variant={Number(sessions.data?.overlap_edges_updated ?? 0) > 0 ? "success" : "outline"}>
-              overlap edges {compactText(sessions.data?.overlap_edges_updated)}
-            </Badge>
-            <Badge variant={intel.data?.source_status === "ok" ? "success" : "outline"}>
-              intel {compactText(intel.data?.source_status ?? "-")}
-            </Badge>
-            <Badge variant={dossier.data?.source_status === "ok" ? "success" : "outline"}>
-              dossier {compactText(dossier.data?.source_status ?? "-")}
-            </Badge>
-            <Badge variant={likelyTeammates.length ? "success" : "outline"}>
-              probability {likelyTeammates.length}
-            </Badge>
-            <Badge variant={teamEvidence.length ? "success" : "outline"}>
-              evidence {teamEvidence.length}
-            </Badge>
-            <Badge variant={relationItems.length ? "success" : "outline"}>
-              relations {relationItems.length}
-            </Badge>
-            <Badge variant={Number(network.data?.counts?.nodes ?? 0) > 0 ? "success" : "outline"}>
-              network {compactText(network.data?.counts?.nodes)}
-            </Badge>
-            <Badge variant={Number(serverHistory.data?.counts?.recent_sessions ?? 0) > 0 ? "success" : "outline"}>
-              servers {compactText(serverHistory.data?.counts?.top_servers)}
-            </Badge>
-            <Badge variant={Number(positionTrail.data?.counts?.samples ?? 0) > 0 ? "success" : "outline"}>
-              trail {compactText(positionTrail.data?.counts?.samples)}
-            </Badge>
-            <Badge variant={Number(timeline.data?.counts?.total ?? 0) > 0 ? "success" : "outline"}>
-              timeline {compactText(timeline.data?.counts?.total)}
-            </Badge>
+          <div className="mb-3 grid gap-2">
+            <div className="flex flex-wrap gap-2">
+              <Badge variant={sessions.data?.source_status === "ok" ? "success" : "outline"}>
+                {compactText(sessions.data?.source_status ?? resolve.data?.team_lookup_status)}
+              </Badge>
+              <Badge variant={intel.data?.source_status === "ok" ? "success" : "outline"}>
+                intel {compactText(intel.data?.source_status ?? "-")}
+              </Badge>
+              <Badge variant={relationItems.length ? "success" : "outline"}>
+                relations {relationItems.length}
+              </Badge>
+              <Badge variant={Number(timeline.data?.counts?.total ?? 0) > 0 ? "success" : "outline"}>
+                timeline {compactText(timeline.data?.counts?.total)}
+              </Badge>
+            </div>
+            <DetailsBlock summary="Data coverage">
+              <div className="flex flex-wrap gap-2">
+                <Badge variant={Number(sessions.data?.stored_sessions ?? 0) > 0 ? "success" : "outline"}>
+                  stored sessions {compactText(sessions.data?.stored_sessions)}
+                </Badge>
+                <Badge variant={Number(sessions.data?.overlap_edges_updated ?? 0) > 0 ? "success" : "outline"}>
+                  overlap edges {compactText(sessions.data?.overlap_edges_updated)}
+                </Badge>
+                <Badge variant={dossier.data?.source_status === "ok" ? "success" : "outline"}>
+                  dossier {compactText(dossier.data?.source_status ?? "-")}
+                </Badge>
+                <Badge variant={likelyTeammates.length ? "success" : "outline"}>
+                  probability {likelyTeammates.length}
+                </Badge>
+                <Badge variant={teamEvidence.length ? "success" : "outline"}>
+                  evidence {teamEvidence.length}
+                </Badge>
+                <Badge variant={Number(network.data?.counts?.nodes ?? 0) > 0 ? "success" : "outline"}>
+                  network {compactText(network.data?.counts?.nodes)}
+                </Badge>
+                <Badge variant={Number(serverHistory.data?.counts?.recent_sessions ?? 0) > 0 ? "success" : "outline"}>
+                  servers {compactText(serverHistory.data?.counts?.top_servers)}
+                </Badge>
+                <Badge variant={Number(positionTrail.data?.counts?.samples ?? 0) > 0 ? "success" : "outline"}>
+                  trail {compactText(positionTrail.data?.counts?.samples)}
+                </Badge>
+              </div>
+            </DetailsBlock>
           </div>
 
           <div className="mb-4 flex flex-wrap gap-1">
@@ -2318,10 +2324,12 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
             <div className="grid gap-4">
               <RelationGraphPanel data={relations.data} loading={relations.isFetching} onOpenPlayer={selectLocalPlayer} />
               <PlayerNetworkPanel api={api} data={network.data} loading={network.isFetching} onOpenPlayer={selectLocalPlayer} onChanged={invalidateCurrentPlayerContext} />
-              <div className="grid gap-4 xl:grid-cols-2">
-                <TeamProbabilityTable items={likelyTeammates} />
-                <TeamEvidenceTable items={teamEvidence} />
-              </div>
+              <DetailsBlock summary="Team probability and evidence details">
+                <div className="grid gap-4 xl:grid-cols-2">
+                  <TeamProbabilityTable items={likelyTeammates} />
+                  <TeamEvidenceTable items={teamEvidence} />
+                </div>
+              </DetailsBlock>
             </div>
           ) : null}
 
@@ -5020,7 +5028,7 @@ function TeamEvidenceTable({ items }: { items: Array<Record<string, unknown>> })
           ))}
         </tbody>
       </Table>
-      {!items.length ? <EmptyState label="No raw evidence yet" /> : null}
+      {!items.length ? <EmptyState label="No evidence details yet" /> : null}
     </div>
   );
 }
