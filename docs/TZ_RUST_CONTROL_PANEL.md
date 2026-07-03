@@ -632,6 +632,7 @@ Schema: `rustcontrol`.
 - Global command search now includes local navigation/tool results, so `tools`, `raid planner`, `field guides`, and individual guide names open the right `/tools` tab even before backend search results return.
 - Production builds now split React/query/icon/vendor code into separate Rollup chunks, removing the Vite 500 kB chunk warning while keeping the operator app code chunk smaller.
 - `npm run smoke:ui` builds the production app, serves it locally, and runs a Playwright smoke over the authorized shell, command search, and Raid Planner calculation.
+- `npm run smoke:stack` builds the frontend, compiles a temporary backend binary, loads the backend `.env`, preflights DB/Redis port-forward endpoints, runs both local servers, and checks frontend config, CORS, health, catalog, protected RustControl routes, and webhook guard behavior.
 - Global command search now supports keyboard navigation with selected-row highlighting, `ArrowUp`/`ArrowDown`, `Enter` to open, and `Escape` to close.
 - Integrations now exposes the guarded admin/local plugin event feed in a collapsed manual smoke block, with temporary webhook-secret entry, JSON validation, and realtime/activity refresh after accepted events.
 - Profile statistics no longer render no-op filter buttons: source/type summaries are static badges unless the same chip component is used on Activity with real backend-backed filters.

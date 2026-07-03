@@ -102,7 +102,7 @@ if ($cors.Headers["Access-Control-Allow-Headers"] -notmatch "Authorization") {
 
 $checks += Assert-Status -Name "api:auth-invalid" -Method "POST" -Url "$ApiBaseUrl/api/admin/auth/login" -Expected 401 -Body '{"email":"release-check@example.invalid","password":"invalid"}'
 $checks += Assert-Status -Name "api:rustcontrol-protected" -Url "$ApiBaseUrl/api/admin/rustcontrol/realtime/health" -Expected 401
-$checks += Assert-Status -Name "api:rustcontrol-webhook-unsigned" -Method "POST" -Url "$ApiBaseUrl/webhooks/rustcontrol/00000000-0000-0000-0000-000000000000/events" -Expected 401 -Body '{"event_type":"release_probe","source":"smoke-production"}'
+$checks += Assert-Status -Name "api:rustcontrol-webhook-unsigned" -Method "POST" -Url "$ApiBaseUrl/webhooks/rustcontrol/11111111-1111-1111-1111-111111111111/events" -Expected 401 -Body '{"event_type":"release_probe","source":"smoke-production"}'
 
 $checks |
     Select-Object Name, Status, Length |
