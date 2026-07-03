@@ -4,6 +4,7 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, usePa
 import {
   Activity,
   BarChart3,
+  Bell,
   CalendarClock,
   Crosshair,
   DatabaseZap,
@@ -63,6 +64,7 @@ import {
   type ServerWipe,
   type TeamProbability,
   type WatchlistItem,
+  type WipeReminder,
 } from "@/lib/api";
 import { compactText, formatDateTime, formatNumber } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -90,6 +92,16 @@ type BadgeVariant = "default" | "secondary" | "outline" | "danger" | "success" |
 
 const quickRiskLevels: QuickRiskLevel[] = ["watch", "suspect", "hostile"];
 const profileTabValues: ProfileTab[] = ["account", "steam", "stats", "history", "security"];
+const editableWipeTypes = ["map_wipe", "bp_wipe", "full_wipe", "manual_wipe"];
+const wipeReminderMinuteOptions = [
+  { value: 15, label: "15 min before" },
+  { value: 30, label: "30 min before" },
+  { value: 60, label: "1h before" },
+  { value: 180, label: "3h before" },
+  { value: 720, label: "12h before" },
+  { value: 1440, label: "1d before" },
+  { value: 2880, label: "2d before" },
+];
 const serverDetailTabs: Array<{ value: ServerDetailTab; label: string }> = [
   { value: "overview", label: "Overview" },
   { value: "history", label: "History" },
@@ -1275,11 +1287,15 @@ function AlertsPanel({
   const queryClient = useQueryClient();
   const [severityFilter, setSeverityFilter] = useState<AlertSeverityFilter>("all");
   const [scopeFilter, setScopeFilter] = useState<AlertScopeFilter>("all");
-  const filteredItems = useMemo(
-    () => items.filter((item) => alertSeverityMatches(item, severityFilter) && alertScopeMatches(item, scopeFilter)),
-    [items, scopeFilter, severityFilter],
+  const safeItems = useMemo(
+    () => items.filter((item): item is RustAlertItem => Boolean(item && typeof item === "object")),
+    [items],
   );
-  const stats = useMemo(() => alertStats(items), [items]);
+  const filteredItems = useMemo(
+    () => safeItems.filter((item) => alertSeverityMatches(item, severityFilter) && alertScopeMatches(item, scopeFilter)),
+    [safeItems, scopeFilter, severityFilter],
+  );
+  const stats = useMemo(() => alertStats(safeItems), [safeItems]);
   const updateRisk = useMutation({
     mutationFn: ({ playerId, riskLevel }: { playerId: string; riskLevel: QuickRiskLevel }) =>
       api.updatePlayerWatch(playerId, {
@@ -1303,11 +1319,11 @@ function AlertsPanel({
       <CardHeader>
         <CardTitle className="flex items-center justify-between gap-3">
           <span>{title}</span>
-          <Badge variant={items.length ? "danger" : "outline"}>{items.length} active</Badge>
+          <Badge variant={safeItems.length ? "danger" : "outline"}>{safeItems.length} active</Badge>
         </CardTitle>
       </CardHeader>
       <CardContent>
-        {items.length ? (
+        {safeItems.length ? (
           <div className="grid gap-3">
             <div className="grid gap-2 lg:grid-cols-[1fr_auto_auto]">
               <div className="grid gap-2 md:grid-cols-4">
@@ -2236,7 +2252,7 @@ function PlayerIntelPanel({
   const liveStatus = intel.live_status;
   const server = intel.current_server;
   const activity = intel.recent_activity ?? [];
-  const realtimeTeammates = intel.realtime_teammates ?? [];
+  const realtimeTeammates = (intel.realtime_teammates ?? []).filter((player): player is LivePlayer => Boolean(player && typeof player === "object"));
   const realtimeContext = intel.realtime_context;
   const nearbyPlayers = intel.nearby_players ?? [];
   const aliases = intel.player.aliases ?? [];
@@ -2304,8 +2320,8 @@ function PlayerIntelPanel({
           <div className="mb-2 text-sm font-medium">Realtime Team</div>
           {realtimeTeammates.length ? (
             <div className="grid gap-2">
-              {realtimeTeammates.slice(0, 6).map((player) => (
-                <LivePlayerCompact key={player.id} player={player} />
+              {realtimeTeammates.slice(0, 6).map((player, index) => (
+                <LivePlayerCompact key={player.id ?? player.steam_id ?? player.battlemetrics_player_id ?? index} player={player} />
               ))}
             </div>
           ) : (
@@ -4215,6 +4231,20 @@ function localDayLabel(date: Date) {
 
 function wipeTypeLabel(value: unknown) {
   return compactText(value).replace(/_/g, " ");
+}
+
+function wipeReminderLeadLabel(minutes: number) {
+  if (!Number.isFinite(minutes) || minutes <= 0) return "before wipe";
+  if (minutes % 1440 === 0) return `${minutes / 1440}d before`;
+  if (minutes % 60 === 0) return `${minutes / 60}h before`;
+  return `${minutes}m before`;
+}
+
+function wipeReminderSummary(reminders: WipeReminder[]) {
+  return {
+    active: reminders.length,
+    due: reminders.filter((reminder) => reminder.due).length,
+  };
 }
 
 function wipeCalendarSummary(wipes: ServerWipe[]) {
@@ -6928,6 +6958,11 @@ function WipesView({ api }: { api: ReturnType<typeof createApiClient> }) {
   const [wipeAt, setWipeAt] = useState(() => datetimeLocalValue(new Date()));
   const [confidence, setConfidence] = useState("75");
   const [note, setNote] = useState("");
+  const [reminderServerId, setReminderServerId] = useState("");
+  const [reminderWipeType, setReminderWipeType] = useState("map_wipe");
+  const [reminderWipeAt, setReminderWipeAt] = useState(() => datetimeLocalValue(new Date()));
+  const [reminderMinutes, setReminderMinutes] = useState("60");
+  const [reminderNote, setReminderNote] = useState("");
   const wipesQuery = useMemo(
     () => ({
       ...wipeRangeQuery(range),
@@ -6936,7 +6971,15 @@ function WipesView({ api }: { api: ReturnType<typeof createApiClient> }) {
     }),
     [filterServerId, filterType, range],
   );
+  const remindersQuery = useMemo(
+    () => ({
+      status: "active",
+      server_id: filterServerId === "all" ? undefined : filterServerId,
+    }),
+    [filterServerId],
+  );
   const wipes = useQuery({ queryKey: ["wipes", wipesQuery], queryFn: () => api.wipes(wipesQuery), refetchInterval: 60_000 });
+  const reminders = useQuery({ queryKey: ["wipeReminders", remindersQuery], queryFn: () => api.wipeReminders(remindersQuery), refetchInterval: 60_000 });
   const servers = useQuery({ queryKey: ["trackedServers"], queryFn: api.trackedServers, refetchInterval: 60_000 });
   const createWipe = useMutation({
     mutationFn: () =>
@@ -6954,8 +6997,32 @@ function WipesView({ api }: { api: ReturnType<typeof createApiClient> }) {
       queryClient.invalidateQueries({ queryKey: ["activity"] });
     },
   });
+  const createReminder = useMutation({
+    mutationFn: () =>
+      api.createWipeReminder({
+        server_id: reminderServerId,
+        wipe_type: reminderWipeType,
+        wipe_at: isoFromDatetimeLocal(reminderWipeAt),
+        minutes_before: Number(reminderMinutes) || 60,
+        note: reminderNote,
+      }),
+    onSuccess: () => {
+      setReminderNote("");
+      queryClient.invalidateQueries({ queryKey: ["wipeReminders"] });
+      queryClient.invalidateQueries({ queryKey: ["activity"] });
+    },
+  });
+  const cancelReminder = useMutation({
+    mutationFn: (id: string) => api.cancelWipeReminder(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["wipeReminders"] });
+      queryClient.invalidateQueries({ queryKey: ["activity"] });
+    },
+  });
   const wipeItems = wipes.data ?? [];
+  const reminderItems = reminders.data ?? [];
   const summary = useMemo(() => wipeCalendarSummary(wipeItems), [wipeItems]);
+  const reminderStats = useMemo(() => wipeReminderSummary(reminderItems), [reminderItems]);
   const days = useMemo(() => wipeCalendarDays(wipeItems), [wipeItems]);
   const typeOptions = useMemo(() => {
     const values = ["all", "map_wipe", "bp_wipe", "full_wipe", "manual_wipe"];
@@ -6965,13 +7032,23 @@ function WipesView({ api }: { api: ReturnType<typeof createApiClient> }) {
     return values;
   }, [wipeItems]);
   const canCreate = Boolean(serverId && wipeAt && wipeType && !createWipe.isPending);
+  const canCreateReminder = Boolean(reminderServerId && reminderWipeAt && reminderWipeType && !createReminder.isPending);
+
+  function prefillReminderFromWipe(wipe: ServerWipe) {
+    setReminderServerId(wipe.server_id ?? "");
+    setReminderWipeType(wipe.wipe_type || "map_wipe");
+    const wipeDate = new Date(wipe.wipe_at);
+    if (Number.isFinite(wipeDate.getTime())) {
+      setReminderWipeAt(datetimeLocalValue(wipeDate));
+    }
+  }
 
   return (
     <section className="grid gap-4">
       <Header title="Wipe Calendar" subtitle="Server wipe windows, source confidence and manual overrides" />
       <Card>
         <CardContent className="grid gap-4 pt-4">
-          <div className="grid gap-2 lg:grid-cols-[minmax(220px,1.2fr)_160px_140px_auto]">
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-[minmax(220px,1fr)_160px_140px]">
             <select
               className="h-10 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
               value={filterServerId}
@@ -7005,7 +7082,7 @@ function WipesView({ api }: { api: ReturnType<typeof createApiClient> }) {
               <option value="90">Next 90d</option>
               <option value="all">All records</option>
             </select>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2 md:col-span-2 xl:col-span-3">
               <Button size="sm" variant={mode === "calendar" ? "default" : "secondary"} onClick={() => setMode("calendar")}>
                 <CalendarClock className="h-4 w-4" />
                 Calendar
@@ -7014,18 +7091,31 @@ function WipesView({ api }: { api: ReturnType<typeof createApiClient> }) {
                 <History className="h-4 w-4" />
                 Records
               </Button>
-              <Button size="sm" variant="secondary" onClick={() => wipes.refetch()} disabled={wipes.isFetching}>
-                <RefreshCw className={`h-4 w-4 ${wipes.isFetching ? "animate-spin" : ""}`} />
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => {
+                  void wipes.refetch();
+                  void reminders.refetch();
+                }}
+                disabled={wipes.isFetching || reminders.isFetching}
+              >
+                <RefreshCw className={`h-4 w-4 ${wipes.isFetching || reminders.isFetching ? "animate-spin" : ""}`} />
                 Refresh
               </Button>
             </div>
           </div>
 
-          <div className="grid gap-2 md:grid-cols-4">
+          <div className="grid gap-2 md:grid-cols-5">
             <WatchlistSummaryPill label="Shown" value={summary.total} variant="secondary" />
             <WatchlistSummaryPill label="Upcoming" value={summary.upcoming.length} variant={summary.upcoming.length ? "warning" : "outline"} />
             <WatchlistSummaryPill label="Recent" value={summary.recent.length} variant="outline" />
             <WatchlistSummaryPill label="Manual" value={summary.manual} variant={summary.manual ? "success" : "outline"} />
+            <WatchlistSummaryPill
+              label="Reminders"
+              value={reminderStats.active}
+              variant={reminderStats.due ? "warning" : reminderStats.active ? "secondary" : "outline"}
+            />
           </div>
 
           {summary.next ? (
@@ -7043,7 +7133,7 @@ function WipesView({ api }: { api: ReturnType<typeof createApiClient> }) {
           ) : null}
 
           <DetailsBlock summary="Manual wipe override">
-            <div className="grid gap-3 lg:grid-cols-[minmax(220px,1.3fr)_160px_210px_110px_minmax(180px,1fr)_auto]">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-[minmax(220px,1.3fr)_160px_210px_110px_minmax(180px,1fr)_auto]">
               <select
                 className="h-10 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                 value={serverId}
@@ -7062,10 +7152,11 @@ function WipesView({ api }: { api: ReturnType<typeof createApiClient> }) {
                 value={wipeType}
                 onChange={(event) => setWipeType(event.target.value)}
               >
-                <option value="map_wipe">Map wipe</option>
-                <option value="bp_wipe">BP wipe</option>
-                <option value="full_wipe">Full wipe</option>
-                <option value="manual_wipe">Manual</option>
+                {editableWipeTypes.map((type) => (
+                  <option key={type} value={type}>
+                    {wipeTypeLabel(type)}
+                  </option>
+                ))}
               </select>
               <Input type="datetime-local" value={wipeAt} onChange={(event) => setWipeAt(event.target.value)} />
               <Input type="number" min={1} max={100} value={confidence} onChange={(event) => setConfidence(event.target.value)} placeholder="Confidence" />
@@ -7077,6 +7168,126 @@ function WipesView({ api }: { api: ReturnType<typeof createApiClient> }) {
             </div>
             {createWipe.error ? <div className="mt-3"><StatusLine tone="bad" text={createWipe.error.message} /></div> : null}
             {createWipe.data?.item ? <div className="mt-3"><StatusLine tone="ok" text={`Manual wipe saved: ${compactText(createWipe.data.item.server_name)} / ${wipeTypeLabel(createWipe.data.item.wipe_type)}`} /></div> : null}
+          </DetailsBlock>
+
+          <DetailsBlock summary="Wipe reminders">
+            <div className="grid gap-3">
+              {summary.next ? (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-background/45 p-3">
+                  <div className="min-w-0">
+                    <div className="text-xs text-muted-foreground">Next tracked wipe</div>
+                    <div className="truncate text-sm font-medium">
+                      {formatDateTime(summary.next.wipe_at)} / {compactText(summary.next.server_name)}
+                    </div>
+                  </div>
+                  <Button size="sm" variant="secondary" onClick={() => prefillReminderFromWipe(summary.next)}>
+                    <Bell className="h-4 w-4" />
+                    Use next wipe
+                  </Button>
+                </div>
+              ) : null}
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-[minmax(220px,1.3fr)_160px_210px_150px_minmax(180px,1fr)_auto]">
+                <select
+                  className="h-10 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                  value={reminderServerId}
+                  onChange={(event) => setReminderServerId(event.target.value)}
+                  disabled={servers.isFetching && !servers.data?.length}
+                >
+                  <option value="">Tracked server</option>
+                  {(servers.data ?? []).map((server) => (
+                    <option key={server.id ?? server.battlemetrics_server_id} value={server.id ?? server.battlemetrics_server_id}>
+                      {compactText(server.name)} / {compactText(server.battlemetrics_server_id)}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className="h-10 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
+                  value={reminderWipeType}
+                  onChange={(event) => setReminderWipeType(event.target.value)}
+                >
+                  {editableWipeTypes.map((type) => (
+                    <option key={type} value={type}>
+                      {wipeTypeLabel(type)}
+                    </option>
+                  ))}
+                </select>
+                <Input type="datetime-local" value={reminderWipeAt} onChange={(event) => setReminderWipeAt(event.target.value)} />
+                <select
+                  className="h-10 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
+                  value={reminderMinutes}
+                  onChange={(event) => setReminderMinutes(event.target.value)}
+                >
+                  {wipeReminderMinuteOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <Input value={reminderNote} onChange={(event) => setReminderNote(event.target.value)} placeholder="Short note" />
+                <Button onClick={() => createReminder.mutate()} disabled={!canCreateReminder}>
+                  <Bell className="h-4 w-4" />
+                  Save
+                </Button>
+              </div>
+              {createReminder.error ? <StatusLine tone="bad" text={createReminder.error.message} /> : null}
+              {createReminder.data?.item ? (
+                <StatusLine
+                  tone="ok"
+                  text={`Reminder saved: ${formatDateTime(createReminder.data.item.remind_at)} / ${compactText(createReminder.data.item.server_name)}`}
+                />
+              ) : null}
+
+              <div className="overflow-auto rounded-md border border-border">
+                <Table>
+                  <thead>
+                    <tr>
+                      <Th>Remind</Th>
+                      <Th>Server</Th>
+                      <Th className="hidden sm:table-cell">Wipe</Th>
+                      <Th className="hidden md:table-cell">Lead</Th>
+                      <Th>Status</Th>
+                      <Th className="w-12 text-right"> </Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reminderItems.map((reminder) => (
+                      <tr key={reminder.id}>
+                        <Td>
+                          <div className="grid gap-1">
+                            <span>{formatDateTime(reminder.remind_at)}</span>
+                            {reminder.note ? <span className="max-w-[240px] truncate text-xs text-muted-foreground">{compactText(reminder.note)}</span> : null}
+                          </div>
+                        </Td>
+                        <Td>{compactText(reminder.server_name)}</Td>
+                        <Td className="hidden sm:table-cell">
+                          <div className="flex flex-wrap gap-1">
+                            <Badge variant="secondary">{wipeTypeLabel(reminder.wipe_type)}</Badge>
+                            <Badge variant="outline">{formatDateTime(reminder.wipe_at)}</Badge>
+                          </div>
+                        </Td>
+                        <Td className="hidden md:table-cell">{wipeReminderLeadLabel(reminder.minutes_before)}</Td>
+                        <Td>
+                          <Badge variant={reminder.due ? "warning" : "outline"}>{reminder.due ? "due" : compactText(reminder.status)}</Badge>
+                        </Td>
+                        <Td className="text-right">
+                          <Button
+                            title="Cancel reminder"
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => cancelReminder.mutate(reminder.id)}
+                            disabled={cancelReminder.isPending && cancelReminder.variables === reminder.id}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+                {!reminderItems.length ? <EmptyState label={reminders.isFetching ? "Loading active reminders" : "No active wipe reminders"} /> : null}
+              </div>
+              {cancelReminder.error ? <StatusLine tone="bad" text={cancelReminder.error.message} /> : null}
+            </div>
           </DetailsBlock>
         </CardContent>
       </Card>

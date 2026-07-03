@@ -235,6 +235,22 @@ export type ServerWipe = {
   created_at?: string;
 };
 
+export type WipeReminder = {
+  id: string;
+  server_id?: string;
+  server_name?: string;
+  wipe_id?: string;
+  wipe_type: string;
+  wipe_at: string;
+  remind_at: string;
+  minutes_before: number;
+  status: string;
+  note?: string;
+  due?: boolean;
+  created_at?: string;
+  updated_at?: string;
+};
+
 export type ServerDetail = {
   server?: ServerIntel | null;
   snapshots?: ServerSnapshot[];
@@ -269,6 +285,15 @@ export type WipeOverrideInput = {
   note?: string;
 };
 
+export type WipeReminderInput = {
+  server_id: string;
+  wipe_id?: string;
+  wipe_type: string;
+  wipe_at: string;
+  minutes_before: number;
+  note?: string;
+};
+
 export type WipesQuery = {
   server_id?: string;
   wipe_type?: string;
@@ -276,6 +301,11 @@ export type WipesQuery = {
   from?: string;
   to?: string;
   window?: "all" | string;
+};
+
+export type WipeRemindersQuery = {
+  server_id?: string;
+  status?: string;
 };
 
 export type ServerMapDetail = {
@@ -781,6 +811,20 @@ export function createApiClient(baseUrl: string, token?: string) {
       return request<{ item: ServerWipe }>("/api/admin/rustcontrol/wipes", {
         method: "POST",
         body: payload,
+      });
+    },
+    wipeReminders(query?: WipeRemindersQuery) {
+      return requestItems<WipeReminder>(withQuery("/api/admin/rustcontrol/wipes/reminders", query));
+    },
+    createWipeReminder(payload: WipeReminderInput) {
+      return request<{ item: WipeReminder }>("/api/admin/rustcontrol/wipes/reminders", {
+        method: "POST",
+        body: payload,
+      });
+    },
+    cancelWipeReminder(id: string) {
+      return request<{ item: WipeReminder }>(`/api/admin/rustcontrol/wipes/reminders/${encodeURIComponent(id)}`, {
+        method: "DELETE",
       });
     },
     activity() {
