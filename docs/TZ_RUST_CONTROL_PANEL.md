@@ -632,3 +632,4 @@ Schema: `rustcontrol`.
 - Profile statistics no longer render no-op filter buttons: source/type summaries are static badges unless the same chip component is used on Activity with real backend-backed filters.
 - Integrations now uses the backend-backed `/sync-runs` audit feed with provider, target type, target id, refresh, clear, and page controls inside collapsed diagnostics instead of only showing the short recent list from the integrations payload.
 - API network failures now report the configured backend base URL instead of a generic `Failed to fetch`, making offline/local-backend issues actionable without adding debug clutter to primary screens.
+- Global Activity now uses backend pagination metadata with 50-row pages, page status, refresh, Prev/Next controls, and a short feed timeout, so filtered investigation logs are not limited to the first loaded batch or stuck in indefinite loading when the local backend is offline.

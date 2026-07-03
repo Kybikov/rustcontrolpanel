@@ -7933,33 +7933,60 @@ function ActivityView({ api }: { api: ReturnType<typeof createApiClient> }) {
   const [severityFilter, setSeverityFilter] = useState<ActivitySeverityFilter>("all");
   const [sourceFilter, setSourceFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
+  const [page, setPage] = useState(1);
   const deferredSearchText = useDeferredValue(searchText);
+  const perPage = 50;
   const activityQuery = useMemo(
     () => ({
       q: deferredSearchText.trim() || undefined,
       severity: severityFilter === "all" ? undefined : severityFilter,
       source: sourceFilter === "all" ? undefined : sourceFilter,
       event_type: typeFilter === "all" ? undefined : typeFilter,
-      per_page: "100",
+      page: String(page),
+      per_page: String(perPage),
     }),
-    [deferredSearchText, severityFilter, sourceFilter, typeFilter],
+    [deferredSearchText, page, severityFilter, sourceFilter, typeFilter],
   );
   const activity = useQuery({
     queryKey: ["activity", activityQuery],
     queryFn: () => api.activityFeed(activityQuery),
     refetchInterval: 10_000,
+    retry: false,
   });
   const items = activity.data?.items ?? [];
   const stats = useMemo(() => activityStatsFromFeed(activity.data, items), [activity.data, items]);
   const sourceOptions = activity.data?.sources?.length ? activity.data.sources : activityOptionCounts(items, "source");
   const typeOptions = activity.data?.event_types?.length ? activity.data.event_types : activityOptionCounts(items, "event_type");
-  const hasFilters = Boolean(searchText.trim() || severityFilter !== "all" || sourceFilter !== "all" || typeFilter !== "all");
+  const total = activity.data?.meta?.total ?? stats.total ?? items.length;
+  const pageCount = Math.max(1, Math.ceil(Number(total || 0) / perPage));
+  const hasFilters = Boolean(searchText.trim() || severityFilter !== "all" || sourceFilter !== "all" || typeFilter !== "all" || page > 1);
+
+  function updateSearch(value: string) {
+    setSearchText(value);
+    setPage(1);
+  }
+
+  function updateSeverity(level: ActivitySeverityFilter) {
+    setSeverityFilter(level);
+    setPage(1);
+  }
+
+  function updateSource(value: string) {
+    setSourceFilter(value);
+    setPage(1);
+  }
+
+  function updateType(value: string) {
+    setTypeFilter(value);
+    setPage(1);
+  }
 
   function clearFilters() {
     setSearchText("");
     setSeverityFilter("all");
     setSourceFilter("all");
     setTypeFilter("all");
+    setPage(1);
   }
 
   return (
@@ -7977,12 +8004,12 @@ function ActivityView({ api }: { api: ReturnType<typeof createApiClient> }) {
           <div className="grid gap-2 xl:grid-cols-[1fr_auto_auto]">
             <Input
               value={searchText}
-              onChange={(event) => setSearchText(event.target.value)}
+              onChange={(event) => updateSearch(event.target.value)}
               placeholder="Search activity by type, source, severity or payload"
             />
             <div className="flex flex-wrap gap-1">
               {(["all", "info", "warning", "error"] as ActivitySeverityFilter[]).map((level) => (
-                <Button key={level} size="sm" variant={severityFilter === level ? "default" : "secondary"} onClick={() => setSeverityFilter(level)}>
+                <Button key={level} size="sm" variant={severityFilter === level ? "default" : "secondary"} onClick={() => updateSeverity(level)}>
                   {level === "all" ? "All severity" : level}
                 </Button>
               ))}
@@ -7999,18 +8026,31 @@ function ActivityView({ api }: { api: ReturnType<typeof createApiClient> }) {
               allLabel="All sources"
               selected={sourceFilter}
               items={sourceOptions}
-              onSelect={setSourceFilter}
+              onSelect={updateSource}
             />
             <ActivityFilterChips
               title="Event Types"
               allLabel="All types"
               selected={typeFilter}
               items={typeOptions}
-              onSelect={setTypeFilter}
+              onSelect={updateType}
             />
           </div>
 
           {activity.error ? <StatusLine tone="bad" text={activity.error.message} /> : null}
+
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-background/45 px-3 py-2 text-xs text-muted-foreground">
+            <span>
+              {formatNumber(total)} matching events / page {page} of {pageCount}
+            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant={activity.data?.source_status === "ok" ? "success" : "outline"}>{compactText(activity.data?.source_status ?? (activity.isFetching ? "loading" : "activity"))}</Badge>
+              <Button size="sm" variant="secondary" onClick={() => activity.refetch()}>
+                <RefreshCw className={`h-4 w-4 ${activity.isFetching ? "animate-spin" : ""}`} />
+                Refresh
+              </Button>
+            </div>
+          </div>
 
           <div className="overflow-auto rounded-md border border-border">
             <Table>
@@ -8046,6 +8086,14 @@ function ActivityView({ api }: { api: ReturnType<typeof createApiClient> }) {
               </tbody>
             </Table>
             {!items.length ? <EmptyState label={activity.isFetching ? "Loading activity" : hasFilters ? "No activity events match current filters" : "No activity events yet"} /> : null}
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Button size="sm" variant="secondary" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={page <= 1}>
+              Prev
+            </Button>
+            <Button size="sm" variant="secondary" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={page >= pageCount}>
+              Next
+            </Button>
           </div>
         </CardContent>
       </Card>

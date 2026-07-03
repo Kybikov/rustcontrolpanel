@@ -342,6 +342,7 @@ export type ActivityOptionCount = {
 
 export type ActivityFeedResult = {
   items: Array<Record<string, unknown>>;
+  meta?: ApiEnvelope<unknown>["meta"];
   stats?: {
     total?: number;
     warning?: number;
@@ -674,6 +675,7 @@ type RequestOptions = {
   body?: unknown;
   token?: string;
   headers?: Record<string, string>;
+  timeoutMs?: number;
 };
 
 export function createApiClient(baseUrl: string, token?: string) {
@@ -687,6 +689,8 @@ export function createApiClient(baseUrl: string, token?: string) {
   async function requestEnvelope<T>(path: string, options: RequestOptions = {}): Promise<ApiEnvelope<T>> {
     const url = `${root}${path}`;
     let response: Response;
+    const controller = options.timeoutMs ? new AbortController() : undefined;
+    const timeout = controller ? window.setTimeout(() => controller.abort(), options.timeoutMs) : undefined;
     try {
       response = await fetch(url, {
         method: options.method ?? "GET",
@@ -696,11 +700,15 @@ export function createApiClient(baseUrl: string, token?: string) {
           ...(token || options.token ? { Authorization: `Bearer ${options.token ?? token}` } : {}),
         },
         body: options.body ? JSON.stringify(options.body) : undefined,
+        signal: controller?.signal,
       });
     } catch (error) {
       const base = root || "same-origin API";
-      const detail = error instanceof Error ? error.message : "network request failed";
+      const timedOut = error instanceof Error && error.name === "AbortError";
+      const detail = timedOut && options.timeoutMs ? `request timed out after ${options.timeoutMs}ms` : error instanceof Error ? error.message : "network request failed";
       throw new Error(`Backend API is unreachable at ${base}: ${detail}`);
+    } finally {
+      if (timeout) window.clearTimeout(timeout);
     }
     const text = await response.text();
     const envelope = text ? (JSON.parse(text) as ApiEnvelope<T>) : {};
@@ -950,7 +958,10 @@ export function createApiClient(baseUrl: string, token?: string) {
       return requestItems<Record<string, unknown>>("/api/admin/rustcontrol/activity");
     },
     activityFeed(query?: ActivityQuery) {
-      return request<ActivityFeedResult>(withQuery("/api/admin/rustcontrol/activity", query));
+      return requestEnvelope<Omit<ActivityFeedResult, "meta">>(withQuery("/api/admin/rustcontrol/activity", query), { timeoutMs: 5_000 }).then((envelope) => ({
+        ...(envelope.data ?? { items: [] }),
+        meta: envelope.meta,
+      }));
     },
     sendRustPlusTestEvent() {
       return request<Record<string, unknown>>("/api/admin/rustcontrol/integrations/rustplus/test-event", {
