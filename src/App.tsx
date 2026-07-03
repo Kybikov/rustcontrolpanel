@@ -3917,6 +3917,7 @@ function isLikelySteamId64(value: string) {
 function PlayerDossierPanel({ data, loading }: { data?: PlayerDossier; loading: boolean }) {
   const summary = data?.summary ?? {};
   const topServers = data?.top_servers ?? [];
+  const clanMemberships = data?.clan_memberships ?? [];
   const activeHours = data?.active_hours ?? [];
   const maxHourCount = Math.max(1, ...activeHours.map((item) => Number(item.count ?? 0)));
 
@@ -3931,6 +3932,7 @@ function PlayerDossierPanel({ data, loading }: { data?: PlayerDossier; loading: 
           <Badge variant={Number(summary.sessions ?? 0) > 0 ? "success" : "outline"}>sessions {compactText(summary.sessions)}</Badge>
           <Badge variant={Number(summary.relations ?? 0) > 0 ? "success" : "outline"}>relations {compactText(summary.relations)}</Badge>
           <Badge variant={Number(summary.evidence_events ?? 0) > 0 ? "success" : "outline"}>evidence {compactText(summary.evidence_events)}</Badge>
+          <Badge variant={Number(summary.active_clans ?? 0) > 0 ? "success" : "outline"}>clans {compactText(summary.active_clans ?? summary.clan_memberships)}</Badge>
         </div>
       </div>
       <div className="grid gap-3 xl:grid-cols-[1fr_1.2fr]">
@@ -3940,6 +3942,8 @@ function PlayerDossierPanel({ data, loading }: { data?: PlayerDossier; loading: 
             <Fact label="Servers" value={summary.unique_servers} />
             <Fact label="Total time" value={summary.total_duration} />
             <Fact label="Activity" value={summary.activity_events} />
+            <Fact label="Clan records" value={summary.clan_memberships} />
+            <Fact label="Active clans" value={summary.active_clans} />
           </div>
           <div className="rounded-md border border-border bg-background/50 p-3">
             <div className="mb-2 text-sm font-medium">Active Hours UTC</div>
@@ -3978,12 +3982,48 @@ function PlayerDossierPanel({ data, loading }: { data?: PlayerDossier; loading: 
               {!topServers.length ? <EmptyState label="No cached sessions yet" /> : null}
             </div>
           </div>
+          <PlayerClanMembershipsList items={clanMemberships} />
           <div className="grid gap-3 md:grid-cols-3">
             <NamedCountList title="Activity Types" items={data?.activity_types ?? []} nameKey="event_type" />
             <NamedCountList title="Evidence Types" items={data?.evidence_types ?? []} nameKey="evidence_type" />
             <NamedCountList title="Relation Sources" items={data?.relation_sources ?? []} nameKey="source" />
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function PlayerClanMembershipsList({ items }: { items: Array<Record<string, unknown>> }) {
+  return (
+    <div className="rounded-md border border-border bg-background/50 p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="text-sm font-medium">Clan Memberships</div>
+        <Badge variant={items.some((item) => String(item.status) === "active") ? "success" : "outline"}>{compactText(items.length)}</Badge>
+      </div>
+      <div className="grid max-h-[190px] gap-2 overflow-auto">
+        {items.slice(0, 8).map((item, index) => {
+          const server = objectFrom(item.server);
+          const status = String(item.status ?? "");
+          return (
+            <div key={`${String(item.clan_id)}-${index}`} className="grid gap-2 rounded-md border border-border p-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+              <div className="min-w-0">
+                <div className="flex min-w-0 items-center gap-2">
+                  <div className="truncate text-sm font-medium">{compactText(item.clan_name || item.clan_id)}</div>
+                  <Badge variant={status === "active" ? "success" : "outline"}>{compactText(status || "unknown")}</Badge>
+                </div>
+                <div className="mt-1 truncate text-xs text-muted-foreground">
+                  {compactText(server.name || server.battlemetrics_server_id || item.source)}
+                </div>
+              </div>
+              <div className="text-right text-xs text-muted-foreground">
+                <div>{formatDateTime(String(item.last_seen_at ?? ""))}</div>
+                <div>{compactText(item.source)}</div>
+              </div>
+            </div>
+          );
+        })}
+        {!items.length ? <EmptyState label="No plugin clan membership yet" /> : null}
       </div>
     </div>
   );

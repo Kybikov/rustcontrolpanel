@@ -571,6 +571,7 @@ export type PlayerDossier = {
   live_player?: LivePlayer | null;
   summary?: Record<string, unknown>;
   top_servers?: Array<Record<string, unknown>>;
+  clan_memberships?: Array<Record<string, unknown>>;
   active_hours?: Array<{ hour: number; count: number }>;
   activity_types?: Array<Record<string, unknown>>;
   evidence_types?: Array<Record<string, unknown>>;

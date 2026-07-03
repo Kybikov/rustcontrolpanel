@@ -252,7 +252,7 @@ Player Intelligence renders an Identity Summary from the same payload: local pro
 
 Player Intelligence also renders a Risk Evidence Digest from `watch`, `team_evidence`, `likely_teammates`, `realtime_context`, and `live_status`: current risk, watch reason/note, evidence count, total score, strongest proof, top evidence type/source, top likely teammate, realtime pressure counts, and the latest proof cards.
 
-`GET /api/admin/rustcontrol/players/:id/dossier` returns aggregate player intelligence: alias/session/server/relation/evidence/activity counts, total session time, top servers, active-hour histogram, activity type counts, evidence type counts, and relation source counts.
+`GET /api/admin/rustcontrol/players/:id/dossier` returns aggregate player intelligence: alias/session/server/relation/evidence/activity/clan counts, total session time, top servers, active-hour histogram, clan membership history, activity type counts, evidence type counts, and relation source counts.
 
 `GET /api/admin/rustcontrol/players/:id/relations` is the operator relation graph payload. It returns the target player, current live/server context, merged relation items from `rustcontrol.team_edges` and current live-team data, raw evidence events, watch flags, and source status.
 
