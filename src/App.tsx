@@ -10455,6 +10455,9 @@ function IntegrationSettingsCard({ api, provider }: { api: ReturnType<typeof cre
         {provider.provider === "battlemetrics" ? (
           <BattleMetricsSyncConfigControls config={configObject} onChange={updateConfigPatch} />
         ) : null}
+        {provider.provider === "rcon" ? (
+          <RconConfigControls config={configObject} onChange={updateConfigPatch} />
+        ) : null}
 
         <DetailsBlock summary="Advanced workspace config">
           <div className="grid gap-2">
@@ -10562,6 +10565,85 @@ function BattleMetricsSyncConfigControls({ config, onChange }: { config: Record<
   );
 }
 
+function RconConfigControls({ config, onChange }: { config: Record<string, unknown>; onChange: (patch: Record<string, unknown>) => void }) {
+  const host = String(config.host ?? "");
+  const port = integrationConfigNumber(config.port, 28016, 1, 65535);
+  const timeoutSeconds = integrationConfigNumber(config.command_timeout_seconds, 10, 1, 30);
+  const tls = integrationConfigBoolean(config.tls, false);
+  const readOnly = integrationConfigBoolean(config.read_only, true);
+  const allowActions = integrationConfigBoolean(config.allow_actions, false);
+  const trackedServerId = firstNonEmptyConfigString(config.server_id, config.tracked_server_id);
+  const battlemetricsServerId = firstNonEmptyConfigString(config.battlemetrics_server_id, config.server_key);
+
+  return (
+    <div className="rounded-md border border-border bg-background/50 p-3">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="text-sm font-medium">RCON target guard</div>
+        <Badge variant={readOnly || !allowActions ? "warning" : "success"}>{readOnly || !allowActions ? "guarded" : "actions"}</Badge>
+      </div>
+      <div className="grid gap-3 xl:grid-cols-[minmax(0,1.2fr)_110px_120px_repeat(3,auto)]">
+        <label className="grid gap-1 text-xs text-muted-foreground">
+          <span>Host</span>
+          <Input data-testid="rcon-host-input" value={host} onChange={(event) => onChange({ host: event.target.value })} placeholder="127.0.0.1" />
+        </label>
+        <label className="grid gap-1 text-xs text-muted-foreground">
+          <span>Port</span>
+          <Input
+            data-testid="rcon-port-input"
+            type="number"
+            min={1}
+            max={65535}
+            value={String(port)}
+            onChange={(event) => onChange({ port: clampConfigNumber(event.target.value, 1, 65535) })}
+          />
+        </label>
+        <label className="grid gap-1 text-xs text-muted-foreground">
+          <span>Timeout</span>
+          <Input
+            type="number"
+            min={1}
+            max={30}
+            value={String(timeoutSeconds)}
+            onChange={(event) => onChange({ command_timeout_seconds: clampConfigNumber(event.target.value, 1, 30) })}
+          />
+        </label>
+        <label className="flex h-10 items-center gap-2 self-end rounded-md border border-border bg-background px-3 text-sm">
+          <input type="checkbox" checked={tls} onChange={(event) => onChange({ tls: event.target.checked })} className="h-4 w-4 rounded border-border accent-primary" />
+          TLS
+        </label>
+        <label className="flex h-10 items-center gap-2 self-end rounded-md border border-border bg-background px-3 text-sm">
+          <input type="checkbox" checked={readOnly} onChange={(event) => onChange({ read_only: event.target.checked })} className="h-4 w-4 rounded border-border accent-primary" />
+          Read-only
+        </label>
+        <label className="flex h-10 items-center gap-2 self-end rounded-md border border-border bg-background px-3 text-sm">
+          <input type="checkbox" checked={allowActions} onChange={(event) => onChange({ allow_actions: event.target.checked })} className="h-4 w-4 rounded border-border accent-primary" />
+          Actions
+        </label>
+      </div>
+      <div className="mt-3 grid gap-3 md:grid-cols-2">
+        <label className="grid gap-1 text-xs text-muted-foreground">
+          <span>Tracked server id</span>
+          <Input
+            data-testid="rcon-server-id-input"
+            value={trackedServerId}
+            onChange={(event) => onChange({ server_id: event.target.value, tracked_server_id: undefined })}
+            placeholder="optional UUID guard"
+          />
+        </label>
+        <label className="grid gap-1 text-xs text-muted-foreground">
+          <span>BattleMetrics server id</span>
+          <Input
+            data-testid="rcon-battlemetrics-id-input"
+            value={battlemetricsServerId}
+            onChange={(event) => onChange({ battlemetrics_server_id: event.target.value, server_key: undefined })}
+            placeholder="optional BM guard"
+          />
+        </label>
+      </div>
+    </div>
+  );
+}
+
 function integrationConfigBoolean(value: unknown, fallback: boolean) {
   if (typeof value === "boolean") return value;
   if (typeof value === "string") {
@@ -10577,6 +10659,14 @@ function integrationConfigNumber(value: unknown, fallback: number, min: number, 
   const parsed = numberFromUnknown(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
   return Math.max(min, Math.min(max, Math.round(parsed)));
+}
+
+function firstNonEmptyConfigString(...values: unknown[]) {
+  for (const value of values) {
+    const text = String(value ?? "").trim();
+    if (text) return text;
+  }
+  return "";
 }
 
 function clampConfigNumber(value: string, min: number, max: number) {

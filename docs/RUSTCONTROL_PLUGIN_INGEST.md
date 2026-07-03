@@ -276,6 +276,8 @@ The global Activity page reads `GET /api/admin/rustcontrol/activity` as an opera
 
 Operator Steam account binding supports connect/replace through `POST /api/admin/rustcontrol/me/steam` and unlink through `DELETE /api/admin/rustcontrol/me/steam`. Both write account-scoped activity events so the Profile history reflects binding changes without exposing raw tokens or workspace-wide account mutations.
 
+RCON integration config can optionally bind an endpoint to `server_id` or `battlemetrics_server_id`; backend action handlers reject mismatched server routes so a workspace-level RCON target cannot accidentally execute moderation on the wrong server.
+
 `GET /api/admin/rustcontrol/servers/:id/live-context` is the one-shot server view. It accepts a local tracked server UUID or BattleMetrics server id and returns server summary, live roster, team clusters, watched players on that server, recent activity, and counts. Team clusters include `risk_score`, `risk_level`, and `risk_summary` counts for hostile/suspect/watch/friendly/watched/online members.
 
 The frontend Online Map uses `GET /api/admin/rustcontrol/servers/:id/live-context` when available so the radar can center on the connected Steam account, show distance from the operator to nearby players, color watched players and teammates differently, and open local Intel profiles directly from map/list rows.

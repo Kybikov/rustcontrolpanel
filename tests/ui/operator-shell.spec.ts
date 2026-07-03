@@ -395,6 +395,112 @@ test("battlemetrics integration saves tracked sync interval from compact control
   expect(consoleProblems).toEqual([]);
 });
 
+test("rcon integration saves target guard from compact controls", async ({ page }) => {
+  const consoleProblems: string[] = [];
+  let savedPayload: Record<string, any> | undefined;
+  page.on("console", (message) => {
+    if (["error", "warning"].includes(message.type())) {
+      consoleProblems.push(`${message.type()}: ${message.text()}`);
+    }
+  });
+  page.on("pageerror", (error) => consoleProblems.push(`pageerror: ${error.message}`));
+
+  const provider = {
+    provider: "rcon",
+    label: "Server RCON",
+    configured: true,
+    enabled: true,
+    public_mode: false,
+    testable: true,
+    status: "configured",
+    use: "Server owner WebRCON.",
+    secret_source: "RUSTCONTROL_RCON_PASSWORD",
+    secret_configured: true,
+    secret_storage: "stored",
+    secret_hint: "main server",
+    updated_at: "2026-07-03T10:00:00Z",
+    config: {
+      host: "127.0.0.1",
+      port: 28016,
+      tls: false,
+      command_timeout_seconds: 10,
+      read_only: true,
+      allow_actions: false,
+      server_id: "",
+      battlemetrics_server_id: "",
+      tracked_server_id: "legacy-server",
+      server_key: "legacy-bm",
+    },
+  };
+
+  await page.route(`${apiBaseUrl}/api/admin/rustcontrol/integrations`, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          providers: [provider],
+          recent_sync_runs: [],
+        },
+      }),
+    });
+  });
+  await page.route(`${apiBaseUrl}/api/admin/rustcontrol/integrations/rcon`, async (route) => {
+    savedPayload = route.request().postDataJSON();
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          provider: {
+            ...provider,
+            config: savedPayload?.config ?? provider.config,
+          },
+          dropped_secret_keys: [],
+        },
+      }),
+    });
+  });
+  await page.route(`${apiBaseUrl}/api/admin/rustcontrol/sync-runs**`, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: { items: [], source_status: "empty" },
+        meta: { total: 0, page: 1, per_page: 12, count: 0 },
+      }),
+    });
+  });
+  await page.route(`${apiBaseUrl}/api/admin/rustcontrol/realtime/health`, async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          status: "ok",
+          counts: { live_online: 0, events_5m: 0 },
+          integrations: { rcon: { configured: true } },
+          sources: [],
+          recent_events: [],
+        },
+      }),
+    });
+  });
+
+  await page.goto("/integrations");
+  await expect(page.getByRole("heading", { name: "Integrations" })).toBeVisible();
+  await expect(page.getByText("RCON target guard")).toBeVisible();
+  await page.getByTestId("rcon-host-input").fill("10.10.0.5");
+  await page.getByTestId("rcon-port-input").fill("28018");
+  await page.getByTestId("rcon-server-id-input").fill("11111111-1111-1111-1111-111111111111");
+  await page.getByTestId("rcon-battlemetrics-id-input").fill("12345678");
+  await page.getByTestId("integration-save-rcon").click();
+
+  await expect.poll(() => savedPayload?.config?.host).toBe("10.10.0.5");
+  await expect.poll(() => savedPayload?.config?.port).toBe(28018);
+  await expect.poll(() => savedPayload?.config?.server_id).toBe("11111111-1111-1111-1111-111111111111");
+  await expect.poll(() => savedPayload?.config?.battlemetrics_server_id).toBe("12345678");
+  expect(savedPayload?.config).not.toHaveProperty("tracked_server_id");
+  expect(savedPayload?.config).not.toHaveProperty("server_key");
+  expect(consoleProblems).toEqual([]);
+});
+
 test("player detail sends managed rcon action for current server", async ({ page }) => {
   const consoleProblems: string[] = [];
   let rconPath = "";
