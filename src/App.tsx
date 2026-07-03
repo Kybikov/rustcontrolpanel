@@ -62,6 +62,7 @@ import {
   type ServerSnapshot,
   type ServerIntel,
   type ServerWipe,
+  type SyncRun,
   type TeamProbability,
   type WatchlistItem,
   type WipeReminder,
@@ -4524,6 +4525,12 @@ function formatRelativeTime(value: unknown) {
   return `${Math.floor(seconds / 86_400)}d ago`;
 }
 
+function formatMilliseconds(value?: number | null) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return "";
+  if (value < 1000) return `${Math.round(value)}ms`;
+  return `${(value / 1000).toFixed(value >= 10_000 ? 0 : 1)}s`;
+}
+
 function formatMeters(value?: number | null) {
   if (typeof value !== "number" || !Number.isFinite(value)) return "-";
   if (value >= 1000) {
@@ -7567,6 +7574,7 @@ function IntegrationsView({ api, baseUrl }: { api: ReturnType<typeof createApiCl
   const integrations = useQuery({ queryKey: ["integrations"], queryFn: api.integrations });
   const health = useQuery({ queryKey: ["realtimeHealth"], queryFn: api.realtimeHealth, refetchInterval: 5_000 });
   const providers = integrations.data?.providers ?? [];
+  const syncRuns = integrations.data?.recent_sync_runs ?? [];
   const rustPlus = providers.find((provider) => provider.provider === "rust_plus");
 
   return (
@@ -7595,9 +7603,42 @@ function IntegrationsView({ api, baseUrl }: { api: ReturnType<typeof createApiCl
           </Card>
         ))}
       </div>
+      <IntegrationSyncRunsPanel items={syncRuns} loading={integrations.isFetching} />
       <IntegrationSettingsPanel api={api} providers={providers} loading={integrations.isFetching} />
       <RustPlusIntakePanel api={api} provider={rustPlus} health={health.data} loading={health.isFetching} baseUrl={baseUrl} />
     </section>
+  );
+}
+
+function IntegrationSyncRunsPanel({ items, loading }: { items: SyncRun[]; loading: boolean }) {
+  return (
+    <DetailsBlock summary="Recent sync runs">
+      <div className="grid gap-2">
+        {items.slice(0, 10).map((item) => {
+          const target = [item.target_type, item.target_id].filter(Boolean).join(" / ");
+          const note = item.error || item.message || target || item.provider;
+          const duration = formatMilliseconds(item.duration_ms);
+          return (
+            <div key={item.id} className="grid gap-2 rounded-md border border-border bg-background/45 p-2 md:grid-cols-[160px_minmax(0,1fr)_140px]">
+              <div className="flex min-w-0 items-center gap-2">
+                <Badge variant={integrationCheckVariant(item.status)}>{compactText(item.status)}</Badge>
+                <span className="truncate text-sm font-medium">{compactText(item.provider)}</span>
+              </div>
+              <div className="min-w-0">
+                <div className="truncate text-sm">{compactText(note)}</div>
+                <div className="truncate text-xs text-muted-foreground">
+                  scanned {compactText(item.items_scanned)} / changed {compactText(item.items_changed)}
+                  {duration ? ` / ${duration}` : ""}
+                  {target ? ` / ${target}` : ""}
+                </div>
+              </div>
+              <div className="text-xs text-muted-foreground md:text-right">{formatRelativeTime(item.finished_at ?? item.started_at)}</div>
+            </div>
+          );
+        })}
+        {!items.length ? <EmptyState label={loading ? "Loading sync history" : "No sync runs yet"} /> : null}
+      </div>
+    </DetailsBlock>
   );
 }
 

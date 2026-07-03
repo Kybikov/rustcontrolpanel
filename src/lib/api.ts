@@ -513,8 +513,26 @@ export type IntegrationProvider = {
   config?: Record<string, unknown>;
 };
 
+export type SyncRun = {
+  id: string;
+  provider: string;
+  target_type?: string;
+  target_id?: string;
+  status: string;
+  items_scanned?: number;
+  items_changed?: number;
+  message?: string;
+  error?: string;
+  metadata?: Record<string, unknown>;
+  started_by?: string;
+  started_at?: string;
+  finished_at?: string | null;
+  duration_ms?: number | null;
+};
+
 export type IntegrationStatus = {
   providers: IntegrationProvider[];
+  recent_sync_runs?: SyncRun[];
 };
 
 export type IntegrationUpdatePayload = {
@@ -643,6 +661,9 @@ export function createApiClient(baseUrl: string, token?: string) {
     },
     integrations() {
       return request<IntegrationStatus>("/api/admin/rustcontrol/integrations");
+    },
+    syncRuns() {
+      return requestItems<SyncRun>("/api/admin/rustcontrol/sync-runs");
     },
     updateIntegration(provider: string, payload: IntegrationUpdatePayload) {
       return request<{ provider: IntegrationProvider; dropped_secret_keys?: string[] }>(
