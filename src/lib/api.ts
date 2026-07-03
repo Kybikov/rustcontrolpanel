@@ -638,6 +638,9 @@ export type IntegrationProvider = {
   status?: string;
   use?: string;
   secret_source?: string;
+  secret_configured?: boolean;
+  stored_secret_configured?: boolean;
+  secret_storage?: string;
   secret_hint?: string;
   updated_at?: string | null;
   config?: Record<string, unknown>;
@@ -683,6 +686,8 @@ export type IntegrationStatus = {
 export type IntegrationUpdatePayload = {
   enabled?: boolean;
   secret_hint?: string;
+  secret_value?: string;
+  clear_secret?: boolean;
   config?: Record<string, unknown>;
 };
 

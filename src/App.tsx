@@ -9162,7 +9162,7 @@ function IntegrationsView({ api, baseUrl }: { api: ReturnType<typeof createApiCl
               <div>{provider.use}</div>
               <div className="flex flex-wrap gap-2">
                 {provider.public_mode ? <Badge variant="secondary">public</Badge> : null}
-                {provider.env_configured ? <Badge variant="success">env</Badge> : <Badge variant="outline">env missing</Badge>}
+                <Badge variant={integrationSecretVariant(provider)}>{integrationSecretLabel(provider)}</Badge>
                 {provider.enabled ? <Badge variant="default">enabled</Badge> : <Badge variant="outline">disabled</Badge>}
               </div>
             </CardContent>
@@ -9342,12 +9342,16 @@ function IntegrationSettingsCard({ api, provider }: { api: ReturnType<typeof cre
   const configSignature = useMemo(() => formatIntegrationConfig(provider.config), [provider.config]);
   const [enabled, setEnabled] = useState(Boolean(provider.enabled));
   const [secretHint, setSecretHint] = useState(provider.secret_hint ?? "");
+  const [secretValue, setSecretValue] = useState("");
+  const [clearSecret, setClearSecret] = useState(false);
   const [configText, setConfigText] = useState(configSignature);
   const [localError, setLocalError] = useState("");
   const saveSettings = useMutation({
-    mutationFn: (payload: { enabled: boolean; secret_hint: string; config: Record<string, unknown> }) =>
+    mutationFn: (payload: { enabled: boolean; secret_hint: string; secret_value?: string; clear_secret?: boolean; config: Record<string, unknown> }) =>
       api.updateIntegration(provider.provider, payload),
     onSuccess: () => {
+      setSecretValue("");
+      setClearSecret(false);
       queryClient.invalidateQueries({ queryKey: ["integrations"] });
       queryClient.invalidateQueries({ queryKey: ["realtimeHealth"] });
       queryClient.invalidateQueries({ queryKey: ["overview"] });
@@ -9364,6 +9368,8 @@ function IntegrationSettingsCard({ api, provider }: { api: ReturnType<typeof cre
   useEffect(() => {
     setEnabled(Boolean(provider.enabled));
     setSecretHint(provider.secret_hint ?? "");
+    setSecretValue("");
+    setClearSecret(false);
     setConfigText(configSignature);
     setLocalError("");
   }, [configSignature, provider.enabled, provider.provider, provider.secret_hint]);
@@ -9378,6 +9384,8 @@ function IntegrationSettingsCard({ api, provider }: { api: ReturnType<typeof cre
     saveSettings.mutate({
       enabled,
       secret_hint: secretHint,
+      secret_value: secretValue.trim() || undefined,
+      clear_secret: clearSecret || undefined,
       config: parsed.config ?? {},
     });
   }
@@ -9400,7 +9408,7 @@ function IntegrationSettingsCard({ api, provider }: { api: ReturnType<typeof cre
       <CardContent className="grid gap-4">
         <div className="grid gap-2 md:grid-cols-3">
           <Fact label="Provider" value={provider.provider} />
-          <Fact label="Env" value={provider.env_configured ? "configured" : "missing"} />
+          <Fact label="Secret" value={integrationSecretLabel(provider)} />
           <Fact label="Updated" value={provider.updated_at ? formatDateTime(provider.updated_at) : "-"} />
         </div>
 
@@ -9416,6 +9424,30 @@ function IntegrationSettingsCard({ api, provider }: { api: ReturnType<typeof cre
           </label>
           <Input value={secretHint} onChange={(event) => setSecretHint(event.target.value)} placeholder={provider.secret_source ? `${provider.secret_source} hint` : "Secret hint"} />
         </div>
+        {provider.secret_source ? (
+          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
+            <Input
+              type="password"
+              value={secretValue}
+              onChange={(event) => {
+                setSecretValue(event.target.value);
+                if (event.target.value.trim()) setClearSecret(false);
+              }}
+              autoComplete="new-password"
+              placeholder={provider.stored_secret_configured ? `Replace stored ${provider.secret_source}` : `Store ${provider.secret_source}`}
+            />
+            <label className="flex h-10 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm">
+              <input
+                type="checkbox"
+                checked={clearSecret}
+                disabled={!provider.stored_secret_configured || Boolean(secretValue.trim())}
+                onChange={(event) => setClearSecret(event.target.checked)}
+                className="h-4 w-4 rounded border-border accent-primary disabled:opacity-60"
+              />
+              Clear stored
+            </label>
+          </div>
+        ) : null}
 
         <div className="grid gap-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -9476,6 +9508,25 @@ function integrationStatusLabel(provider: IntegrationProvider) {
   if (provider.configured) return "ready";
   if (provider.public_mode) return "public";
   return "missing";
+}
+
+function integrationSecretLabel(provider: IntegrationProvider) {
+  const storage = String(provider.secret_storage ?? "").toLowerCase();
+  if (provider.secret_configured) {
+    if (storage === "stored") return "stored secret";
+    if (storage === "env") return "env secret";
+    return "secret ready";
+  }
+  if (provider.public_mode || storage === "public") return "public";
+  if (!provider.secret_source) return "no secret";
+  return "secret missing";
+}
+
+function integrationSecretVariant(provider: IntegrationProvider): BadgeVariant {
+  const storage = String(provider.secret_storage ?? "").toLowerCase();
+  if (provider.secret_configured) return "success";
+  if (provider.public_mode || storage === "public" || !provider.secret_source) return "secondary";
+  return "warning";
 }
 
 function integrationCheckVariant(status?: string): BadgeVariant {

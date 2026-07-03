@@ -12,7 +12,7 @@ Auth:
 X-RustControl-Signature: sha256=<hex_hmac_sha256_of_raw_body>
 ```
 
-The HMAC key is `RUSTPLUS_WEBHOOK_SECRET`. For quick local tests only, the backend also accepts:
+The HMAC key is the Rust+ integration secret. It can come from backend `RUSTPLUS_WEBHOOK_SECRET` or from the encrypted workspace secret saved in Integrations. For quick local tests only, the backend also accepts:
 
 ```text
 X-RustControl-Secret: <RUSTPLUS_WEBHOOK_SECRET>
@@ -28,7 +28,7 @@ plugins/oxide/RustControlPanel.cs
 
 Install:
 
-1. Set backend env:
+1. Configure the backend secret. Use either backend env or the Integrations screen stored secret:
 
 ```env
 RUSTPLUS_WEBHOOK_SECRET=change-me-long-random-secret
