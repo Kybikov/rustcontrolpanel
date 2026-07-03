@@ -596,8 +596,15 @@ export type TeamProbability = {
 
 export type TeamProbabilityResult = {
   items: TeamProbability[];
+  meta?: ApiEnvelope<unknown>["meta"];
   source_status: string;
   required_sources?: string[];
+};
+
+export type TeamEvidenceResult = {
+  items: Array<Record<string, unknown>>;
+  meta?: ApiEnvelope<unknown>["meta"];
+  source_status?: string;
 };
 
 export type TeamProbabilityRecalculateResult = TeamProbabilityResult & {
@@ -1076,13 +1083,17 @@ export function createApiClient(baseUrl: string, token?: string) {
         meta: envelope.meta,
       }));
     },
-    teamEvidence(id: string) {
-      return request<{ items: Array<Record<string, unknown>>; source_status: string }>(
-        `/api/admin/rustcontrol/players/${encodeURIComponent(id)}/team-evidence`,
-      );
+    teamEvidence(id: string, query?: ServerDetailListQuery) {
+      return requestEnvelope<Omit<TeamEvidenceResult, "meta">>(withQuery(`/api/admin/rustcontrol/players/${encodeURIComponent(id)}/team-evidence`, query)).then((envelope) => ({
+        ...(envelope.data ?? { items: [] }),
+        meta: envelope.meta,
+      }));
     },
-    teamProbability(id: string) {
-      return request<TeamProbabilityResult>(`/api/admin/rustcontrol/players/${encodeURIComponent(id)}/team-probability`);
+    teamProbability(id: string, query?: ServerDetailListQuery) {
+      return requestEnvelope<Omit<TeamProbabilityResult, "meta">>(withQuery(`/api/admin/rustcontrol/players/${encodeURIComponent(id)}/team-probability`, query)).then((envelope) => ({
+        ...(envelope.data ?? { items: [], source_status: "empty" }),
+        meta: envelope.meta,
+      }));
     },
     recalculateTeamProbability(id: string) {
       return request<TeamProbabilityRecalculateResult>(`/api/admin/rustcontrol/players/${encodeURIComponent(id)}/team-probability/recalculate`, {

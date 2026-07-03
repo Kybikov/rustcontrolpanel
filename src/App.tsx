@@ -2158,10 +2158,14 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
   const [selectedBattleMetricsId, setSelectedBattleMetricsId] = useState("");
   const [activePlayerTab, setActivePlayerTab] = useState<PlayerDetailTab>("overview");
   const [knownPage, setKnownPage] = useState(1);
+  const [teamProbabilityPage, setTeamProbabilityPage] = useState(1);
+  const [teamEvidencePage, setTeamEvidencePage] = useState(1);
   const [serverHistoryPage, setServerHistoryPage] = useState(1);
   const [positionTrailPage, setPositionTrailPage] = useState(1);
   const [timelinePage, setTimelinePage] = useState(1);
   const knownPerPage = 25;
+  const teamProbabilityPerPage = 25;
+  const teamEvidencePerPage = 25;
   const serverHistoryPerPage = 25;
   const positionTrailPerPage = 40;
   const timelinePerPage = 50;
@@ -2176,6 +2180,14 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
   const serverHistoryQuery = useMemo<ServerDetailListQuery>(
     () => ({ page: String(serverHistoryPage), per_page: String(serverHistoryPerPage) }),
     [serverHistoryPage],
+  );
+  const teamProbabilityQuery = useMemo<ServerDetailListQuery>(
+    () => ({ page: String(teamProbabilityPage), per_page: String(teamProbabilityPerPage) }),
+    [teamProbabilityPage],
+  );
+  const teamEvidenceQuery = useMemo<ServerDetailListQuery>(
+    () => ({ page: String(teamEvidencePage), per_page: String(teamEvidencePerPage) }),
+    [teamEvidencePage],
   );
   const positionTrailQuery = useMemo<ServerDetailListQuery>(
     () => ({ page: String(positionTrailPage), per_page: String(positionTrailPerPage) }),
@@ -2201,6 +2213,8 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
   const selectedLocalPlayer = localMatches.find((player) => player.id === selectedLocalPlayerId) ?? resolve.data?.local_player;
   const localPlayerId = selectedLocalPlayerId || resolve.data?.local_player?.id || "";
   useEffect(() => {
+    setTeamProbabilityPage(1);
+    setTeamEvidencePage(1);
     setServerHistoryPage(1);
     setPositionTrailPage(1);
     setTimelinePage(1);
@@ -2241,15 +2255,17 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
     refetchInterval: 5_000,
   });
   const teamProbability = useQuery({
-    queryKey: ["teamProbability", localPlayerId],
-    queryFn: () => api.teamProbability(localPlayerId),
+    queryKey: ["teamProbability", localPlayerId, teamProbabilityQuery],
+    queryFn: () => api.teamProbability(localPlayerId, teamProbabilityQuery),
     enabled: localPlayerId.length > 0 && activePlayerTab === "relations",
+    placeholderData: (previousData) => previousData,
     refetchInterval: 15_000,
   });
   const teamEvidenceDetails = useQuery({
-    queryKey: ["teamEvidence", localPlayerId],
-    queryFn: () => api.teamEvidence(localPlayerId),
+    queryKey: ["teamEvidence", localPlayerId, teamEvidenceQuery],
+    queryFn: () => api.teamEvidence(localPlayerId, teamEvidenceQuery),
     enabled: localPlayerId.length > 0 && activePlayerTab === "relations",
+    placeholderData: (previousData) => previousData,
     refetchInterval: 15_000,
   });
   const serverHistory = useQuery({
@@ -2286,6 +2302,10 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
   const profile = resolve.data?.steam_profile as Record<string, unknown> | null | undefined;
   const likelyTeammates = intel.data?.likely_teammates ?? [];
   const intelTeamEvidence = intel.data?.team_evidence ?? [];
+  const teamProbabilityTotal = teamProbability.data?.meta?.total ?? teamProbability.data?.items.length ?? likelyTeammates.length;
+  const teamProbabilityPageCount = Math.max(1, Math.ceil(Number(teamProbabilityTotal || 0) / teamProbabilityPerPage));
+  const teamEvidenceTotal = teamEvidenceDetails.data?.meta?.total ?? teamEvidenceDetails.data?.items.length ?? intelTeamEvidence.length;
+  const teamEvidencePageCount = Math.max(1, Math.ceil(Number(teamEvidenceTotal || 0) / teamEvidencePerPage));
   const relationItems = relations.data?.items ?? [];
   const currentIntel = intel.data;
   const aliases = currentIntel?.player.aliases ?? [];
@@ -2721,10 +2741,26 @@ function PlayersView({ api, focusedPlayerId }: { api: ReturnType<typeof createAp
                     busy={recalculateTeamProbability.isPending}
                     loading={teamProbability.isFetching}
                     sourceStatus={recalculateTeamProbability.data?.source_status ?? teamProbability.data?.source_status ?? intel.data?.source_status}
+                    total={Number(teamProbabilityTotal || 0)}
+                    page={teamProbabilityPage}
+                    pageCount={teamProbabilityPageCount}
+                    onRefresh={() => teamProbability.refetch()}
+                    onPrev={() => setTeamProbabilityPage((value) => Math.max(1, value - 1))}
+                    onNext={() => setTeamProbabilityPage((value) => Math.min(teamProbabilityPageCount, value + 1))}
                     result={recalculateTeamProbability.data}
                     onRecalculate={localPlayerId ? () => recalculateTeamProbability.mutate() : undefined}
                   />
-                  <TeamEvidenceTable items={displayedTeamEvidence} loading={teamEvidenceDetails.isFetching} sourceStatus={teamEvidenceDetails.data?.source_status} />
+                  <TeamEvidenceTable
+                    items={displayedTeamEvidence}
+                    loading={teamEvidenceDetails.isFetching}
+                    sourceStatus={teamEvidenceDetails.data?.source_status}
+                    total={Number(teamEvidenceTotal || 0)}
+                    page={teamEvidencePage}
+                    pageCount={teamEvidencePageCount}
+                    onRefresh={() => teamEvidenceDetails.refetch()}
+                    onPrev={() => setTeamEvidencePage((value) => Math.max(1, value - 1))}
+                    onNext={() => setTeamEvidencePage((value) => Math.min(teamEvidencePageCount, value + 1))}
+                  />
                 </div>
               </DetailsBlock>
             </div>
@@ -4982,6 +5018,12 @@ function TeamProbabilityTable({
   busy,
   loading,
   sourceStatus,
+  total,
+  page,
+  pageCount,
+  onRefresh,
+  onPrev,
+  onNext,
   result,
   onRecalculate,
 }: {
@@ -4989,6 +5031,12 @@ function TeamProbabilityTable({
   busy?: boolean;
   loading?: boolean;
   sourceStatus?: string;
+  total: number;
+  page: number;
+  pageCount: number;
+  onRefresh: () => void;
+  onPrev: () => void;
+  onNext: () => void;
   result?: TeamProbabilityRecalculateResult;
   onRecalculate?: () => void;
 }) {
@@ -5012,6 +5060,20 @@ function TeamProbabilityTable({
             </Button>
           ) : null}
         </div>
+      </div>
+      <div className="border-b border-border p-2">
+        <PageStatusBar
+          total={total}
+          itemLabel="likely teammates"
+          page={page}
+          pageCount={pageCount}
+          sourceStatus={sourceStatus}
+          loading={loading}
+          onRefresh={onRefresh}
+          onPrev={onPrev}
+          onNext={onNext}
+          testId="player-team-probability-page"
+        />
       </div>
       <div className="overflow-auto">
         <Table>
@@ -6003,16 +6065,42 @@ function TeamEvidenceTable({
   items,
   loading,
   sourceStatus,
+  total,
+  page,
+  pageCount,
+  onRefresh,
+  onPrev,
+  onNext,
 }: {
   items: Array<Record<string, unknown>>;
   loading?: boolean;
   sourceStatus?: string;
+  total: number;
+  page: number;
+  pageCount: number;
+  onRefresh: () => void;
+  onPrev: () => void;
+  onNext: () => void;
 }) {
   return (
     <div className="overflow-auto rounded-md border border-border">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
         <div className="text-sm font-medium">Evidence Details</div>
         <Badge variant={sourceStatus === "ok" ? "success" : "outline"}>{loading ? "loading" : compactText(sourceStatus ?? "intel")}</Badge>
+      </div>
+      <div className="border-b border-border p-2">
+        <PageStatusBar
+          total={total}
+          itemLabel="evidence rows"
+          page={page}
+          pageCount={pageCount}
+          sourceStatus={sourceStatus}
+          loading={loading}
+          onRefresh={onRefresh}
+          onPrev={onPrev}
+          onNext={onNext}
+          testId="player-team-evidence-page"
+        />
       </div>
       <Table>
         <thead>

@@ -596,41 +596,59 @@ test("player detail sends managed rcon action for current server", async ({ page
       return;
     }
     if (path.endsWith("/team-probability")) {
+      const pageNumber = Number(url.searchParams.get("page") ?? "1");
+      const perPage = Number(url.searchParams.get("per_page") ?? "25");
       teamProbabilityRequests.push(url.search);
-      await detailEnvelope({
-        items: [
-          {
-            player: {
-              id: "probable-team",
-              display_name: "Backend Team",
-              steam_id: "76561198000000004",
-            },
-            score: 82,
-            source: "battlemetrics_overlap",
-            reasons: [{ type: "session_overlap", reason: "+24 same server sessions overlap 17h" }],
-            calculated_at: "2026-07-03T12:00:00Z",
+      const allTeammates = Array.from({ length: 28 }, (_, index) => ({
+        player: {
+          id: `probable-team-${index + 1}`,
+          display_name: `Backend Team ${index + 1}`,
+          steam_id: `765611980000000${String(index + 4).padStart(2, "0")}`,
+        },
+        score: 82 - (index % 20),
+        source: "battlemetrics_overlap",
+        reasons: [{ type: "session_overlap", reason: `+${24 + index} same server sessions overlap` }],
+        calculated_at: "2026-07-03T12:00:00Z",
+      }));
+      const start = (pageNumber - 1) * perPage;
+      const slice = allTeammates.slice(start, start + perPage);
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          data: {
+            items: slice,
+            source_status: "ok",
+            required_sources: ["battlemetrics sessions", "plugin team snapshots"],
           },
-        ],
-        source_status: "ok",
-        required_sources: ["battlemetrics sessions", "plugin team snapshots"],
+          meta: { total: allTeammates.length, page: pageNumber, per_page: perPage, count: slice.length },
+        }),
       });
       return;
     }
     if (path.endsWith("/team-evidence")) {
+      const pageNumber = Number(url.searchParams.get("page") ?? "1");
+      const perPage = Number(url.searchParams.get("per_page") ?? "25");
       teamEvidenceRequests.push(url.search);
-      await detailEnvelope({
-        items: [
-          {
-            id: "team-proof-1",
-            evidence_type: "same_team_snapshot",
-            reason: "plugin team snapshot",
-            player_a_name: "Managed Target",
-            player_b_name: "Backend Team",
-            score_delta: 40,
-            occurred_at: "2026-07-03T12:00:00Z",
+      const allEvidence = Array.from({ length: 31 }, (_, index) => ({
+        id: `team-proof-${index + 1}`,
+        evidence_type: `same_team_snapshot_${index + 1}`,
+        reason: "plugin team snapshot",
+        player_a_name: "Managed Target",
+        player_b_name: `Backend Team ${index + 1}`,
+        score_delta: 40 - (index % 10),
+        occurred_at: "2026-07-03T12:00:00Z",
+      }));
+      const start = (pageNumber - 1) * perPage;
+      const slice = allEvidence.slice(start, start + perPage);
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          data: {
+            items: slice,
+            source_status: "ok",
           },
-        ],
-        source_status: "ok",
+          meta: { total: allEvidence.length, page: pageNumber, per_page: perPage, count: slice.length },
+        }),
       });
       return;
     }
@@ -813,8 +831,18 @@ test("player detail sends managed rcon action for current server", async ({ page
   await expect.poll(() => teamEvidenceRequests.length).toBeGreaterThan(0);
   const teamDetails = page.getByTestId("player-team-details");
   await teamDetails.locator("summary").click();
-  await expect(teamDetails.getByText("Backend Team", { exact: true }).first()).toBeVisible();
-  await expect(teamDetails.getByText("same_team_snapshot", { exact: true })).toBeVisible();
+  await expect(teamDetails.getByTestId("player-team-probability-page")).toContainText("28 likely teammates / page 1 of 2");
+  await expect(teamDetails.getByText("Backend Team 1", { exact: true }).first()).toBeVisible();
+  await teamDetails.getByTestId("player-team-probability-page-next").click();
+  await expect.poll(() => teamProbabilityRequests.some((search) => search.includes("page=2") && search.includes("per_page=25"))).toBeTruthy();
+  await expect(teamDetails.getByTestId("player-team-probability-page")).toContainText("28 likely teammates / page 2 of 2");
+  await expect(teamDetails.getByText("Backend Team 26", { exact: true }).first()).toBeVisible();
+  await expect(teamDetails.getByTestId("player-team-evidence-page")).toContainText("31 evidence rows / page 1 of 2");
+  await expect(teamDetails.getByText("same_team_snapshot_1", { exact: true })).toBeVisible();
+  await teamDetails.getByTestId("player-team-evidence-page-next").click();
+  await expect.poll(() => teamEvidenceRequests.some((search) => search.includes("page=2") && search.includes("per_page=25"))).toBeTruthy();
+  await expect(teamDetails.getByTestId("player-team-evidence-page")).toContainText("31 evidence rows / page 2 of 2");
+  await expect(teamDetails.getByText("same_team_snapshot_26", { exact: true })).toBeVisible();
   await page.locator("main").getByRole("button", { name: "Live", exact: true }).click();
   await expect(page.getByTestId("player-position-trail-page")).toContainText("45 position samples / page 1 of 2");
   await expect(page.getByText("PX1", { exact: true }).first()).toBeVisible();

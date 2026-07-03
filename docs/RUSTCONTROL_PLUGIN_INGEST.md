@@ -258,6 +258,8 @@ Player Intelligence also renders a Risk Evidence Digest from `watch`, `team_evid
 
 `GET /api/admin/rustcontrol/players/:id/network` returns an aggregated offender network: relation nodes merged with current live-team data, watch flags, online state, evidence counts, total evidence score, latest reasons, source/type breakdowns, and server ids where evidence was observed. Player Network cards expose quick `Watch`, `Suspect`, and `Hostile` actions; if a node only exists in live data, the UI can promote it into a local profile and flag it from the same card. The panel also builds a local evidence matrix with strongest links, top repeated servers, source mix, and evidence type counts across the whole network.
 
+`GET /api/admin/rustcontrol/players/:id/team-probability` and `GET /api/admin/rustcontrol/players/:id/team-evidence` accept `page`/`per_page` and return response `meta`, so detailed relation proof can be browsed without pushing all rows into the primary intel payload.
+
 `GET /api/admin/rustcontrol/players/:id/server-history` returns a server-centric history for a local player: current server context, top cached servers, paginated recent cached sessions, repeated companions from session overlap, and evidence grouped by server. It accepts `page`/`per_page` for `recent_sessions` and returns response `meta`, while top servers, companions, and evidence servers stay compact summaries.
 
 `GET /api/admin/rustcontrol/players/:id/position-trail` returns realtime movement history captured from plugin/Rust+ position snapshots: recent coordinates, grid/server metadata, heat cells, and sample counts. It accepts `page`/`per_page` and returns pagination metadata so older movement samples remain reachable during long live sessions.
