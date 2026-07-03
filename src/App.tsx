@@ -5928,6 +5928,8 @@ function ServerMapTab({
   const rustmapsMarkers = Array.isArray(mapInfo.rustmaps_markers) ? mapInfo.rustmaps_markers : [];
   const liveMarkers = Array.isArray(mapInfo.live_markers) ? mapInfo.live_markers : mapData?.markers ?? [];
   const eventMarkers = recordList(mapInfo.event_markers).length ? recordList(mapInfo.event_markers) : recordList(mapData?.event_markers);
+  const mapHistory = recordList(mapData?.map_history);
+  const storedMapCount = numberFromRecord(mapInfo, "stored_map_count") || mapHistory.length;
   const rustmapsUrl = stringFromUnknown(mapInfo.url) || server?.rustmaps_url || liveItems.find((item) => item.live_player.rustmaps_url)?.live_player.rustmaps_url || "";
   const thumbnailUrl = stringFromUnknown(mapInfo.thumbnail_url) || server?.rustmaps_thumbnail_url || "";
 
@@ -5973,6 +5975,24 @@ function ServerMapTab({
               <Fact label="Updated" value={formatDateTime(server?.source_updated_at ?? server?.updated_at)} />
             </div>
           </DetailsBlock>
+          {mapHistory.length ? (
+            <DetailsBlock summary="Stored map history">
+              <div className="grid gap-2">
+                {mapHistory.slice(0, 6).map((item, index) => (
+                  <div key={String(item.id ?? `${item.map_signature ?? "map"}-${index}`)} className="grid gap-2 rounded-md border border-border bg-background/45 p-2 sm:grid-cols-[minmax(0,1fr)_120px]">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium">{compactText(item.map_name || mapInfo.map || server?.rust_map)}</div>
+                      <div className="truncate text-xs text-muted-foreground">
+                        seed {compactText(item.map_seed)} / size {compactText(item.map_size)} / {compactText(item.map_hash || item.map_signature)}
+                      </div>
+                    </div>
+                    <div className="text-xs text-muted-foreground sm:text-right">{formatRelativeTime(item.fetched_at)}</div>
+                  </div>
+                ))}
+                {storedMapCount > mapHistory.length ? <div className="text-xs text-muted-foreground">+{storedMapCount - mapHistory.length} stored map records</div> : null}
+              </div>
+            </DetailsBlock>
+          ) : null}
           {eventMarkers.length ? (
             <DetailsBlock summary="Recent map events">
               <div className="grid gap-2">

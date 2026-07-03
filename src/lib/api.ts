@@ -313,6 +313,7 @@ export type ServerMapDetail = {
   map?: Record<string, unknown>;
   markers?: Array<Record<string, unknown>>;
   event_markers?: Array<Record<string, unknown>>;
+  map_history?: Array<Record<string, unknown>>;
   live_players?: ServerLivePlayerItem[];
   server_id?: string;
   battlemetrics_server_id?: string;
