@@ -41,9 +41,14 @@ func NewRouter(cfg config.Config, clients *storage.Clients, hub *realtime.Hub, l
 	mux.HandleFunc("POST /api/v1/integrations/{provider}/test", server.testIntegration)
 	mux.HandleFunc("DELETE /api/v1/integrations/{provider}", server.disconnectIntegration)
 	mux.HandleFunc("GET /api/v1/permissions", server.listPermissions)
+	mux.HandleFunc("GET /api/v1/roles", server.listRoles)
+	mux.HandleFunc("POST /api/v1/roles", server.createRole)
+	mux.HandleFunc("PATCH /api/v1/roles/{id}/permissions", server.updateRolePermissions)
+	mux.HandleFunc("DELETE /api/v1/roles/{id}", server.deleteRole)
 	mux.HandleFunc("GET /api/v1/users", server.listUsers)
 	mux.HandleFunc("POST /api/v1/users", server.createUser)
 	mux.HandleFunc("PATCH /api/v1/users/{id}/permissions", server.updateUserPermissions)
+	mux.HandleFunc("PATCH /api/v1/users/{id}/roles", server.assignUserRoles)
 	return withCORS(cfg, withRequestID(mux))
 }
 

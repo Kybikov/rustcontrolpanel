@@ -21,7 +21,9 @@ var (
 	ErrNotFound            = errors.New("user not found")
 	ErrConflict            = errors.New("user already exists")
 	ErrInvalidPermission   = errors.New("invalid permission")
+	ErrInvalidRole         = errors.New("invalid role")
 	ErrProtectedUser       = errors.New("super admin access cannot be changed here")
+	ErrProtectedRole       = errors.New("system role cannot be changed here")
 	ErrPrivilegeEscalation = errors.New("only a super admin can grant user-management permissions")
 	ErrWeakPassword        = errors.New("password must be at least 12 characters")
 )
@@ -31,14 +33,31 @@ type Permission struct {
 	Description string `json:"description"`
 }
 
+type RoleSummary struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+	Slug string `json:"slug"`
+}
+
+type Role struct {
+	ID          int64    `json:"id"`
+	Name        string   `json:"name"`
+	Slug        string   `json:"slug"`
+	Description string   `json:"description"`
+	IsSystem    bool     `json:"isSystem"`
+	UserCount   int      `json:"userCount"`
+	Permissions []string `json:"permissions"`
+}
+
 type User struct {
-	ID           int64     `json:"id"`
-	Email        string    `json:"email"`
-	DisplayName  string    `json:"displayName"`
-	IsActive     bool      `json:"isActive"`
-	IsSuperAdmin bool      `json:"isSuperAdmin"`
-	Permissions  []string  `json:"permissions"`
-	CreatedAt    time.Time `json:"createdAt"`
+	ID           int64         `json:"id"`
+	Email        string        `json:"email"`
+	DisplayName  string        `json:"displayName"`
+	IsActive     bool          `json:"isActive"`
+	IsSuperAdmin bool          `json:"isSuperAdmin"`
+	Permissions  []string      `json:"permissions"`
+	Roles        []RoleSummary `json:"roles"`
+	CreatedAt    time.Time     `json:"createdAt"`
 }
 
 type Service struct {
@@ -56,6 +75,19 @@ var permissionCatalog = []Permission{
 	{Key: "users.view", Description: "View team members"},
 	{Key: "users.create", Description: "Create team members"},
 	{Key: "users.manage_access", Description: "Change team member permissions"},
+}
+
+var roleCatalog = []struct {
+	Slug        string
+	Name        string
+	Description string
+	Permissions []string
+}{
+	{Slug: "admin", Name: "Admin", Description: "Full access to every current operational module.", Permissions: []string{"dashboard.view", "servers.view", "servers.search", "players.view", "players.search", "integrations.manage", "users.view", "users.create", "users.manage_access"}},
+	{Slug: "operator", Name: "Operator", Description: "Search servers and inspect players without user administration.", Permissions: []string{"dashboard.view", "servers.view", "servers.search", "players.view", "players.search"}},
+	{Slug: "analyst", Name: "Analyst", Description: "Read-only operational visibility for dashboards and workspaces.", Permissions: []string{"dashboard.view", "servers.view", "players.view"}},
+	{Slug: "integrations", Name: "Integrations", Description: "Manage provider connections and integration health.", Permissions: []string{"dashboard.view", "integrations.manage"}},
+	{Slug: "viewer", Name: "Viewer", Description: "View the operational overview only.", Permissions: []string{"dashboard.view"}},
 }
 
 func NewService(db *pgxpool.Pool) *Service {
@@ -92,6 +124,25 @@ func (s *Service) EnsureSchema(ctx context.Context) error {
 			permission_key TEXT NOT NULL REFERENCES control.permissions(permission_key) ON DELETE CASCADE,
 			PRIMARY KEY (user_id, permission_key)
 		)`,
+		`CREATE TABLE IF NOT EXISTS control.roles (
+			id BIGSERIAL PRIMARY KEY,
+			name TEXT NOT NULL,
+			slug TEXT NOT NULL UNIQUE,
+			description TEXT NOT NULL DEFAULT '',
+			is_system BOOLEAN NOT NULL DEFAULT FALSE,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE TABLE IF NOT EXISTS control.role_permissions (
+			role_id BIGINT NOT NULL REFERENCES control.roles(id) ON DELETE CASCADE,
+			permission_key TEXT NOT NULL REFERENCES control.permissions(permission_key) ON DELETE CASCADE,
+			PRIMARY KEY (role_id, permission_key)
+		)`,
+		`CREATE TABLE IF NOT EXISTS control.user_roles (
+			user_id BIGINT NOT NULL REFERENCES control.users(id) ON DELETE CASCADE,
+			role_id BIGINT NOT NULL REFERENCES control.roles(id) ON DELETE CASCADE,
+			PRIMARY KEY (user_id, role_id)
+		)`,
 		`CREATE TABLE IF NOT EXISTS control.sessions (
 			token_hash TEXT PRIMARY KEY,
 			user_id BIGINT NOT NULL REFERENCES control.users(id) ON DELETE CASCADE,
@@ -122,6 +173,35 @@ func (s *Service) EnsureSchema(ctx context.Context) error {
 			return fmt.Errorf("seed permission %q: %w", permission.Key, err)
 		}
 	}
+	for _, role := range roleCatalog {
+		var roleID int64
+		if err := tx.QueryRow(ctx, `
+			INSERT INTO control.roles (name, slug, description, is_system)
+			VALUES ($1, $2, $3, TRUE)
+			ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name, description = EXCLUDED.description, updated_at = NOW()
+			RETURNING id
+		`, role.Name, role.Slug, role.Description).Scan(&roleID); err != nil {
+			return fmt.Errorf("seed role %q: %w", role.Slug, err)
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM control.role_permissions WHERE role_id = $1`, roleID); err != nil {
+			return fmt.Errorf("reset role %q permissions: %w", role.Slug, err)
+		}
+		for _, permission := range role.Permissions {
+			if _, err := tx.Exec(ctx, `INSERT INTO control.role_permissions (role_id, permission_key) VALUES ($1, $2)`, roleID, permission); err != nil {
+				return fmt.Errorf("seed role %q permission %q: %w", role.Slug, permission, err)
+			}
+		}
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO control.user_roles (user_id, role_id)
+		SELECT users.id, roles.id
+		FROM control.users users
+		CROSS JOIN control.roles roles
+		WHERE users.is_super_admin = TRUE AND roles.slug = 'admin'
+		ON CONFLICT DO NOTHING
+	`); err != nil {
+		return fmt.Errorf("assign existing super admins: %w", err)
+	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit auth schema transaction: %w", err)
@@ -147,6 +227,9 @@ func (s *Service) EnsureBootstrap(ctx context.Context, email, password string) e
 		if err != nil {
 			return fmt.Errorf("promote bootstrap user: %w", err)
 		}
+		if err := s.assignRoleBySlug(ctx, id, "admin"); err != nil {
+			return fmt.Errorf("assign bootstrap role: %w", err)
+		}
 		return nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
@@ -157,12 +240,16 @@ func (s *Service) EnsureBootstrap(ctx context.Context, email, password string) e
 	if err != nil {
 		return fmt.Errorf("hash bootstrap password: %w", err)
 	}
-	_, err = s.db.Exec(ctx, `
+	err = s.db.QueryRow(ctx, `
 		INSERT INTO control.users (email, display_name, password_hash, is_super_admin)
 		VALUES ($1, $2, $3, TRUE)
-	`, email, displayNameFromEmail(email), string(hash))
+		RETURNING id
+	`, email, displayNameFromEmail(email), string(hash)).Scan(&id)
 	if err != nil {
 		return fmt.Errorf("create bootstrap user: %w", err)
+	}
+	if err := s.assignRoleBySlug(ctx, id, "admin"); err != nil {
+		return fmt.Errorf("assign bootstrap role: %w", err)
 	}
 	return nil
 }
@@ -322,11 +409,15 @@ func (s *Service) ListUsers(ctx context.Context) ([]User, error) {
 			return nil, err
 		}
 		users[index].Permissions = permissions
+		users[index].Roles, err = s.roleSummaries(ctx, users[index].ID)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return users, nil
 }
 
-func (s *Service) CreateUser(ctx context.Context, actor User, email, displayName, password string, permissions []string) (User, error) {
+func (s *Service) CreateUser(ctx context.Context, actor User, email, displayName, password string, permissions []string, roleIDs []int64) (User, error) {
 	email = normalizeEmail(email)
 	displayName = strings.TrimSpace(displayName)
 	if email == "" || displayName == "" || strings.TrimSpace(password) == "" {
@@ -362,6 +453,12 @@ func (s *Service) CreateUser(ctx context.Context, actor User, email, displayName
 		return User{}, fmt.Errorf("insert user: %w", err)
 	}
 	if err := insertPermissions(ctx, tx, id, permissions); err != nil {
+		return User{}, err
+	}
+	if err := validateRoleIDs(ctx, tx, actor, roleIDs); err != nil {
+		return User{}, err
+	}
+	if err := insertRoles(ctx, tx, id, roleIDs); err != nil {
 		return User{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -423,6 +520,10 @@ func (s *Service) user(ctx context.Context, userID int64) (User, error) {
 		return User{}, fmt.Errorf("load user: %w", err)
 	}
 	user.Permissions, err = s.effectivePermissions(ctx, user.ID, user.IsSuperAdmin)
+	if err != nil {
+		return user, err
+	}
+	user.Roles, err = s.roleSummaries(ctx, user.ID)
 	return user, err
 }
 
@@ -440,11 +541,23 @@ func (s *Service) userWithPassword(ctx context.Context, email string) (User, str
 		return User{}, "", err
 	}
 	user.Permissions, err = s.effectivePermissions(ctx, user.ID, user.IsSuperAdmin)
+	if err != nil {
+		return user, hash, err
+	}
+	user.Roles, err = s.roleSummaries(ctx, user.ID)
 	return user, hash, err
 }
 
 func (s *Service) permissions(ctx context.Context, userID int64) ([]string, error) {
-	rows, err := s.db.Query(ctx, `SELECT permission_key FROM control.user_permissions WHERE user_id = $1 ORDER BY permission_key`, userID)
+	rows, err := s.db.Query(ctx, `
+		SELECT permission_key FROM control.user_permissions WHERE user_id = $1
+		UNION
+		SELECT rolePermissions.permission_key
+		FROM control.user_roles userRoles
+		JOIN control.role_permissions rolePermissions ON rolePermissions.role_id = userRoles.role_id
+		WHERE userRoles.user_id = $1
+		ORDER BY permission_key
+	`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("load user permissions: %w", err)
 	}

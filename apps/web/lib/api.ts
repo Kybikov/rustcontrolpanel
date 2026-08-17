@@ -5,7 +5,24 @@ export type AuthUser = {
   isActive: boolean
   isSuperAdmin: boolean
   permissions: string[]
+  roles: RoleSummary[]
   createdAt: string
+}
+
+export type RoleSummary = {
+  id: number
+  name: string
+  slug: string
+}
+
+export type Role = {
+  id: number
+  name: string
+  slug: string
+  description: string
+  isSystem: boolean
+  userCount: number
+  permissions: string[]
 }
 
 export type Permission = {

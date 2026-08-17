@@ -23,6 +23,7 @@ type createUserRequest struct {
 	DisplayName string   `json:"displayName"`
 	Password    string   `json:"password"`
 	Permissions []string `json:"permissions"`
+	RoleIDs     []int64  `json:"roleIds"`
 }
 
 type updatePermissionsRequest struct {
@@ -170,12 +171,16 @@ func (s *server) createUser(w http.ResponseWriter, r *http.Request) {
 	if err := decodeJSON(w, r, &input); err != nil {
 		return
 	}
-	user, err := s.auth.CreateUser(r.Context(), actor, input.Email, input.DisplayName, input.Password, input.Permissions)
+	user, err := s.auth.CreateUser(r.Context(), actor, input.Email, input.DisplayName, input.Password, input.Permissions, input.RoleIDs)
 	if errors.Is(err, auth.ErrConflict) {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "a user with this email already exists"})
 		return
 	}
 	if errors.Is(err, auth.ErrInvalidPermission) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if errors.Is(err, auth.ErrInvalidRole) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}

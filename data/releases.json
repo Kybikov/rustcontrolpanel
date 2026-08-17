@@ -1,5 +1,20 @@
 [
   {
+    "version": "0.1.7",
+    "date": "17 серпня 2026",
+    "added": [
+      "Перероблено Team у центр Roles & permissions з картками ролей, лічильниками доступів, пошуком користувачів і призначенням ролей.",
+      "Додано окрему permission matrix з ресурсами Dashboard, Servers, Players, Integrations та Team & users.",
+      "Додано PostgreSQL role model: системні ролі Admin, Operator, Analyst, Integrations, Viewer та створення власних ролей із вибраними permissions."
+    ],
+    "fixed": [
+      "Доступ користувача тепер рахується з прямої permission-схеми та всіх призначених ролей, а super admin і self-access залишаються захищеними."
+    ],
+    "removed": [
+      "Старий перевантажений список checkbox-ів для керування доступом із Team UI."
+    ]
+  },
+  {
     "version": "0.1.6",
     "date": "17 серпня 2026",
     "added": [
