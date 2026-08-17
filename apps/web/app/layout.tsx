@@ -1,5 +1,17 @@
+import { Geist, Geist_Mono } from "next/font/google"
+
 import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
+
+const geist = Geist({
+  subsets: ["latin"],
+  variable: "--font-sans",
+})
+
+const geistMono = Geist_Mono({
+  subsets: ["latin"],
+  variable: "--font-mono",
+})
 
 export const metadata = {
   title: "Rust Control · Operations console",
@@ -12,7 +24,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning className="dark antialiased">
+    <html lang="en" suppressHydrationWarning className={`${geist.variable} ${geistMono.variable} dark antialiased`}>
       <body>
         <ThemeProvider>{children}</ThemeProvider>
       </body>

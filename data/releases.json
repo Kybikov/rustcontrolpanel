@@ -1,5 +1,19 @@
 [
   {
+    "version": "0.1.1",
+    "date": "17 серпня 2026",
+    "added": [
+      "Очищено стартовий інтерфейс до мінімального AdminCN-style shell з Geist, floating sidebar, pill topbar та базовою навігацією Overview, Servers, Players і Integrations.",
+      "Підготовлено чесні empty states для майбутнього підключення BattleMetrics і Steam Web API без вигаданих серверів, гравців чи KPI."
+    ],
+    "fixed": [
+      "Прибрано fake dashboard, тестові метрики, фіктивну активність і зайві realtime-віджети з першого екрана."
+    ],
+    "removed": [
+      "Старий перевантажений dashboard shell, який не відображав реальні джерела даних."
+    ]
+  },
+  {
     "version": "0.1.0",
     "date": "17 серпня 2026",
     "added": [
