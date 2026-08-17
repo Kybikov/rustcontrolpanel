@@ -1,5 +1,18 @@
 [
   {
+    "version": "0.1.6",
+    "date": "17 серпня 2026",
+    "added": [
+      "Додано реальне підключення BattleMetrics і Steam Web API з перевіркою credentials перед збереженням.",
+      "Додано encrypted credentials storage у PostgreSQL, status, повторний test і disconnect для кожного провайдера.",
+      "На сторінці Integrations з’явилися робочі форми API token/Web API key та безпечні стани Connected/Error/Not connected."
+    ],
+    "fixed": [
+      "Секрети інтеграцій не повертаються у frontend і не потрапляють у логи або release notes."
+    ],
+    "removed": []
+  },
+  {
     "version": "0.1.5",
     "date": "17 серпня 2026",
     "added": [

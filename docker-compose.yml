@@ -26,6 +26,7 @@ services:
       CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-http://localhost:3000},http://localhost:3001"
       SUPERADMIN_EMAIL: ${SUPERADMIN_EMAIL:-admin@rustcontrol.local}
       SUPERADMIN_PASSWORD: ${SUPERADMIN_PASSWORD:?SUPERADMIN_PASSWORD must be set in .env}
+      INTEGRATIONS_ENCRYPTION_KEY: ${INTEGRATIONS_ENCRYPTION_KEY:?INTEGRATIONS_ENCRYPTION_KEY must be set in .env}
     ports:
       - "8080:8080"
     depends_on:

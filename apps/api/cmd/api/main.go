@@ -13,6 +13,7 @@ import (
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/auth"
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/config"
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/httpapi"
+	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/integrations"
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/realtime"
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/storage"
 )
@@ -45,13 +46,22 @@ func main() {
 		logger.Error("prepare super admin", "error", err)
 		os.Exit(1)
 	}
+	integrationService, err := integrations.NewService(clients.DB, cfg.IntegrationsEncryptionKey)
+	if err != nil {
+		logger.Error("configure integrations", "error", err)
+		os.Exit(1)
+	}
+	if err := integrationService.EnsureSchema(ctx); err != nil {
+		logger.Error("prepare integrations schema", "error", err)
+		os.Exit(1)
+	}
 
 	hub := realtime.NewHub()
 	go hub.Run(ctx)
 
 	server := &http.Server{
 		Addr:              cfg.ListenAddr,
-		Handler:           httpapi.NewRouter(cfg, clients, hub, logger),
+		Handler:           httpapi.NewRouter(cfg, clients, hub, logger, integrationService),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,

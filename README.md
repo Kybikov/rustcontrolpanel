@@ -46,8 +46,11 @@ go run ./cmd/api
 - login: http://localhost:3000/login або Docker web на http://localhost:3001/login;
 - керування людьми та permission-ами: `/team`;
 - власний профіль і зміна пароля: `/account`;
+- підключення BattleMetrics і Steam Web API: `/integrations`;
 - сесія зберігається в HttpOnly cookie;
 - super admin має повний доступ до всіх поточних і майбутніх функцій.
+
+`INTEGRATIONS_ENCRYPTION_KEY` є обов’язковим ключем для шифрування credentials у PostgreSQL. Підключення спочатку проходить live-check провайдера, і лише після успіху credential зберігається backend-ом.
 
 Доступи видаються окремо: `dashboard.view`, `servers.view`, `servers.search`, `players.view`, `players.search`, `integrations.manage`, `users.view`, `users.create`, `users.manage_access`.
 

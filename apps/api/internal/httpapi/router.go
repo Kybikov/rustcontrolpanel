@@ -9,17 +9,22 @@ import (
 
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/auth"
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/config"
+	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/integrations"
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/realtime"
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/storage"
 	"github.com/gorilla/websocket"
 )
 
-func NewRouter(cfg config.Config, clients *storage.Clients, hub *realtime.Hub, logger *slog.Logger) http.Handler {
+func NewRouter(cfg config.Config, clients *storage.Clients, hub *realtime.Hub, logger *slog.Logger, integrationServices ...*integrations.Service) http.Handler {
 	var dbService *auth.Service
 	if clients != nil {
 		dbService = auth.NewService(clients.DB)
 	}
-	server := &server{cfg: cfg, clients: clients, hub: hub, auth: dbService, logger: logger, startedAt: time.Now().UTC()}
+	var integrationService *integrations.Service
+	if len(integrationServices) > 0 {
+		integrationService = integrationServices[0]
+	}
+	server := &server{cfg: cfg, clients: clients, hub: hub, auth: dbService, integrations: integrationService, logger: logger, startedAt: time.Now().UTC()}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", server.healthz)
 	mux.HandleFunc("GET /readyz", server.readyz)
@@ -31,6 +36,10 @@ func NewRouter(cfg config.Config, clients *storage.Clients, hub *realtime.Hub, l
 	mux.HandleFunc("GET /api/v1/auth/me", server.me)
 	mux.HandleFunc("PATCH /api/v1/auth/profile", server.updateProfile)
 	mux.HandleFunc("POST /api/v1/auth/password", server.changePassword)
+	mux.HandleFunc("GET /api/v1/integrations", server.listIntegrations)
+	mux.HandleFunc("POST /api/v1/integrations/{provider}", server.connectIntegration)
+	mux.HandleFunc("POST /api/v1/integrations/{provider}/test", server.testIntegration)
+	mux.HandleFunc("DELETE /api/v1/integrations/{provider}", server.disconnectIntegration)
 	mux.HandleFunc("GET /api/v1/permissions", server.listPermissions)
 	mux.HandleFunc("GET /api/v1/users", server.listUsers)
 	mux.HandleFunc("POST /api/v1/users", server.createUser)
@@ -39,12 +48,13 @@ func NewRouter(cfg config.Config, clients *storage.Clients, hub *realtime.Hub, l
 }
 
 type server struct {
-	cfg       config.Config
-	clients   *storage.Clients
-	hub       *realtime.Hub
-	auth      *auth.Service
-	logger    *slog.Logger
-	startedAt time.Time
+	cfg          config.Config
+	clients      *storage.Clients
+	hub          *realtime.Hub
+	auth         *auth.Service
+	integrations *integrations.Service
+	logger       *slog.Logger
+	startedAt    time.Time
 }
 
 func (s *server) healthz(w http.ResponseWriter, _ *http.Request) {

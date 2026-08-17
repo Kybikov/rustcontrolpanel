@@ -13,6 +13,13 @@ export type Permission = {
   description: string
 }
 
+export type IntegrationStatus = {
+  provider: "battlemetrics" | "steam"
+  connected: boolean
+  lastCheckedAt?: string
+  lastError?: string
+}
+
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080"
 
 export function apiFetch(path: string, init: RequestInit = {}) {
