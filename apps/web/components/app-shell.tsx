@@ -7,12 +7,13 @@ import {
   Database,
   Gamepad2,
   LayoutDashboard,
+  LogOut,
   PanelLeft,
   Search,
   Server,
-  UserRound,
   Users,
   UsersRound,
+  UserRound,
   type LucideIcon,
 } from "lucide-react"
 
@@ -36,7 +37,6 @@ const navGroups: NavGroup[] = [
   {
     label: "System",
     items: [
-      { label: "Account", href: "/account", icon: UserRound },
       { label: "Integrations", href: "/integrations", icon: Database },
       { label: "Team", href: "/team", icon: UsersRound, permission: "users.view" },
     ],
@@ -49,6 +49,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [query, setQuery] = useState("")
+  const [profileOpen, setProfileOpen] = useState(false)
   const [user, setUser] = useState<AuthUser | null>(null)
 
   useEffect(() => {
@@ -113,6 +114,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
 
   async function logout() {
+    setProfileOpen(false)
     await apiFetch("/api/v1/auth/logout", { method: "POST" }).catch(() => undefined)
     router.replace("/login")
   }
@@ -175,17 +177,6 @@ export function AppShell({ children }: { children: ReactNode }) {
           ))}
         </nav>
 
-        <div className="border-t border-white/[0.08] p-3">
-          <div className={cn("flex items-center gap-2 rounded-xl bg-white/[0.035] p-2.5", collapsed && "justify-center")}>
-            <div className="grid size-7 shrink-0 place-items-center rounded-full bg-white/[0.08] text-[10px] font-semibold text-white/70">OP</div>
-            {!collapsed && (
-              <div className="min-w-0">
-                <p className="truncate text-xs font-medium text-white/80">{user.displayName}</p>
-                <p className="truncate text-[10px] text-white/35">{user.isSuperAdmin ? "Super admin" : user.email}</p>
-              </div>
-            )}
-          </div>
-        </div>
       </aside>
 
       <main className="min-w-0 flex-1">
@@ -207,8 +198,40 @@ export function AppShell({ children }: { children: ReactNode }) {
               </div>
             )}
           </div>
-          <div className="ml-auto flex items-center">
-            <Button variant="ghost" size="icon-sm" className="ml-1 rounded-full bg-white/[0.08] text-[10px] font-semibold text-white/70 hover:bg-white/[0.14] hover:text-white" onClick={logout} aria-label="Sign out">{user.displayName.slice(0, 2).toUpperCase()}</Button>
+          <div className="relative ml-auto">
+            {profileOpen && <button className="fixed inset-0 z-40 cursor-default" aria-label="Close profile menu" onClick={() => setProfileOpen(false)} />}
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="relative z-50 rounded-full bg-white/[0.08] text-[10px] font-semibold text-white/70 hover:bg-white/[0.14] hover:text-white"
+              onClick={() => setProfileOpen((value) => !value)}
+              aria-label="Open profile menu"
+              aria-expanded={profileOpen}
+            >
+              {user.displayName.slice(0, 2).toUpperCase()}
+              <span className="absolute -bottom-0.5 -right-0.5 size-2 rounded-full border border-[#171313] bg-emerald-400" />
+            </Button>
+            {profileOpen && (
+              <div className="absolute right-0 top-11 z-50 w-64 overflow-hidden rounded-xl border border-white/[0.1] bg-[#171313] shadow-[0_18px_50px_rgba(0,0,0,0.45)]">
+                <div className="flex items-center gap-3 border-b border-white/[0.08] px-4 py-3">
+                  <div className="grid size-9 shrink-0 place-items-center rounded-full bg-white/[0.1] text-xs font-semibold text-white/75">{user.displayName.slice(0, 2).toUpperCase()}</div>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-white/90">{user.displayName}</p>
+                    <p className="truncate text-[11px] text-white/40">{user.email}</p>
+                  </div>
+                </div>
+                <div className="p-1.5">
+                  <Link href="/account" onClick={() => setProfileOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs text-white/70 hover:bg-white/[0.06] hover:text-white">
+                    <UserRound className="size-3.5" /> My account
+                  </Link>
+                </div>
+                <div className="border-t border-white/[0.08] p-1.5">
+                  <button onClick={() => void logout()} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs text-red-300 hover:bg-red-400/[0.08]">
+                    <LogOut className="size-3.5" /> Sign out
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </header>
 
