@@ -1,0 +1,15 @@
+[
+  {
+    "version": "0.1.0",
+    "date": "17 серпня 2026",
+    "added": [
+      "Створено новий monorepo foundation для Rust Control з Next.js, Go API, PostgreSQL, Redis та Docker Compose.",
+      "Додано dark-first operational dashboard у стилі AdminCN: navbar, command search, fleet activity, health, servers та realtime status.",
+      "Додано базовий WebSocket realtime hub, health/readiness endpoints і першу SQL-схему control.system_events."
+    ],
+    "fixed": [
+      "Виправлено SSR hydration mismatch у theme toggle та зафіксовано Turbopack root для workspace build."
+    ],
+    "removed": []
+  }
+]
