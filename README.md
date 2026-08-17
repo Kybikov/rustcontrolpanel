@@ -39,6 +39,17 @@ cd apps/api
 go run ./cmd/api
 ```
 
+## Authentication та доступ
+
+Перший запуск API створює super admin з `SUPERADMIN_EMAIL` і `SUPERADMIN_PASSWORD`. Якщо користувач уже існує, пароль не перезаписується автоматично.
+
+- login: http://localhost:3000/login або Docker web на http://localhost:3001/login;
+- керування людьми та permission-ами: `/team`;
+- сесія зберігається в HttpOnly cookie;
+- super admin має повний доступ до всіх поточних і майбутніх функцій.
+
+Доступи видаються окремо: `dashboard.view`, `servers.view`, `servers.search`, `players.view`, `players.search`, `integrations.manage`, `users.view`, `users.create`, `users.manage_access`.
+
 ## Перевірки
 
 ```bash

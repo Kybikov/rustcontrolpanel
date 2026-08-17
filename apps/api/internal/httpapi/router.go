@@ -7,6 +7,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/auth"
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/config"
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/realtime"
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/storage"
@@ -14,13 +15,24 @@ import (
 )
 
 func NewRouter(cfg config.Config, clients *storage.Clients, hub *realtime.Hub, logger *slog.Logger) http.Handler {
-	server := &server{cfg: cfg, clients: clients, hub: hub, logger: logger, startedAt: time.Now().UTC()}
+	var dbService *auth.Service
+	if clients != nil {
+		dbService = auth.NewService(clients.DB)
+	}
+	server := &server{cfg: cfg, clients: clients, hub: hub, auth: dbService, logger: logger, startedAt: time.Now().UTC()}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", server.healthz)
 	mux.HandleFunc("GET /readyz", server.readyz)
 	mux.HandleFunc("GET /api/v1/health", server.health)
 	mux.HandleFunc("GET /api/v1/realtime/stats", server.realtimeStats)
 	mux.HandleFunc("GET /api/v1/realtime/ws", server.realtimeWS)
+	mux.HandleFunc("POST /api/v1/auth/login", server.login)
+	mux.HandleFunc("POST /api/v1/auth/logout", server.logout)
+	mux.HandleFunc("GET /api/v1/auth/me", server.me)
+	mux.HandleFunc("GET /api/v1/permissions", server.listPermissions)
+	mux.HandleFunc("GET /api/v1/users", server.listUsers)
+	mux.HandleFunc("POST /api/v1/users", server.createUser)
+	mux.HandleFunc("PATCH /api/v1/users/{id}/permissions", server.updateUserPermissions)
 	return withCORS(cfg, withRequestID(mux))
 }
 
@@ -28,6 +40,7 @@ type server struct {
 	cfg       config.Config
 	clients   *storage.Clients
 	hub       *realtime.Hub
+	auth      *auth.Service
 	logger    *slog.Logger
 	startedAt time.Time
 }

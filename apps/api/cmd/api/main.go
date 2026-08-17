@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/auth"
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/config"
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/httpapi"
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/realtime"
@@ -34,6 +35,16 @@ func main() {
 		os.Exit(1)
 	}
 	defer clients.Close()
+
+	authService := auth.NewService(clients.DB)
+	if err := authService.EnsureSchema(ctx); err != nil {
+		logger.Error("prepare auth schema", "error", err)
+		os.Exit(1)
+	}
+	if err := authService.EnsureBootstrap(ctx, cfg.SuperAdminEmail, cfg.SuperAdminPassword); err != nil {
+		logger.Error("prepare super admin", "error", err)
+		os.Exit(1)
+	}
 
 	hub := realtime.NewHub()
 	go hub.Run(ctx)

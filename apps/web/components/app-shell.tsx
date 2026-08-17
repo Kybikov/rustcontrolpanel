@@ -11,14 +11,16 @@ import {
   Search,
   Server,
   Users,
+  UsersRound,
   type LucideIcon,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
+import { apiFetch, type AuthUser } from "@/lib/api"
 
-type NavItem = { label: string; href: string; icon: LucideIcon }
+type NavItem = { label: string; href: string; icon: LucideIcon; permission?: string }
 type NavGroup = { label: string; items: NavItem[] }
 
 const navGroups: NavGroup[] = [
@@ -32,11 +34,12 @@ const navGroups: NavGroup[] = [
   },
   {
     label: "System",
-    items: [{ label: "Integrations", href: "/integrations", icon: Database }],
+    items: [
+      { label: "Integrations", href: "/integrations", icon: Database },
+      { label: "Team", href: "/team", icon: UsersRound, permission: "users.view" },
+    ],
   },
 ]
-
-const searchableItems = navGroups.flatMap((group) => group.items)
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname()
@@ -44,6 +47,34 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [query, setQuery] = useState("")
+  const [user, setUser] = useState<AuthUser | null>(null)
+
+  useEffect(() => {
+    let active = true
+    apiFetch("/api/v1/auth/me")
+      .then(async (response) => {
+        if (!response.ok) {
+          if (active) router.replace("/login")
+          return
+        }
+        const payload = (await response.json()) as { user: AuthUser }
+        if (active) setUser(payload.user)
+      })
+      .catch(() => {
+        if (active) router.replace("/login")
+      })
+    return () => {
+      active = false
+    }
+  }, [router])
+
+  const visibleNavGroups = navGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => !item.permission || user?.isSuperAdmin || user?.permissions.includes(item.permission)),
+    }))
+    .filter((group) => group.items.length > 0)
+  const searchableItems = visibleNavGroups.flatMap((group) => group.items)
   const matches = query.trim()
     ? searchableItems.filter((item) => item.label.toLowerCase().includes(query.trim().toLowerCase()))
     : []
@@ -71,11 +102,21 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   function toggleNavigation() {
     if (window.matchMedia("(max-width: 767px)").matches) {
+      setCollapsed(false)
       setMobileOpen((value) => !value)
       return
     }
 
     setCollapsed((value) => !value)
+  }
+
+  async function logout() {
+    await apiFetch("/api/v1/auth/logout", { method: "POST" }).catch(() => undefined)
+    router.replace("/login")
+  }
+
+  if (!user) {
+    return <div className="grid min-h-svh place-items-center bg-[#0d0b0b] text-xs text-white/40">Checking session…</div>
   }
 
   return (
@@ -101,7 +142,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
 
         <nav className="flex-1 space-y-6 overflow-y-auto px-2 py-5">
-          {navGroups.map((group) => (
+          {visibleNavGroups.map((group) => (
             <div key={group.label}>
               {!collapsed && (
                 <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">{group.label}</p>
@@ -137,8 +178,8 @@ export function AppShell({ children }: { children: ReactNode }) {
             <div className="grid size-7 shrink-0 place-items-center rounded-full bg-white/[0.08] text-[10px] font-semibold text-white/70">OP</div>
             {!collapsed && (
               <div className="min-w-0">
-                <p className="truncate text-xs font-medium text-white/80">Operator</p>
-                <p className="truncate text-[10px] text-white/35">Local workspace</p>
+                <p className="truncate text-xs font-medium text-white/80">{user.displayName}</p>
+                <p className="truncate text-[10px] text-white/35">{user.isSuperAdmin ? "Super admin" : user.email}</p>
               </div>
             )}
           </div>
@@ -165,7 +206,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             )}
           </div>
           <div className="ml-auto flex items-center">
-            <div className="grid size-7 place-items-center rounded-full bg-white/[0.1] text-[10px] font-semibold text-white/70">OP</div>
+            <Button variant="ghost" size="icon-sm" className="ml-1 rounded-full bg-white/[0.08] text-[10px] font-semibold text-white/70 hover:bg-white/[0.14] hover:text-white" onClick={logout} aria-label="Sign out">{user.displayName.slice(0, 2).toUpperCase()}</Button>
           </div>
         </header>
 
