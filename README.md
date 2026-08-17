@@ -18,7 +18,8 @@ docker compose up --build
 
 Після запуску:
 
-- frontend: http://localhost:3000
+- frontend in Docker: http://localhost:3001
+- frontend with hot reload: http://localhost:3000 (`npm run dev:web`)
 - API liveness: http://localhost:8080/healthz
 - API readiness: http://localhost:8080/readyz
 - realtime WebSocket: `ws://localhost:8080/api/v1/realtime/ws`

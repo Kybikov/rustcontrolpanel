@@ -1,7 +1,6 @@
 import { Geist, Geist_Mono } from "next/font/google"
 
 import "./globals.css"
-import { ThemeProvider } from "@/components/theme-provider"
 
 const geist = Geist({
   subsets: ["latin"],
@@ -26,7 +25,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning className={`${geist.variable} ${geistMono.variable} dark antialiased`}>
       <body>
-        <ThemeProvider>{children}</ThemeProvider>
+        {children}
       </body>
     </html>
   )

@@ -1,5 +1,20 @@
 [
   {
+    "version": "0.1.2",
+    "date": "17 серпня 2026",
+    "added": [
+      "Пошук сторінок у topbar тепер працює через ⌘K, підказки та перехід клавішею Enter.",
+      "Додано робоче mobile navigation drawer з overlay; Docker web preview винесено на порт 3001, щоб локальний hot reload залишався на 3000."
+    ],
+    "fixed": [
+      "Прибрано декоративні Activity, Notifications, theme toggle та всі disabled-пошуки/кнопки підключення, які не мали реалізації.",
+      "Виправлено workspace Turbopack root і типізацію Input, завдяки чому локальний та Docker production build проходять однаково."
+    ],
+    "removed": [
+      "Невикористаний next-themes і theme provider з dark-only інтерфейсу."
+    ]
+  },
+  {
     "version": "0.1.1",
     "date": "17 серпня 2026",
     "added": [

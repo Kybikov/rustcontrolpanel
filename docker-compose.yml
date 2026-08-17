@@ -7,7 +7,7 @@ services:
     environment:
       NEXT_PUBLIC_REALTIME_URL: ${NEXT_PUBLIC_REALTIME_URL:-ws://localhost:8080/api/v1/realtime/ws}
     ports:
-      - "3000:3000"
+      - "${WEB_HOST_PORT:-3001}:3000"
     depends_on:
       api:
         condition: service_started
@@ -21,7 +21,7 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-rustcontrol}:${POSTGRES_PASSWORD:-rustcontrol}@postgres:5432/${POSTGRES_DB:-rustcontrol}?sslmode=disable
       REDIS_URL: redis://redis:6379/0
       REDIS_ENABLED: ${REDIS_ENABLED:-true}
-      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
+      CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-http://localhost:3000},http://localhost:3001"
     ports:
       - "8080:8080"
     depends_on:
