@@ -29,6 +29,16 @@ type updatePermissionsRequest struct {
 	Permissions []string `json:"permissions"`
 }
 
+type updateProfileRequest struct {
+	Email       string `json:"email"`
+	DisplayName string `json:"displayName"`
+}
+
+type changePasswordRequest struct {
+	CurrentPassword string `json:"currentPassword"`
+	NewPassword     string `json:"newPassword"`
+}
+
 func (s *server) login(w http.ResponseWriter, r *http.Request) {
 	if s.auth == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "auth is not configured"})
@@ -76,6 +86,60 @@ func (s *server) me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"user": user})
+}
+
+func (s *server) updateProfile(w http.ResponseWriter, r *http.Request) {
+	actor, ok := s.requireAuth(w, r, "")
+	if !ok {
+		return
+	}
+	var input updateProfileRequest
+	if err := decodeJSON(w, r, &input); err != nil {
+		return
+	}
+	user, err := s.auth.UpdateProfile(r.Context(), actor.ID, input.Email, input.DisplayName)
+	if errors.Is(err, auth.ErrConflict) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "a user with this email already exists"})
+		return
+	}
+	if errors.Is(err, auth.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "user not found"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"user": user})
+}
+
+func (s *server) changePassword(w http.ResponseWriter, r *http.Request) {
+	actor, ok := s.requireAuth(w, r, "")
+	if !ok {
+		return
+	}
+	var input changePasswordRequest
+	if err := decodeJSON(w, r, &input); err != nil {
+		return
+	}
+	err := s.auth.ChangePassword(r.Context(), actor.ID, input.CurrentPassword, input.NewPassword, sessionToken(r))
+	if errors.Is(err, auth.ErrInvalidCredentials) {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "current password is incorrect"})
+		return
+	}
+	if errors.Is(err, auth.ErrWeakPassword) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if errors.Is(err, auth.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "user not found"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not change password"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "password changed"})
 }
 
 func (s *server) listPermissions(w http.ResponseWriter, r *http.Request) {

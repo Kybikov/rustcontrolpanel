@@ -10,6 +10,7 @@ import {
   PanelLeft,
   Search,
   Server,
+  UserRound,
   Users,
   UsersRound,
   type LucideIcon,
@@ -35,6 +36,7 @@ const navGroups: NavGroup[] = [
   {
     label: "System",
     items: [
+      { label: "Account", href: "/account", icon: UserRound },
       { label: "Integrations", href: "/integrations", icon: Database },
       { label: "Team", href: "/team", icon: UsersRound, permission: "users.view" },
     ],

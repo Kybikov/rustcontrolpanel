@@ -29,6 +29,8 @@ func NewRouter(cfg config.Config, clients *storage.Clients, hub *realtime.Hub, l
 	mux.HandleFunc("POST /api/v1/auth/login", server.login)
 	mux.HandleFunc("POST /api/v1/auth/logout", server.logout)
 	mux.HandleFunc("GET /api/v1/auth/me", server.me)
+	mux.HandleFunc("PATCH /api/v1/auth/profile", server.updateProfile)
+	mux.HandleFunc("POST /api/v1/auth/password", server.changePassword)
 	mux.HandleFunc("GET /api/v1/permissions", server.listPermissions)
 	mux.HandleFunc("GET /api/v1/users", server.listUsers)
 	mux.HandleFunc("POST /api/v1/users", server.createUser)

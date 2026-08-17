@@ -23,6 +23,7 @@ var (
 	ErrInvalidPermission   = errors.New("invalid permission")
 	ErrProtectedUser       = errors.New("super admin access cannot be changed here")
 	ErrPrivilegeEscalation = errors.New("only a super admin can grant user-management permissions")
+	ErrWeakPassword        = errors.New("password must be at least 12 characters")
 )
 
 type Permission struct {
@@ -216,6 +217,81 @@ func (s *Service) Logout(ctx context.Context, token string) error {
 	}
 	_, err := s.db.Exec(ctx, `DELETE FROM control.sessions WHERE token_hash = $1`, tokenHash(token))
 	return err
+}
+
+func (s *Service) UpdateProfile(ctx context.Context, userID int64, email, displayName string) (User, error) {
+	email = normalizeEmail(email)
+	displayName = strings.TrimSpace(displayName)
+	if email == "" || displayName == "" {
+		return User{}, errors.New("email and display name are required")
+	}
+
+	result, err := s.db.Exec(ctx, `
+		UPDATE control.users
+		SET email = $1, display_name = $2, updated_at = NOW()
+		WHERE id = $3
+	`, email, displayName, userID)
+	if isUniqueViolation(err) {
+		return User{}, ErrConflict
+	}
+	if err != nil {
+		return User{}, fmt.Errorf("update profile: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		return User{}, ErrNotFound
+	}
+	return s.user(ctx, userID)
+}
+
+func (s *Service) ChangePassword(ctx context.Context, userID int64, currentPassword, newPassword, currentToken string) error {
+	if len([]rune(newPassword)) < 12 {
+		return ErrWeakPassword
+	}
+
+	var currentHash string
+	err := s.db.QueryRow(ctx, `SELECT password_hash FROM control.users WHERE id = $1 AND is_active = TRUE`, userID).Scan(&currentHash)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("load current password: %w", err)
+	}
+	if bcrypt.CompareHashAndPassword([]byte(currentHash), []byte(currentPassword)) != nil {
+		return ErrInvalidCredentials
+	}
+
+	newHash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("hash new password: %w", err)
+	}
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin password change: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE control.users
+		SET password_hash = $1, updated_at = NOW()
+		WHERE id = $2
+	`, string(newHash), userID); err != nil {
+		return fmt.Errorf("update password: %w", err)
+	}
+	if strings.TrimSpace(currentToken) == "" {
+		if _, err := tx.Exec(ctx, `DELETE FROM control.sessions WHERE user_id = $1`, userID); err != nil {
+			return fmt.Errorf("revoke sessions: %w", err)
+		}
+	} else if _, err := tx.Exec(ctx, `
+		DELETE FROM control.sessions
+		WHERE user_id = $1 AND token_hash <> $2
+	`, userID, tokenHash(currentToken)); err != nil {
+		return fmt.Errorf("revoke other sessions: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit password change: %w", err)
+	}
+	return nil
 }
 
 func (s *Service) ListUsers(ctx context.Context) ([]User, error) {

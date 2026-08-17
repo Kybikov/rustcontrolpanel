@@ -45,6 +45,7 @@ go run ./cmd/api
 
 - login: http://localhost:3000/login або Docker web на http://localhost:3001/login;
 - керування людьми та permission-ами: `/team`;
+- власний профіль і зміна пароля: `/account`;
 - сесія зберігається в HttpOnly cookie;
 - super admin має повний доступ до всіх поточних і майбутніх функцій.
 
