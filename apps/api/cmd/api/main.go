@@ -55,6 +55,19 @@ func main() {
 		logger.Error("prepare integrations schema", "error", err)
 		os.Exit(1)
 	}
+	managedCredentials, err := integrations.LoadManagedCredentials(cfg.IntegrationCredentialsFile)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		logger.Warn("load managed integration credentials", "error", err)
+	}
+	if managedCredentials.BattleMetricsToken == "" {
+		managedCredentials.BattleMetricsToken = cfg.BattleMetricsAPIToken
+	}
+	if managedCredentials.SteamWebAPIKey == "" {
+		managedCredentials.SteamWebAPIKey = cfg.SteamWebAPIKey
+	}
+	if err := integrationService.EnsureConfigured(ctx, managedCredentials); err != nil {
+		logger.Warn("sync managed integration credentials", "error", err)
+	}
 
 	hub := realtime.NewHub()
 	go hub.Run(ctx)

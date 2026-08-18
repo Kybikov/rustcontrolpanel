@@ -7,10 +7,6 @@ import (
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/integrations"
 )
 
-type connectIntegrationRequest struct {
-	Credential string `json:"credential"`
-}
-
 func (s *server) listIntegrations(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.requireAuth(w, r, "integrations.manage"); !ok {
 		return
@@ -23,15 +19,11 @@ func (s *server) listIntegrations(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"integrations": statuses})
 }
 
-func (s *server) connectIntegration(w http.ResponseWriter, r *http.Request) {
+func (s *server) testIntegration(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.requireAuth(w, r, "integrations.manage"); !ok {
 		return
 	}
-	var input connectIntegrationRequest
-	if err := decodeJSON(w, r, &input); err != nil {
-		return
-	}
-	status, err := s.integrations.Connect(r.Context(), r.PathValue("provider"), input.Credential)
+	status, err := s.integrations.Test(r.Context(), r.PathValue("provider"))
 	if err != nil {
 		writeIntegrationError(w, err)
 		return
@@ -39,11 +31,11 @@ func (s *server) connectIntegration(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"integration": status})
 }
 
-func (s *server) testIntegration(w http.ResponseWriter, r *http.Request) {
+func (s *server) syncIntegration(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.requireAuth(w, r, "integrations.manage"); !ok {
 		return
 	}
-	status, err := s.integrations.Test(r.Context(), r.PathValue("provider"))
+	status, err := s.integrations.Sync(r.Context(), r.PathValue("provider"))
 	if err != nil {
 		writeIntegrationError(w, err)
 		return

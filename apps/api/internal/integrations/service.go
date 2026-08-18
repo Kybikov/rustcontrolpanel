@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -45,6 +46,8 @@ type Service struct {
 	db         *pgxpool.Pool
 	key        []byte
 	httpClient *http.Client
+	managedMu  sync.RWMutex
+	managed    map[string]string
 }
 
 type storedCredential struct {
@@ -60,12 +63,63 @@ func NewService(db *pgxpool.Pool, encryptionSecret string) (*Service, error) {
 	}
 	hash := sha256.Sum256([]byte(encryptionSecret))
 	return &Service{
-		db:  db,
-		key: hash[:],
+		db:      db,
+		key:     hash[:],
+		managed: make(map[string]string, len(providers)),
 		httpClient: &http.Client{
 			Timeout: 12 * time.Second,
 		},
 	}, nil
+}
+
+func (s *Service) SetManagedCredentials(credentials ManagedCredentials) {
+	s.managedMu.Lock()
+	defer s.managedMu.Unlock()
+	s.managed[ProviderBattleMetrics] = normalizeCredential(ProviderBattleMetrics, credentials.BattleMetricsToken)
+	s.managed[ProviderSteam] = normalizeCredential(ProviderSteam, credentials.SteamWebAPIKey)
+}
+
+func (s *Service) EnsureConfigured(ctx context.Context, credentials ManagedCredentials) error {
+	s.SetManagedCredentials(credentials)
+	for _, provider := range providers {
+		s.managedMu.RLock()
+		credential := s.managed[provider]
+		s.managedMu.RUnlock()
+		if credential == "" {
+			continue
+		}
+		_, _ = s.syncCredential(ctx, provider, credential)
+	}
+	return nil
+}
+
+func (s *Service) Sync(ctx context.Context, provider string) (Status, error) {
+	provider, err := normalizeProvider(provider)
+	if err != nil {
+		return Status{}, err
+	}
+	s.managedMu.RLock()
+	credential := s.managed[provider]
+	s.managedMu.RUnlock()
+	if credential == "" {
+		return Status{Provider: provider}, ErrNotConfigured
+	}
+	return s.syncCredential(ctx, provider, credential)
+}
+
+func (s *Service) syncCredential(ctx context.Context, provider, credential string) (Status, error) {
+	status, err := s.Connect(ctx, provider, credential)
+	if err == nil {
+		return status, nil
+	}
+	if saveErr := s.saveManagedCredential(ctx, provider, credential, safeError(err)); saveErr != nil {
+		return Status{}, saveErr
+	}
+	status, statusErr := s.status(ctx, provider)
+	if statusErr != nil {
+		return Status{}, statusErr
+	}
+	return status, err
 }
 
 func (s *Service) EnsureSchema(ctx context.Context) error {
@@ -103,7 +157,7 @@ func (s *Service) List(ctx context.Context) ([]Status, error) {
 		if err := rows.Scan(&status.Provider, &status.LastCheckedAt, &status.LastError); err != nil {
 			return nil, fmt.Errorf("scan integration: %w", err)
 		}
-		status.Connected = true
+		status.Connected = status.LastError == ""
 		statusByProvider[status.Provider] = status
 	}
 	if err := rows.Err(); err != nil {
@@ -214,8 +268,31 @@ func (s *Service) status(ctx context.Context, provider string) (Status, error) {
 	if err != nil {
 		return Status{}, fmt.Errorf("load integration status: %w", err)
 	}
-	status.Connected = true
+	status.Connected = status.LastError == ""
 	return status, nil
+}
+
+func (s *Service) saveManagedCredential(ctx context.Context, provider, credential, lastError string) error {
+	payload, err := json.Marshal(storedCredential{Value: credential})
+	if err != nil {
+		return fmt.Errorf("encode managed integration credential: %w", err)
+	}
+	ciphertext, err := s.encrypt(payload)
+	if err != nil {
+		return fmt.Errorf("encrypt managed integration credential: %w", err)
+	}
+	_, err = s.db.Exec(ctx, `
+		INSERT INTO control.integrations (provider, credentials, connected_at, last_checked_at, last_error)
+		VALUES ($1, $2, NOW(), NOW(), $3)
+		ON CONFLICT (provider) DO UPDATE SET
+			credentials = EXCLUDED.credentials,
+			last_checked_at = NOW(),
+			last_error = EXCLUDED.last_error
+	`, provider, ciphertext, lastError)
+	if err != nil {
+		return fmt.Errorf("save managed integration credential: %w", err)
+	}
+	return nil
 }
 
 func (s *Service) credential(ctx context.Context, provider string) (string, error) {

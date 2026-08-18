@@ -1,4 +1,16 @@
-[
+[{
+    "version": "0.1.8",
+    "date": "18 серпня 2026",
+    "added": [
+      "Provider credentials тепер автоматично завантажуються backend-ом із Docker secret/server credentials file.",
+      "На Integrations додано Sync from server: ключі не вводяться у браузері, а перевіряються та шифруються у Go API."
+    ],
+    "fixed": [
+      "Прибрано ручні credential inputs і прямий frontend flow для передачі токенів.",
+      "Статус provider тепер показує Error, якщо managed credential відхилений або відсутній, без фальшивого Connected."
+    ],
+    "removed": []
+  },
   {
     "version": "0.1.7",
     "date": "17 серпня 2026",

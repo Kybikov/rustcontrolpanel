@@ -8,15 +8,18 @@ import (
 )
 
 type Config struct {
-	Environment               string
-	ListenAddr                string
-	DatabaseURL               string
-	RedisURL                  string
-	RedisEnabled              bool
-	AllowedOrigins            []string
-	SuperAdminEmail           string
-	SuperAdminPassword        string
-	IntegrationsEncryptionKey string
+	Environment                string
+	ListenAddr                 string
+	DatabaseURL                string
+	RedisURL                   string
+	RedisEnabled               bool
+	AllowedOrigins             []string
+	SuperAdminEmail            string
+	SuperAdminPassword         string
+	IntegrationsEncryptionKey  string
+	IntegrationCredentialsFile string
+	BattleMetricsAPIToken      string
+	SteamWebAPIKey             string
 }
 
 func Load() (Config, error) {
@@ -35,15 +38,18 @@ func Load() (Config, error) {
 	})
 
 	return Config{
-		Environment:               env("APP_ENV", "development"),
-		ListenAddr:                ":" + port,
-		DatabaseURL:               env("DATABASE_URL", "postgres://rustcontrol:rustcontrol@localhost:5432/rustcontrol?sslmode=disable"),
-		RedisURL:                  env("REDIS_URL", "redis://localhost:6379/0"),
-		RedisEnabled:              redisEnabled,
-		AllowedOrigins:            origins,
-		SuperAdminEmail:           env("SUPERADMIN_EMAIL", "admin@rustcontrol.local"),
-		SuperAdminPassword:        os.Getenv("SUPERADMIN_PASSWORD"),
-		IntegrationsEncryptionKey: os.Getenv("INTEGRATIONS_ENCRYPTION_KEY"),
+		Environment:                env("APP_ENV", "development"),
+		ListenAddr:                 ":" + port,
+		DatabaseURL:                env("DATABASE_URL", "postgres://rustcontrol:rustcontrol@localhost:5432/rustcontrol?sslmode=disable"),
+		RedisURL:                   env("REDIS_URL", "redis://localhost:6379/0"),
+		RedisEnabled:               redisEnabled,
+		AllowedOrigins:             origins,
+		SuperAdminEmail:            env("SUPERADMIN_EMAIL", "admin@rustcontrol.local"),
+		SuperAdminPassword:         os.Getenv("SUPERADMIN_PASSWORD"),
+		IntegrationsEncryptionKey:  os.Getenv("INTEGRATIONS_ENCRYPTION_KEY"),
+		IntegrationCredentialsFile: os.Getenv("INTEGRATION_CREDENTIALS_FILE"),
+		BattleMetricsAPIToken:      os.Getenv("BATTLEMETRICS_API_TOKEN"),
+		SteamWebAPIKey:             os.Getenv("STEAM_WEB_API_KEY"),
 	}, nil
 }
 
