@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/integrations"
+	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/realtime"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -31,11 +32,12 @@ type SavedPlayer struct {
 }
 
 type Service struct {
-	db *pgxpool.Pool
+	db  *pgxpool.Pool
+	hub *realtime.Hub
 }
 
-func NewService(db *pgxpool.Pool) *Service {
-	return &Service{db: db}
+func NewService(db *pgxpool.Pool, hub *realtime.Hub) *Service {
+	return &Service{db: db, hub: hub}
 }
 
 func (s *Service) EnsureSchema(ctx context.Context) error {
@@ -90,6 +92,15 @@ func (s *Service) List(ctx context.Context, userID int64) ([]SavedPlayer, error)
 	return players, rows.Err()
 }
 
+func (s *Service) Find(ctx context.Context, userID int64, steamID string) (SavedPlayer, error) {
+	row := s.db.QueryRow(ctx, `
+		SELECT steam_id, display_name, profile_url, avatar_url, visibility, presence, current_game,
+			last_logoff_at, profile_created_at, created_at, updated_at
+		FROM control.saved_players WHERE user_id = $1 AND steam_id = $2
+	`, userID, strings.TrimSpace(steamID))
+	return scan(row)
+}
+
 func (s *Service) Save(ctx context.Context, userID int64, player integrations.SteamPlayer) (SavedPlayer, error) {
 	if strings.TrimSpace(player.SteamID) == "" {
 		return SavedPlayer{}, errors.New("Steam player identity is required")
@@ -133,6 +144,145 @@ func (s *Service) Remove(ctx context.Context, userID int64, steamID string) erro
 		return pgx.ErrNoRows
 	}
 	return nil
+}
+
+func (s *Service) Refresh(ctx context.Context, userID int64, steamID string, source *integrations.Service) (SavedPlayer, error) {
+	previous, err := s.Find(ctx, userID, steamID)
+	if err != nil {
+		return SavedPlayer{}, err
+	}
+	player, err := source.SearchSteamPlayer(ctx, previous.SteamID)
+	if err != nil {
+		return SavedPlayer{}, err
+	}
+	updated, err := s.Save(ctx, userID, player)
+	if err != nil {
+		return SavedPlayer{}, err
+	}
+	if err := s.publishUpdate(ctx, userID, previous, updated); err != nil {
+		return SavedPlayer{}, err
+	}
+	return updated, nil
+}
+
+func (s *Service) RefreshAll(ctx context.Context, source *integrations.Service) error {
+	rows, err := s.db.Query(ctx, `
+		SELECT user_id, steam_id FROM control.saved_players
+		ORDER BY updated_at ASC LIMIT 100
+	`)
+	if err != nil {
+		return fmt.Errorf("list saved player refreshes: %w", err)
+	}
+	defer rows.Close()
+	type target struct {
+		userID  int64
+		steamID string
+	}
+	targets := make([]target, 0)
+	ids := make([]string, 0)
+	for rows.Next() {
+		var item target
+		if err := rows.Scan(&item.userID, &item.steamID); err != nil {
+			return fmt.Errorf("scan saved player refresh: %w", err)
+		}
+		targets = append(targets, item)
+		ids = append(ids, item.steamID)
+	}
+	if err := rows.Err(); err != nil || len(targets) == 0 {
+		return err
+	}
+	profiles, err := source.SteamPlayers(ctx, ids)
+	if err != nil {
+		return err
+	}
+	bySteamID := make(map[string]integrations.SteamPlayer, len(profiles))
+	for _, profile := range profiles {
+		bySteamID[profile.SteamID] = profile
+	}
+	for _, item := range targets {
+		profile, ok := bySteamID[item.steamID]
+		if !ok {
+			continue
+		}
+		previous, err := s.Find(ctx, item.userID, item.steamID)
+		if err != nil {
+			return err
+		}
+		updated, err := s.Save(ctx, item.userID, profile)
+		if err != nil {
+			return err
+		}
+		if err := s.publishUpdate(ctx, item.userID, previous, updated); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) publishUpdate(ctx context.Context, userID int64, previous, updated SavedPlayer) error {
+	if playerActivityChanged(previous, updated) {
+		title, body := playerActivityNotification(updated)
+		var notification struct {
+			ID        int64      `json:"id"`
+			Type      string     `json:"type"`
+			Title     string     `json:"title"`
+			Body      string     `json:"body"`
+			Href      string     `json:"href"`
+			ReadAt    *time.Time `json:"readAt,omitempty"`
+			CreatedAt time.Time  `json:"createdAt"`
+		}
+		if err := s.db.QueryRow(ctx, `
+			INSERT INTO control.notifications (user_id, type, title, body, href)
+			VALUES ($1, 'player.activity', $2, $3, $4)
+			RETURNING id, type, title, body, href, read_at, created_at
+		`, userID, title, body, "/players/"+updated.SteamID).Scan(
+			&notification.ID, &notification.Type, &notification.Title, &notification.Body,
+			&notification.Href, &notification.ReadAt, &notification.CreatedAt,
+		); err != nil {
+			return fmt.Errorf("create player activity notification: %w", err)
+		}
+		if _, err := s.db.Exec(ctx, `
+			DELETE FROM control.notifications WHERE id IN (
+				SELECT id FROM control.notifications WHERE user_id = $1
+				ORDER BY created_at DESC OFFSET 100
+			)
+		`, userID); err != nil {
+			return fmt.Errorf("trim player notifications: %w", err)
+		}
+		if s.hub != nil {
+			s.hub.PublishToUser(userID, realtime.Event{
+				Type:      "notification.created",
+				Timestamp: time.Now().UTC(),
+				Payload:   map[string]any{"notification": notification},
+			})
+		}
+	}
+	if s.hub != nil {
+		s.hub.PublishToUser(userID, realtime.Event{
+			Type:      "player.saved.updated",
+			Timestamp: time.Now().UTC(),
+			Payload:   map[string]any{"player": updated},
+		})
+	}
+	return nil
+}
+
+func playerActivityChanged(previous, updated SavedPlayer) bool {
+	return previous.Presence != updated.Presence || previous.CurrentGame != updated.CurrentGame
+}
+
+func playerActivityNotification(player SavedPlayer) (string, string) {
+	name := player.DisplayName
+	if name == "" {
+		name = "Saved player"
+	}
+	if player.CurrentGame != "" {
+		return name + " is playing " + player.CurrentGame, "Steam updated the public game activity."
+	}
+	if player.Presence == "online" {
+		return name + " is online", "Steam updated the public player status."
+	}
+	return name + " is offline", "Steam updated the public player status."
 }
 
 type scanner interface{ Scan(...any) error }

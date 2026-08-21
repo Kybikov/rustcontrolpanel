@@ -30,7 +30,7 @@ func NewRouter(cfg config.Config, clients *storage.Clients, hub *realtime.Hub, l
 	var players *playerstore.Service
 	if clients != nil {
 		checker = servercheck.NewService(clients.DB, hub)
-		players = playerstore.NewService(clients.DB)
+		players = playerstore.NewService(clients.DB, hub)
 	}
 	server := &server{cfg: cfg, clients: clients, hub: hub, auth: dbService, integrations: integrationService, checker: checker, players: players, logger: logger, startedAt: time.Now().UTC()}
 	mux := http.NewServeMux()
@@ -60,6 +60,8 @@ func NewRouter(cfg config.Config, clients *storage.Clients, hub *realtime.Hub, l
 	mux.HandleFunc("GET /api/v1/players", server.searchPlayers)
 	mux.HandleFunc("GET /api/v1/players/saved", server.listSavedPlayers)
 	mux.HandleFunc("POST /api/v1/players/saved", server.savePlayer)
+	mux.HandleFunc("GET /api/v1/players/saved/{steamID}", server.savedPlayerDetails)
+	mux.HandleFunc("POST /api/v1/players/saved/{steamID}/refresh", server.refreshSavedPlayer)
 	mux.HandleFunc("DELETE /api/v1/players/saved/{steamID}", server.removeSavedPlayer)
 	mux.HandleFunc("GET /api/v1/notifications", server.listNotifications)
 	mux.HandleFunc("POST /api/v1/notifications/read", server.markNotificationsRead)

@@ -1,8 +1,10 @@
 "use client"
 
 import Image from "next/image"
-import { useCallback, useEffect, useState } from "react"
+import Link from "next/link"
+import { useCallback, useEffect, useRef, useState } from "react"
 import {
+  ArrowUpRight,
   Bookmark,
   CircleAlert,
   ExternalLink,
@@ -14,7 +16,12 @@ import {
 } from "lucide-react"
 
 import { PageHeader } from "@/components/page-primitives"
-import { apiFetch, type SavedSteamPlayer, type SteamPlayer } from "@/lib/api"
+import {
+  API_URL,
+  apiFetch,
+  type SavedSteamPlayer,
+  type SteamPlayer,
+} from "@/lib/api"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -27,6 +34,7 @@ export function PlayersPage() {
   const [loading, setLoading] = useState(false)
   const [savingSteamID, setSavingSteamID] = useState<string | null>(null)
   const [error, setError] = useState("")
+  const reconnectTimer = useRef<number | null>(null)
 
   const loadSavedPlayers = useCallback(async () => {
     const response = await apiFetch("/api/v1/players/saved")
@@ -45,6 +53,37 @@ export function PlayersPage() {
     }, 0)
     return () => window.clearTimeout(timer)
   }, [loadSavedPlayers])
+
+  useEffect(() => {
+    let active = true
+    let socket: WebSocket | null = null
+    const connect = () => {
+      if (!active) return
+      const url = new URL(API_URL)
+      url.protocol = url.protocol === "https:" ? "wss:" : "ws:"
+      url.pathname = "/api/v1/realtime/ws"
+      socket = new WebSocket(url.toString())
+      socket.onmessage = (event) => {
+        const payload = JSON.parse(event.data) as {
+          type?: string
+          payload?: { player?: SavedSteamPlayer }
+        }
+        const player = payload.payload?.player
+        if (payload.type === "player.saved.updated" && player) {
+          setSavedPlayers((current) => upsertSavedPlayer(current, player))
+        }
+      }
+      socket.onclose = () => {
+        if (active) reconnectTimer.current = window.setTimeout(connect, 3000)
+      }
+    }
+    connect()
+    return () => {
+      active = false
+      if (reconnectTimer.current) window.clearTimeout(reconnectTimer.current)
+      socket?.close()
+    }
+  }, [])
 
   async function savePlayer(player: SteamPlayer) {
     setSavingSteamID(player.steamId)
@@ -90,6 +129,32 @@ export function PlayersPage() {
       setSavedPlayers((current) =>
         current.filter((player) => player.steamId !== steamID)
       )
+    } catch {
+      setError(
+        "Could not reach the API. Check the local Docker stack and try again."
+      )
+    } finally {
+      setSavingSteamID(null)
+    }
+  }
+
+  async function refreshSavedPlayer(steamID: string) {
+    setSavingSteamID(steamID)
+    setError("")
+    try {
+      const response = await apiFetch(
+        `/api/v1/players/saved/${encodeURIComponent(steamID)}/refresh`,
+        { method: "POST" }
+      )
+      const payload = (await response.json().catch(() => null)) as {
+        player?: SavedSteamPlayer
+        error?: string
+      } | null
+      if (!response.ok || !payload?.player) {
+        setError(payload?.error ?? "Could not refresh this player")
+        return
+      }
+      setSavedPlayers((current) => upsertSavedPlayer(current, payload.player!))
     } catch {
       setError(
         "Could not reach the API. Check the local Docker stack and try again."
@@ -188,8 +253,8 @@ export function PlayersPage() {
               Saved players
             </h2>
             <p className="mt-1 text-xs text-white/38">
-              Profiles you chose to keep. Saving again refreshes the stored
-              public Steam data.
+              Public Steam presence refreshes every minute and updates this list
+              live.
             </p>
           </div>
           <span className="text-xs text-white/35 tabular-nums">
@@ -203,6 +268,7 @@ export function PlayersPage() {
                 key={player.steamId}
                 player={player}
                 busy={savingSteamID === player.steamId}
+                onRefresh={() => void refreshSavedPlayer(player.steamId)}
                 onRemove={() => void removeSavedPlayer(player.steamId)}
               />
             ))}
@@ -342,10 +408,12 @@ function PlayerResult({
 function SavedPlayerRow({
   player,
   busy,
+  onRefresh,
   onRemove,
 }: {
   player: SavedSteamPlayer
   busy: boolean
+  onRefresh: () => void
   onRemove: () => void
 }) {
   return (
@@ -365,9 +433,12 @@ function SavedPlayerRow({
           )}
         </div>
         <div className="min-w-0">
-          <p className="truncate text-sm font-medium text-white/85">
-            {player.displayName || "Steam player"}
-          </p>
+          <div className="flex items-center gap-2">
+            <p className="truncate text-sm font-medium text-white/85">
+              {player.displayName || "Steam player"}
+            </p>
+            <PresenceBadge presence={player.presence} />
+          </div>
           <p className="mt-1 truncate font-mono text-xs text-white/38">
             {player.steamId}
           </p>
@@ -377,6 +448,24 @@ function SavedPlayerRow({
         <p className="truncate text-xs text-white/45">
           {player.currentGame || "No public game reported"}
         </p>
+        <Link
+          href={`/players/${player.steamId}`}
+          className="inline-flex h-8 items-center gap-1.5 rounded-xl px-2.5 text-xs text-white/60 hover:bg-white/[0.06] hover:text-white"
+        >
+          Details
+          <ArrowUpRight className="size-3.5" />
+        </Link>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          disabled={busy}
+          onClick={onRefresh}
+          className="rounded-xl text-white/55 hover:bg-white/[0.06] hover:text-white"
+        >
+          <RefreshCw className={`size-3.5 ${busy ? "animate-spin" : ""}`} />
+          Refresh
+        </Button>
         {player.profileUrl && (
           <a
             href={player.profileUrl}

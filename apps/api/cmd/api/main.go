@@ -78,12 +78,13 @@ func main() {
 		logger.Error("prepare server checker schema", "error", err)
 		os.Exit(1)
 	}
-	players := playerstore.NewService(clients.DB)
+	players := playerstore.NewService(clients.DB, hub)
 	if err := players.EnsureSchema(ctx); err != nil {
 		logger.Error("prepare saved players schema", "error", err)
 		os.Exit(1)
 	}
 	go refreshWatchlist(ctx, checker, logger)
+	go refreshSavedPlayers(ctx, players, integrationService, logger)
 
 	server := &http.Server{
 		Addr:              cfg.ListenAddr,
@@ -128,6 +129,23 @@ func refreshWatchlist(ctx context.Context, checker *servercheck.Service, logger 
 			refreshCtx, cancel := context.WithTimeout(ctx, 55*time.Second)
 			if err := checker.RefreshAll(refreshCtx); err != nil {
 				logger.Warn("refresh server watchlist", "error", err)
+			}
+			cancel()
+		}
+	}
+}
+
+func refreshSavedPlayers(ctx context.Context, players *playerstore.Service, integrationService *integrations.Service, logger *slog.Logger) {
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			refreshCtx, cancel := context.WithTimeout(ctx, 55*time.Second)
+			if err := players.RefreshAll(refreshCtx, integrationService); err != nil {
+				logger.Warn("refresh saved players", "error", err)
 			}
 			cancel()
 		}

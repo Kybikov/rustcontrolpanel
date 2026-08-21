@@ -102,6 +102,34 @@ func (s *Service) SearchSteamPlayer(ctx context.Context, query string) (SteamPla
 	return players[0].player(), nil
 }
 
+func (s *Service) SteamPlayers(ctx context.Context, steamIDs []string) ([]SteamPlayer, error) {
+	unique := make([]string, 0, len(steamIDs))
+	seen := make(map[string]struct{}, len(steamIDs))
+	for _, steamID := range steamIDs {
+		steamID = strings.TrimSpace(steamID)
+		if !isSteamID(steamID) || len(unique) >= 100 {
+			continue
+		}
+		if _, exists := seen[steamID]; exists {
+			continue
+		}
+		seen[steamID] = struct{}{}
+		unique = append(unique, steamID)
+	}
+	if len(unique) == 0 {
+		return nil, nil
+	}
+	summaries, err := s.steamPlayerSummaries(ctx, unique)
+	if err != nil {
+		return nil, err
+	}
+	players := make([]SteamPlayer, 0, len(summaries))
+	for _, summary := range summaries {
+		players = append(players, summary.player())
+	}
+	return players, nil
+}
+
 func (s *Service) SteamAccountProfile(ctx context.Context, steamID string) (SteamAccountProfile, error) {
 	if !isSteamID(steamID) {
 		return SteamAccountProfile{}, ErrResourceNotFound

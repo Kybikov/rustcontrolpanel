@@ -82,6 +82,48 @@ func (s *server) savePlayer(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{"player": saved})
 }
 
+func (s *server) savedPlayerDetails(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.requireAuth(w, r, "players.view")
+	if !ok {
+		return
+	}
+	if s.players == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "saved players are not configured"})
+		return
+	}
+	player, err := s.players.Find(r.Context(), user.ID, r.PathValue("steamID"))
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "saved player not found"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not load saved player"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"player": player})
+}
+
+func (s *server) refreshSavedPlayer(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.requireAuth(w, r, "players.search")
+	if !ok {
+		return
+	}
+	if s.players == nil || s.integrations == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "saved player lookup is not configured"})
+		return
+	}
+	player, err := s.players.Refresh(r.Context(), user.ID, r.PathValue("steamID"), s.integrations)
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "saved player not found"})
+		return
+	}
+	if err != nil {
+		writeSteamPlayerError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"player": player})
+}
+
 func (s *server) removeSavedPlayer(w http.ResponseWriter, r *http.Request) {
 	user, ok := s.requireAuth(w, r, "players.search")
 	if !ok {
