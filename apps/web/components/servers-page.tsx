@@ -1,280 +1,545 @@
 "use client"
 
-import Link from "next/link"
-import { useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import {
-  ArrowUpRight,
   CircleAlert,
+  Heart,
+  Map,
+  Plus,
+  Radio,
   RefreshCw,
-  Search,
-  Server,
+  ShieldCheck,
+  Trash2,
   UsersRound,
 } from "lucide-react"
 
 import { PageHeader } from "@/components/page-primitives"
-import { apiFetch, type RustServer, type ServerSearchResult } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import {
+  API_URL,
+  apiFetch,
+  type CheckedRustServer,
+  type WatchlistServer,
+} from "@/lib/api"
 
-const pageSize = 12
+type ErrorPayload = { error?: string }
 
 export function ServersPage() {
-  const [query, setQuery] = useState("")
-  const [result, setResult] = useState<ServerSearchResult | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [loadingMore, setLoadingMore] = useState(false)
+  const [address, setAddress] = useState("")
+  const [checkedServer, setCheckedServer] = useState<CheckedRustServer | null>(
+    null
+  )
+  const [watchlist, setWatchlist] = useState<WatchlistServer[]>([])
+  const [checking, setChecking] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [busyID, setBusyID] = useState<number | null>(null)
   const [error, setError] = useState("")
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  async function search(page = 1, append = false) {
-    if (append) setLoadingMore(true)
-    else setLoading(true)
-    setError("")
+  const loadWatchlist = useCallback(async () => {
+    const response = await apiFetch("/api/v1/servers/watchlist")
+    const payload = (await response.json().catch(() => null)) as
+      { servers?: WatchlistServer[] } | ErrorPayload | null
+    if (!response.ok)
+      throw new Error(errorFrom(payload) ?? "Could not load watchlist")
+    setWatchlist(payload && "servers" in payload ? (payload.servers ?? []) : [])
+  }, [])
 
-    try {
-      const params = new URLSearchParams({
-        page: String(page),
-        perPage: String(pageSize),
+  useEffect(() => {
+    let active = true
+    const timer = setTimeout(() => {
+      void loadWatchlist().catch((cause: unknown) => {
+        if (active)
+          setError(messageFrom(cause, "Could not load your watchlist"))
       })
-      const normalizedQuery = query.trim()
-      if (normalizedQuery) params.set("query", normalizedQuery)
+    }, 0)
+    return () => {
+      active = false
+      clearTimeout(timer)
+    }
+  }, [loadWatchlist])
 
-      const response = await apiFetch(`/api/v1/servers?${params.toString()}`)
-      const payload = (await response.json().catch(() => null)) as
-        ServerSearchResult | { error?: string } | null
-      if (!response.ok) {
-        setError(errorFromPayload(payload) ?? "Could not load servers")
-        return
+  useEffect(() => {
+    let active = true
+    let socket: WebSocket | null = null
+    const connect = () => {
+      if (!active) return
+      const url = new URL(API_URL)
+      url.protocol = url.protocol === "https:" ? "wss:" : "ws:"
+      url.pathname = "/api/v1/realtime/ws"
+      socket = new WebSocket(url.toString())
+      socket.onmessage = (event) => {
+        const payload = JSON.parse(event.data) as {
+          type?: string
+          payload?: { server?: WatchlistServer }
+        }
+        const server = payload.payload?.server
+        if (payload.type !== "server.watchlist.updated" || !server) return
+        setWatchlist((current) =>
+          server.status === "removed"
+            ? current.filter((item) => item.id !== server.id)
+            : upsertServer(current, server)
+        )
       }
+      socket.onclose = () => {
+        if (active) reconnectTimer.current = setTimeout(connect, 3000)
+      }
+    }
+    connect()
+    return () => {
+      active = false
+      if (reconnectTimer.current) clearTimeout(reconnectTimer.current)
+      socket?.close()
+    }
+  }, [])
 
-      const nextResult = payload as ServerSearchResult
-      setResult((current) =>
-        append && current
-          ? {
-              ...nextResult,
-              servers: [...current.servers, ...nextResult.servers],
-            }
-          : nextResult
-      )
-    } catch {
-      setError(
-        "Could not reach the API. Check that the local Docker stack is running and try again."
-      )
+  async function check(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const input = address.trim()
+    if (!input) return
+    setChecking(true)
+    setError("")
+    setCheckedServer(null)
+    try {
+      const response = await apiFetch("/api/v1/servers/check", {
+        method: "POST",
+        body: JSON.stringify({ address: input }),
+      })
+      const payload = (await response.json().catch(() => null)) as
+        { server?: CheckedRustServer } | ErrorPayload | null
+      if (!response.ok || !payload || !("server" in payload) || !payload.server)
+        throw new Error(errorFrom(payload) ?? "Could not check this server")
+      setCheckedServer(payload.server)
+      setAddress(payload.server.address)
+    } catch (cause) {
+      setError(messageFrom(cause, "Could not check this server"))
     } finally {
-      setLoading(false)
-      setLoadingMore(false)
+      setChecking(false)
     }
   }
 
-  function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    void search()
+  async function addToWatchlist() {
+    if (!checkedServer) return
+    setSaving(true)
+    setError("")
+    try {
+      const response = await apiFetch("/api/v1/servers/watchlist", {
+        method: "POST",
+        body: JSON.stringify({ address: checkedServer.address }),
+      })
+      const payload = (await response.json().catch(() => null)) as
+        { server?: WatchlistServer } | ErrorPayload | null
+      if (!response.ok || !payload || !("server" in payload) || !payload.server)
+        throw new Error(errorFrom(payload) ?? "Could not save this server")
+      const savedServer = payload.server
+      setWatchlist((current) => upsertServer(current, savedServer))
+    } catch (cause) {
+      setError(messageFrom(cause, "Could not save this server"))
+    } finally {
+      setSaving(false)
+    }
   }
+
+  async function refresh(server: WatchlistServer) {
+    setBusyID(server.id)
+    setError("")
+    try {
+      const response = await apiFetch(
+        `/api/v1/servers/watchlist/${server.id}/refresh`,
+        { method: "POST" }
+      )
+      const payload = (await response.json().catch(() => null)) as
+        { server?: WatchlistServer } | ErrorPayload | null
+      if (!response.ok || !payload || !("server" in payload) || !payload.server)
+        throw new Error(errorFrom(payload) ?? "Could not refresh this server")
+      const refreshedServer = payload.server
+      setWatchlist((current) => upsertServer(current, refreshedServer))
+    } catch (cause) {
+      setError(messageFrom(cause, "Could not refresh this server"))
+    } finally {
+      setBusyID(null)
+    }
+  }
+
+  async function remove(server: WatchlistServer) {
+    setBusyID(server.id)
+    setError("")
+    try {
+      const response = await apiFetch(
+        `/api/v1/servers/watchlist/${server.id}`,
+        { method: "DELETE" }
+      )
+      if (!response.ok) {
+        const payload = (await response
+          .json()
+          .catch(() => null)) as ErrorPayload | null
+        throw new Error(errorFrom(payload) ?? "Could not remove this server")
+      }
+      setWatchlist((current) => current.filter((item) => item.id !== server.id))
+    } catch (cause) {
+      setError(messageFrom(cause, "Could not remove this server"))
+    } finally {
+      setBusyID(null)
+    }
+  }
+
+  const alreadySaved = checkedServer
+    ? watchlist.some((server) => server.address === checkedServer.address)
+    : false
 
   return (
     <>
       <PageHeader
         title="Servers"
-        description="Live Rust server search and basic server data from BattleMetrics."
+        description="Check a Rust server by its public IP and keep the ones you follow live."
       />
       <Card className="rounded-2xl border-white/[0.08] bg-[#171313] shadow-none">
         <CardContent className="p-5 sm:p-6">
-          <form className="flex flex-col gap-3 sm:flex-row" onSubmit={submit}>
-            <label className="sr-only" htmlFor="server-search">
-              Search Rust servers
-            </label>
-            <div className="relative flex-1">
-              <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-white/35" />
-              <Input
-                id="server-search"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search by server name, for example Rustoria"
-                className="h-10 rounded-xl border-white/[0.08] bg-white/[0.04] pl-9 text-white placeholder:text-white/30"
-              />
+          <div className="flex items-start gap-3">
+            <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-white/[0.06] text-white/65">
+              <Radio className="size-4" />
             </div>
+            <div>
+              <h2 className="text-sm font-semibold text-white/90">
+                Check a server
+              </h2>
+              <p className="mt-1 text-xs leading-5 text-white/42">
+                Paste its public IP and game port from Rust&apos;s console or
+                BattleMetrics. RustControl checks the server directly — no admin
+                access required.
+              </p>
+            </div>
+          </div>
+          <form
+            className="mt-5 flex flex-col gap-3 sm:flex-row"
+            onSubmit={check}
+          >
+            <label className="sr-only" htmlFor="server-address">
+              Server IP and port
+            </label>
+            <Input
+              id="server-address"
+              value={address}
+              onChange={(event) => setAddress(event.target.value)}
+              placeholder="79.137.98.23:28015"
+              className="h-10 rounded-xl border-white/[0.08] bg-white/[0.04] font-mono text-sm text-white placeholder:text-white/28"
+            />
             <Button
               type="submit"
               size="lg"
-              disabled={loading || loadingMore}
-              className="rounded-xl"
+              disabled={checking || !address.trim()}
+              className="rounded-xl sm:min-w-32"
             >
-              {loading ? (
+              {checking ? (
                 <RefreshCw className="size-4 animate-spin" />
               ) : (
-                <Search className="size-4" />
+                <Radio className="size-4" />
               )}
-              {loading ? "Searching…" : "Search servers"}
+              {checking ? "Checking…" : "Check live"}
             </Button>
           </form>
-          <p className="mt-3 text-xs leading-5 text-white/38">
-            Leave the search blank to browse the currently most-populated Rust
-            servers.
+          <p className="mt-3 text-xs text-white/32">
+            Only public IPv4 endpoints are accepted. The checker tries the
+            entered port and its Rust query port once.
           </p>
         </CardContent>
       </Card>
-
-      {error && (
-        <div
-          role="alert"
-          className="mt-4 flex items-start gap-3 rounded-2xl border border-red-400/20 bg-red-400/[0.08] px-4 py-3 text-sm text-red-100"
-        >
-          <CircleAlert className="mt-0.5 size-4 shrink-0 text-red-300" />
-          <div className="min-w-0 flex-1">
-            <p>{error}</p>
-            <p className="mt-1 text-xs text-red-200/75">
-              The provider is managed by the server. Try again shortly.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {!result && !loading && !error && <EmptySearchState />}
-
-      {loading && !result && <LoadingState />}
-
-      {result && (
-        <section aria-live="polite" className="mt-5">
-          <div className="mb-3 flex items-center justify-between gap-4 px-1">
-            <p className="text-sm text-white/65">
-              {result.servers.length
-                ? `${result.servers.length} server${result.servers.length === 1 ? "" : "s"} loaded`
-                : "No servers found"}
-            </p>
-            {result.servers.length > 0 && (
-              <p className="text-xs text-white/35">Sorted by players online</p>
-            )}
-          </div>
-          {result.servers.length > 0 ? (
-            <ServerResults servers={result.servers} />
-          ) : (
-            <EmptyResultState onRetry={() => void search()} />
-          )}
-          {result.hasMore && result.servers.length > 0 && (
-            <div className="mt-4 flex justify-center">
-              <Button
-                type="button"
-                variant="outline"
-                disabled={loadingMore}
-                onClick={() => void search(result.page + 1, true)}
-                className="rounded-xl border-white/[0.12] bg-transparent text-white hover:bg-white/[0.06]"
-              >
-                {loadingMore && <RefreshCw className="size-4 animate-spin" />}
-                {loadingMore ? "Loading…" : "Load more"}
-              </Button>
-            </div>
-          )}
+      {error && <ErrorNotice error={error} />}
+      {checkedServer && (
+        <section className="mt-5" aria-live="polite">
+          <CheckedServerCard
+            server={checkedServer}
+            saved={alreadySaved}
+            saving={saving}
+            onSave={() => void addToWatchlist()}
+          />
         </section>
       )}
+      <section className="mt-8">
+        <div className="mb-3 flex items-end justify-between gap-4 px-1">
+          <div>
+            <h2 className="text-base font-semibold tracking-[-0.02em] text-white/90">
+              Your watchlist
+            </h2>
+            <p className="mt-1 text-xs text-white/38">
+              The API refreshes saved servers every minute and sends updates
+              directly to this page.
+            </p>
+          </div>
+          <span className="text-xs text-white/35 tabular-nums">
+            {watchlist.length} / 25
+          </span>
+        </div>
+        {watchlist.length ? (
+          <div className="overflow-hidden rounded-2xl border border-white/[0.08] bg-[#171313]">
+            {watchlist.map((server) => (
+              <WatchlistRow
+                key={server.id}
+                server={server}
+                busy={busyID === server.id}
+                onRefresh={() => void refresh(server)}
+                onRemove={() => void remove(server)}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="flex min-h-44 flex-col items-center justify-center rounded-2xl border border-dashed border-white/[0.12] px-6 text-center">
+            <Heart className="size-4 text-white/35" />
+            <p className="mt-3 text-sm font-medium text-white/75">
+              No saved servers
+            </p>
+            <p className="mt-1 max-w-md text-xs leading-5 text-white/38">
+              Check a server above, verify it is the one you want, then add it
+              here for live updates.
+            </p>
+          </div>
+        )}
+      </section>
     </>
   )
 }
 
-function ServerResults({ servers }: { servers: RustServer[] }) {
+function CheckedServerCard({
+  server,
+  saved,
+  saving,
+  onSave,
+}: {
+  server: CheckedRustServer
+  saved: boolean
+  saving: boolean
+  onSave: () => void
+}) {
   return (
-    <div className="overflow-hidden rounded-2xl border border-white/[0.08] bg-[#171313]">
-      <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 border-b border-white/[0.08] px-4 py-3 text-[11px] font-medium tracking-[0.12em] text-white/35 uppercase sm:grid-cols-[minmax(0,1fr)_110px_130px_24px] sm:px-5">
-        <span>Server</span>
-        <span className="hidden sm:block">Map</span>
-        <span className="hidden sm:block">Players</span>
-        <span aria-hidden="true" />
-      </div>
-      <div className="divide-y divide-white/[0.07]">
-        {servers.map((server) => (
-          <ServerRow key={server.id} server={server} />
-        ))}
-      </div>
-    </div>
+    <Card className="overflow-hidden rounded-2xl border-emerald-400/20 bg-[#171313] shadow-none">
+      <CardContent className="p-0">
+        <div className="flex flex-col gap-4 border-b border-white/[0.08] px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <ServerIdentity
+            name={server.name}
+            address={server.address}
+            latency={server.latencyMs}
+          />
+          <Button
+            type="button"
+            disabled={saved || saving}
+            onClick={onSave}
+            className="rounded-xl"
+          >
+            {saving ? (
+              <RefreshCw className="size-4 animate-spin" />
+            ) : (
+              <Plus className="size-4" />
+            )}
+            {saved ? "In watchlist" : saving ? "Saving…" : "Add to watchlist"}
+          </Button>
+        </div>
+        <div className="grid divide-y divide-white/[0.08] sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+          <Metric
+            icon={UsersRound}
+            label="Players"
+            value={`${server.players} / ${server.maxPlayers}`}
+            detail={
+              server.bots
+                ? `${server.bots} bot${server.bots === 1 ? "" : "s"}`
+                : "No bots reported"
+            }
+          />
+          <Metric
+            icon={Map}
+            label="Map"
+            value={server.map || "Not reported"}
+            detail={modeFromTags(server.tags) ?? "Mode not reported"}
+          />
+          <Metric
+            icon={ShieldCheck}
+            label="Server"
+            value={server.vacSecured ? "VAC secured" : "VAC not reported"}
+            detail={
+              server.passwordProtected
+                ? "Password protected"
+                : server.version
+                  ? `Version ${server.version}`
+                  : "Version not reported"
+            }
+          />
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 
-function ServerRow({ server }: { server: RustServer }) {
-  const online = server.status.toLowerCase() === "online"
-  const playerCount = `${server.players.toLocaleString()} / ${server.maxPlayers.toLocaleString()}`
-
+function WatchlistRow({
+  server,
+  busy,
+  onRefresh,
+  onRemove,
+}: {
+  server: WatchlistServer
+  busy: boolean
+  onRefresh: () => void
+  onRemove: () => void
+}) {
+  const online = server.status === "online"
   return (
-    <Link
-      href={`/servers/${encodeURIComponent(server.id)}`}
-      className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-4 transition-colors outline-none hover:bg-white/[0.035] focus-visible:bg-white/[0.06] sm:grid-cols-[minmax(0,1fr)_110px_130px_24px] sm:px-5"
-    >
-      <div className="min-w-0">
+    <div className="flex flex-col gap-4 border-b border-white/[0.07] px-4 py-4 last:border-0 sm:px-5 md:flex-row md:items-center">
+      <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span
-            className={`size-1.5 shrink-0 rounded-full ${online ? "bg-emerald-400" : "bg-white/25"}`}
+            className={`size-1.5 shrink-0 rounded-full ${online ? "bg-emerald-400" : "bg-red-400"}`}
           />
           <p className="truncate text-sm font-medium text-white/90">
-            {server.name || "Unnamed Rust server"}
+            {online ? server.name || "Unnamed Rust server" : "Server offline"}
           </p>
         </div>
-        <p className="mt-1 truncate pl-3.5 text-xs text-white/38">
-          {server.address || `${server.ip}:${server.port}`}
+        <p className="mt-1 pl-3.5 font-mono text-xs text-white/38">
+          {server.address}
         </p>
+        {!online && server.error && (
+          <p className="mt-2 pl-3.5 text-xs text-red-200/70">{server.error}</p>
+        )}
       </div>
-      <p className="hidden truncate text-xs text-white/55 sm:block">
-        {server.map || "—"}
-      </p>
-      <div className="hidden items-center gap-2 text-xs text-white/65 sm:flex">
-        <UsersRound className="size-3.5 text-white/35" />
-        <span>{playerCount}</span>
+      <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-xs md:w-[310px] md:grid-cols-3">
+        <Stat
+          label="Players"
+          value={
+            online &&
+            server.players !== undefined &&
+            server.maxPlayers !== undefined
+              ? `${server.players} / ${server.maxPlayers}`
+              : "—"
+          }
+        />
+        <Stat label="Map" value={online ? server.map || "—" : "—"} />
+        <Stat
+          label="Checked"
+          value={server.checkedAt ? relativeTime(server.checkedAt) : "—"}
+        />
       </div>
-      <ArrowUpRight className="size-4 text-white/35" />
-    </Link>
-  )
-}
-
-function EmptySearchState() {
-  return (
-    <div className="mt-5 flex min-h-56 flex-col items-center justify-center rounded-2xl border border-dashed border-white/[0.12] px-6 text-center">
-      <div className="grid size-10 place-items-center rounded-xl bg-white/[0.06] text-white/55">
-        <Server className="size-4" />
+      <div className="flex shrink-0 gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={busy}
+          onClick={onRefresh}
+          className="rounded-xl border-white/[0.12] bg-transparent text-white/75 hover:bg-white/[0.06] hover:text-white"
+        >
+          <RefreshCw className={`size-3.5 ${busy ? "animate-spin" : ""}`} />{" "}
+          Refresh
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          disabled={busy}
+          onClick={onRemove}
+          className="rounded-xl text-white/45 hover:bg-red-400/[0.08] hover:text-red-200"
+          aria-label={`Remove ${server.address} from watchlist`}
+        >
+          <Trash2 className="size-3.5" />
+        </Button>
       </div>
-      <p className="mt-4 text-sm font-medium text-white/80">
-        Search live Rust servers
-      </p>
-      <p className="mt-1 max-w-sm text-xs leading-5 text-white/38">
-        Use a name to narrow the result, or search without a phrase to see the
-        servers with the most players online.
-      </p>
     </div>
   )
 }
 
-function LoadingState() {
+function ServerIdentity({
+  name,
+  address,
+  latency,
+}: {
+  name: string
+  address: string
+  latency: number
+}) {
   return (
-    <div className="mt-5 flex min-h-56 flex-col items-center justify-center rounded-2xl border border-white/[0.08] bg-[#171313] text-center">
-      <RefreshCw className="size-5 animate-spin text-white/45" />
-      <p className="mt-3 text-sm text-white/55">Loading live server data…</p>
+    <div className="min-w-0">
+      <div className="flex items-center gap-2">
+        <span className="size-1.5 shrink-0 rounded-full bg-emerald-400" />
+        <h2 className="truncate text-base font-semibold tracking-[-0.02em] text-white">
+          {name || "Unnamed Rust server"}
+        </h2>
+      </div>
+      <div className="mt-1 flex items-center gap-2 pl-3.5 text-xs text-white/42">
+        <span className="font-mono">{address}</span>
+        <span className="text-white/20">•</span>
+        <span>{latency} ms</span>
+      </div>
     </div>
   )
 }
-
-function EmptyResultState({ onRetry }: { onRetry: () => void }) {
+function Metric({
+  icon: Icon,
+  label,
+  value,
+  detail,
+}: {
+  icon: typeof UsersRound
+  label: string
+  value: string
+  detail: string
+}) {
   return (
-    <div className="flex min-h-56 flex-col items-center justify-center rounded-2xl border border-white/[0.08] bg-[#171313] px-6 text-center">
-      <Server className="size-5 text-white/40" />
-      <p className="mt-3 text-sm font-medium text-white/75">
-        No matching servers
+    <div className="px-5 py-4 sm:px-6">
+      <div className="flex items-center gap-2 text-xs text-white/40">
+        <Icon className="size-3.5" />
+        {label}
+      </div>
+      <p className="mt-2 truncate text-sm font-semibold text-white/90">
+        {value}
       </p>
-      <p className="mt-1 text-xs text-white/38">
-        Try a shorter search phrase or browse all currently populated servers.
-      </p>
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        onClick={onRetry}
-        className="mt-3 rounded-xl text-white/65 hover:bg-white/[0.06] hover:text-white"
-      >
-        Try again
-      </Button>
+      <p className="mt-1 truncate text-xs text-white/38">{detail}</p>
     </div>
   )
 }
-
-function errorFromPayload(
-  payload: ServerSearchResult | { error?: string } | null
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-[10px] font-medium tracking-[0.12em] text-white/32 uppercase">
+        {label}
+      </p>
+      <p className="mt-1 truncate text-xs text-white/65">{value}</p>
+    </div>
+  )
+}
+function ErrorNotice({ error }: { error: string }) {
+  return (
+    <div
+      role="alert"
+      className="mt-4 flex items-start gap-3 rounded-2xl border border-red-400/20 bg-red-400/[0.08] px-4 py-3 text-sm text-red-100"
+    >
+      <CircleAlert className="mt-0.5 size-4 shrink-0 text-red-300" />
+      <p>{error}</p>
+    </div>
+  )
+}
+function upsertServer(current: WatchlistServer[], server: WatchlistServer) {
+  const index = current.findIndex((item) => item.id === server.id)
+  return index < 0
+    ? [server, ...current]
+    : current.map((item) => (item.id === server.id ? server : item))
+}
+function errorFrom(
+  payload: ErrorPayload | { server?: unknown } | { servers?: unknown } | null
 ) {
-  if (payload && "error" in payload && typeof payload.error === "string")
-    return payload.error
-  return null
+  return payload && "error" in payload && typeof payload.error === "string"
+    ? payload.error
+    : null
+}
+function messageFrom(cause: unknown, fallback: string) {
+  return cause instanceof Error && cause.message ? cause.message : fallback
+}
+function modeFromTags(tags: string[]) {
+  const mode = tags.find((tag) => tag.startsWith("gm"))
+  return mode ? `Mode: ${mode.slice(2)}` : null
+}
+function relativeTime(value: string) {
+  const elapsed = Math.max(0, Date.now() - new Date(value).getTime())
+  const seconds = Math.floor(elapsed / 1000)
+  if (seconds < 10) return "just now"
+  if (seconds < 60) return `${seconds}s ago`
+  const minutes = Math.floor(seconds / 60)
+  return minutes < 60 ? `${minutes}m ago` : `${Math.floor(minutes / 60)}h ago`
 }

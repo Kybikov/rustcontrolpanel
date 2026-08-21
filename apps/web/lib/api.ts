@@ -79,6 +79,42 @@ export type ServerSearchResult = {
   hasMore: boolean
 }
 
+export type CheckedRustServer = {
+  address: string
+  queryAddress: string
+  name: string
+  map: string
+  players: number
+  maxPlayers: number
+  bots: number
+  version: string
+  tags: string[]
+  vacSecured: boolean
+  passwordProtected: boolean
+  latencyMs: number
+  checkedAt: string
+}
+
+export type WatchlistServer = {
+  id: number
+  address: string
+  queryAddress: string
+  status: "online" | "offline" | "unknown" | "removed"
+  error?: string
+  name?: string
+  map?: string
+  players?: number
+  maxPlayers?: number
+  bots?: number
+  version?: string
+  tags: string[]
+  vacSecured?: boolean
+  passwordProtected?: boolean
+  latencyMs?: number
+  checkedAt?: string
+  createdAt: string
+}
+
 export const API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080"
 

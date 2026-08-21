@@ -15,6 +15,7 @@ import (
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/httpapi"
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/integrations"
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/realtime"
+	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/servercheck"
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/storage"
 )
 
@@ -71,6 +72,12 @@ func main() {
 
 	hub := realtime.NewHub()
 	go hub.Run(ctx)
+	checker := servercheck.NewService(clients.DB, hub)
+	if err := checker.EnsureSchema(ctx); err != nil {
+		logger.Error("prepare server checker schema", "error", err)
+		os.Exit(1)
+	}
+	go refreshWatchlist(ctx, checker, logger)
 
 	server := &http.Server{
 		Addr:              cfg.ListenAddr,
@@ -101,5 +108,22 @@ func main() {
 			os.Exit(1)
 		}
 		logger.Info("api stopped")
+	}
+}
+
+func refreshWatchlist(ctx context.Context, checker *servercheck.Service, logger *slog.Logger) {
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			refreshCtx, cancel := context.WithTimeout(ctx, 55*time.Second)
+			if err := checker.RefreshAll(refreshCtx); err != nil {
+				logger.Warn("refresh server watchlist", "error", err)
+			}
+			cancel()
+		}
 	}
 }

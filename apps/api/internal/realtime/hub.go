@@ -27,7 +27,6 @@ type Event struct {
 
 type Hub struct {
 	clients    map[*client]struct{}
-	register   chan *client
 	unregister chan *client
 	broadcast  chan []byte
 	mu         sync.RWMutex
@@ -35,15 +34,15 @@ type Hub struct {
 }
 
 type client struct {
-	hub  *Hub
-	conn *websocket.Conn
-	send chan []byte
+	hub    *Hub
+	conn   *websocket.Conn
+	send   chan []byte
+	userID int64
 }
 
 func NewHub() *Hub {
 	return &Hub{
 		clients:    make(map[*client]struct{}),
-		register:   make(chan *client),
 		unregister: make(chan *client),
 		broadcast:  make(chan []byte, 64),
 	}
@@ -54,11 +53,6 @@ func (h *Hub) Run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case c := <-h.register:
-			h.mu.Lock()
-			h.clients[c] = struct{}{}
-			h.mu.Unlock()
-			h.connected.Add(1)
 		case c := <-h.unregister:
 			h.remove(c)
 		case message := <-h.broadcast:
@@ -90,6 +84,13 @@ func (h *Hub) remove(c *client) {
 	_ = c.conn.Close()
 }
 
+func (h *Hub) add(c *client) {
+	h.mu.Lock()
+	h.clients[c] = struct{}{}
+	h.mu.Unlock()
+	h.connected.Add(1)
+}
+
 func (h *Hub) Publish(event Event) {
 	message, err := json.Marshal(event)
 	if err != nil {
@@ -101,20 +102,42 @@ func (h *Hub) Publish(event Event) {
 	}
 }
 
+func (h *Hub) PublishToUser(userID int64, event Event) {
+	message, err := json.Marshal(event)
+	if err != nil {
+		return
+	}
+	h.mu.RLock()
+	clients := make([]*client, 0)
+	for c := range h.clients {
+		if c.userID == userID {
+			clients = append(clients, c)
+		}
+	}
+	h.mu.RUnlock()
+	for _, c := range clients {
+		select {
+		case c.send <- message:
+		default:
+			h.remove(c)
+		}
+	}
+}
+
 func (h *Hub) Stats() map[string]int64 {
 	return map[string]int64{"connections": h.connected.Load()}
 }
 
-func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request, logger *slog.Logger, upgrader websocket.Upgrader) {
+func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request, logger *slog.Logger, upgrader websocket.Upgrader, userID int64) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		logger.Warn("websocket upgrade failed", "error", err)
 		return
 	}
 
-	c := &client{hub: h, conn: conn, send: make(chan []byte, 16)}
-	h.register <- c
-	h.Publish(Event{Type: "realtime.connected", Timestamp: time.Now().UTC(), Payload: map[string]any{"channel": "control"}})
+	c := &client{hub: h, conn: conn, send: make(chan []byte, 16), userID: userID}
+	h.add(c)
+	h.PublishToUser(userID, Event{Type: "realtime.connected", Timestamp: time.Now().UTC(), Payload: map[string]any{"channel": "control"}})
 
 	go c.writePump()
 	c.readPump()

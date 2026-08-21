@@ -11,6 +11,7 @@ import (
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/config"
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/integrations"
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/realtime"
+	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/servercheck"
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/storage"
 	"github.com/gorilla/websocket"
 )
@@ -24,7 +25,11 @@ func NewRouter(cfg config.Config, clients *storage.Clients, hub *realtime.Hub, l
 	if len(integrationServices) > 0 {
 		integrationService = integrationServices[0]
 	}
-	server := &server{cfg: cfg, clients: clients, hub: hub, auth: dbService, integrations: integrationService, logger: logger, startedAt: time.Now().UTC()}
+	var checker *servercheck.Service
+	if clients != nil {
+		checker = servercheck.NewService(clients.DB, hub)
+	}
+	server := &server{cfg: cfg, clients: clients, hub: hub, auth: dbService, integrations: integrationService, checker: checker, logger: logger, startedAt: time.Now().UTC()}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", server.healthz)
 	mux.HandleFunc("GET /readyz", server.readyz)
@@ -43,6 +48,11 @@ func NewRouter(cfg config.Config, clients *storage.Clients, hub *realtime.Hub, l
 	mux.HandleFunc("DELETE /api/v1/auth/steam", server.unlinkSteamAccount)
 	mux.HandleFunc("GET /api/v1/servers", server.searchServers)
 	mux.HandleFunc("GET /api/v1/servers/{id}", server.serverDetails)
+	mux.HandleFunc("POST /api/v1/servers/check", server.checkServer)
+	mux.HandleFunc("GET /api/v1/servers/watchlist", server.listWatchlist)
+	mux.HandleFunc("POST /api/v1/servers/watchlist", server.addWatchlistServer)
+	mux.HandleFunc("POST /api/v1/servers/watchlist/{id}/refresh", server.refreshWatchlistServer)
+	mux.HandleFunc("DELETE /api/v1/servers/watchlist/{id}", server.removeWatchlistServer)
 	mux.HandleFunc("GET /api/v1/players", server.searchPlayers)
 	mux.HandleFunc("GET /api/v1/permissions", server.listPermissions)
 	mux.HandleFunc("GET /api/v1/roles", server.listRoles)
@@ -62,6 +72,7 @@ type server struct {
 	hub          *realtime.Hub
 	auth         *auth.Service
 	integrations *integrations.Service
+	checker      *servercheck.Service
 	logger       *slog.Logger
 	startedAt    time.Time
 }
@@ -106,6 +117,10 @@ func (s *server) realtimeStats(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *server) realtimeWS(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.requireAuth(w, r, "servers.view")
+	if !ok {
+		return
+	}
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
@@ -114,7 +129,7 @@ func (s *server) realtimeWS(w http.ResponseWriter, r *http.Request) {
 			return origin == "" || slices.Contains(s.cfg.AllowedOrigins, "*") || slices.Contains(s.cfg.AllowedOrigins, origin)
 		},
 	}
-	s.hub.ServeWS(w, r, s.logger, upgrader)
+	s.hub.ServeWS(w, r, s.logger, upgrader, user.ID)
 }
 
 func withRequestID(next http.Handler) http.Handler {
