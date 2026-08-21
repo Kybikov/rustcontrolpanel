@@ -10,6 +10,7 @@ import (
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/auth"
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/config"
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/integrations"
+	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/playerstore"
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/realtime"
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/servercheck"
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/storage"
@@ -26,10 +27,12 @@ func NewRouter(cfg config.Config, clients *storage.Clients, hub *realtime.Hub, l
 		integrationService = integrationServices[0]
 	}
 	var checker *servercheck.Service
+	var players *playerstore.Service
 	if clients != nil {
 		checker = servercheck.NewService(clients.DB, hub)
+		players = playerstore.NewService(clients.DB)
 	}
-	server := &server{cfg: cfg, clients: clients, hub: hub, auth: dbService, integrations: integrationService, checker: checker, logger: logger, startedAt: time.Now().UTC()}
+	server := &server{cfg: cfg, clients: clients, hub: hub, auth: dbService, integrations: integrationService, checker: checker, players: players, logger: logger, startedAt: time.Now().UTC()}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", server.healthz)
 	mux.HandleFunc("GET /readyz", server.readyz)
@@ -51,9 +54,15 @@ func NewRouter(cfg config.Config, clients *storage.Clients, hub *realtime.Hub, l
 	mux.HandleFunc("POST /api/v1/servers/check", server.checkServer)
 	mux.HandleFunc("GET /api/v1/servers/watchlist", server.listWatchlist)
 	mux.HandleFunc("POST /api/v1/servers/watchlist", server.addWatchlistServer)
+	mux.HandleFunc("GET /api/v1/servers/watchlist/{id}", server.watchlistServerDetails)
 	mux.HandleFunc("POST /api/v1/servers/watchlist/{id}/refresh", server.refreshWatchlistServer)
 	mux.HandleFunc("DELETE /api/v1/servers/watchlist/{id}", server.removeWatchlistServer)
 	mux.HandleFunc("GET /api/v1/players", server.searchPlayers)
+	mux.HandleFunc("GET /api/v1/players/saved", server.listSavedPlayers)
+	mux.HandleFunc("POST /api/v1/players/saved", server.savePlayer)
+	mux.HandleFunc("DELETE /api/v1/players/saved/{steamID}", server.removeSavedPlayer)
+	mux.HandleFunc("GET /api/v1/notifications", server.listNotifications)
+	mux.HandleFunc("POST /api/v1/notifications/read", server.markNotificationsRead)
 	mux.HandleFunc("GET /api/v1/permissions", server.listPermissions)
 	mux.HandleFunc("GET /api/v1/roles", server.listRoles)
 	mux.HandleFunc("POST /api/v1/roles", server.createRole)
@@ -73,6 +82,7 @@ type server struct {
 	auth         *auth.Service
 	integrations *integrations.Service
 	checker      *servercheck.Service
+	players      *playerstore.Service
 	logger       *slog.Logger
 	startedAt    time.Time
 }

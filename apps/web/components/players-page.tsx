@@ -1,18 +1,20 @@
 "use client"
 
 import Image from "next/image"
-import { useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import {
+  Bookmark,
   CircleAlert,
   ExternalLink,
   Gamepad2,
   RefreshCw,
   Search,
+  Trash2,
   Users,
 } from "lucide-react"
 
 import { PageHeader } from "@/components/page-primitives"
-import { apiFetch, type SteamPlayer } from "@/lib/api"
+import { apiFetch, type SavedSteamPlayer, type SteamPlayer } from "@/lib/api"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -21,8 +23,81 @@ import { Input } from "@/components/ui/input"
 export function PlayersPage() {
   const [query, setQuery] = useState("")
   const [players, setPlayers] = useState<SteamPlayer[]>([])
+  const [savedPlayers, setSavedPlayers] = useState<SavedSteamPlayer[]>([])
   const [loading, setLoading] = useState(false)
+  const [savingSteamID, setSavingSteamID] = useState<string | null>(null)
   const [error, setError] = useState("")
+
+  const loadSavedPlayers = useCallback(async () => {
+    const response = await apiFetch("/api/v1/players/saved")
+    const payload = (await response.json().catch(() => null)) as {
+      players?: SavedSteamPlayer[]
+      error?: string
+    } | null
+    if (!response.ok)
+      throw new Error(payload?.error ?? "Could not load saved players")
+    setSavedPlayers(payload?.players ?? [])
+  }, [])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void loadSavedPlayers().catch(() => undefined)
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [loadSavedPlayers])
+
+  async function savePlayer(player: SteamPlayer) {
+    setSavingSteamID(player.steamId)
+    setError("")
+    try {
+      const response = await apiFetch("/api/v1/players/saved", {
+        method: "POST",
+        body: JSON.stringify({ steamId: player.steamId }),
+      })
+      const payload = (await response.json().catch(() => null)) as {
+        player?: SavedSteamPlayer
+        error?: string
+      } | null
+      if (!response.ok || !payload?.player) {
+        setError(payload?.error ?? "Could not save this player")
+        return
+      }
+      setSavedPlayers((current) => upsertSavedPlayer(current, payload.player!))
+    } catch {
+      setError(
+        "Could not reach the API. Check the local Docker stack and try again."
+      )
+    } finally {
+      setSavingSteamID(null)
+    }
+  }
+
+  async function removeSavedPlayer(steamID: string) {
+    setSavingSteamID(steamID)
+    setError("")
+    try {
+      const response = await apiFetch(
+        `/api/v1/players/saved/${encodeURIComponent(steamID)}`,
+        { method: "DELETE" }
+      )
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as {
+          error?: string
+        } | null
+        setError(payload?.error ?? "Could not remove this player")
+        return
+      }
+      setSavedPlayers((current) =>
+        current.filter((player) => player.steamId !== steamID)
+      )
+    } catch {
+      setError(
+        "Could not reach the API. Check the local Docker stack and try again."
+      )
+    } finally {
+      setSavingSteamID(null)
+    }
+  }
 
   async function search(event?: React.FormEvent<HTMLFormElement>) {
     event?.preventDefault()
@@ -106,6 +181,46 @@ export function PlayersPage() {
         </CardContent>
       </Card>
 
+      <section className="mt-7">
+        <div className="mb-3 flex items-end justify-between gap-4 px-1">
+          <div>
+            <h2 className="text-base font-semibold tracking-[-0.02em] text-white/90">
+              Saved players
+            </h2>
+            <p className="mt-1 text-xs text-white/38">
+              Profiles you chose to keep. Saving again refreshes the stored
+              public Steam data.
+            </p>
+          </div>
+          <span className="text-xs text-white/35 tabular-nums">
+            {savedPlayers.length} / 100
+          </span>
+        </div>
+        {savedPlayers.length ? (
+          <div className="overflow-hidden rounded-2xl border border-white/[0.08] bg-[#171313]">
+            {savedPlayers.map((player) => (
+              <SavedPlayerRow
+                key={player.steamId}
+                player={player}
+                busy={savingSteamID === player.steamId}
+                onRemove={() => void removeSavedPlayer(player.steamId)}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="flex min-h-36 flex-col items-center justify-center rounded-2xl border border-dashed border-white/[0.12] px-6 text-center">
+            <Bookmark className="size-4 text-white/35" />
+            <p className="mt-3 text-sm font-medium text-white/75">
+              No saved players
+            </p>
+            <p className="mt-1 max-w-md text-xs leading-5 text-white/38">
+              Find a public Steam profile, then save it to keep the latest
+              profile data here.
+            </p>
+          </div>
+        )}
+      </section>
+
       {error && (
         <div
           role="alert"
@@ -132,7 +247,15 @@ export function PlayersPage() {
       {!loading && players.length > 0 && (
         <div className="mt-5 space-y-3" aria-live="polite">
           {players.map((player) => (
-            <PlayerResult key={player.steamId} player={player} />
+            <PlayerResult
+              key={player.steamId}
+              player={player}
+              saved={savedPlayers.some(
+                (saved) => saved.steamId === player.steamId
+              )}
+              saving={savingSteamID === player.steamId}
+              onSave={() => void savePlayer(player)}
+            />
           ))}
         </div>
       )}
@@ -140,7 +263,17 @@ export function PlayersPage() {
   )
 }
 
-function PlayerResult({ player }: { player: SteamPlayer }) {
+function PlayerResult({
+  player,
+  saved,
+  saving,
+  onSave,
+}: {
+  player: SteamPlayer
+  saved: boolean
+  saving: boolean
+  onSave: () => void
+}) {
   const avatar = player.avatarUrl ? (
     <Image
       src={player.avatarUrl}
@@ -174,6 +307,17 @@ function PlayerResult({ player }: { player: SteamPlayer }) {
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-2 sm:ml-auto sm:justify-end">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={saving}
+          onClick={onSave}
+          className="rounded-xl border-white/[0.12] bg-transparent text-white/75 hover:bg-white/[0.06] hover:text-white"
+        >
+          <Bookmark className="size-3.5" />
+          {saving ? "Saving…" : saved ? "Update saved" : "Save player"}
+        </Button>
         <Badge
           variant="outline"
           className="rounded-full border-white/[0.12] bg-white/[0.03] text-[11px] font-normal text-white/65 capitalize"
@@ -193,6 +337,78 @@ function PlayerResult({ player }: { player: SteamPlayer }) {
       </div>
     </article>
   )
+}
+
+function SavedPlayerRow({
+  player,
+  busy,
+  onRemove,
+}: {
+  player: SavedSteamPlayer
+  busy: boolean
+  onRemove: () => void
+}) {
+  return (
+    <div className="flex flex-col gap-3 border-b border-white/[0.07] px-4 py-4 last:border-0 sm:flex-row sm:items-center sm:px-5">
+      <div className="flex min-w-0 items-center gap-3">
+        <div className="grid size-9 shrink-0 place-items-center overflow-hidden rounded-xl bg-white/[0.06] text-xs font-semibold text-white/60">
+          {player.avatarUrl ? (
+            <Image
+              src={player.avatarUrl}
+              alt=""
+              width={36}
+              height={36}
+              className="size-9 object-cover"
+            />
+          ) : (
+            player.displayName.slice(0, 2).toUpperCase()
+          )}
+        </div>
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium text-white/85">
+            {player.displayName || "Steam player"}
+          </p>
+          <p className="mt-1 truncate font-mono text-xs text-white/38">
+            {player.steamId}
+          </p>
+        </div>
+      </div>
+      <div className="flex min-w-0 flex-1 items-center gap-3 sm:ml-auto sm:justify-end">
+        <p className="truncate text-xs text-white/45">
+          {player.currentGame || "No public game reported"}
+        </p>
+        {player.profileUrl && (
+          <a
+            href={player.profileUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex h-8 items-center gap-1.5 rounded-xl px-2.5 text-xs text-white/55 hover:bg-white/[0.06] hover:text-white"
+          >
+            <ExternalLink className="size-3.5" />
+            Steam
+          </a>
+        )}
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          disabled={busy}
+          onClick={onRemove}
+          aria-label={`Remove ${player.displayName || player.steamId}`}
+          className="rounded-xl text-white/45 hover:bg-red-400/[0.08] hover:text-red-200"
+        >
+          <Trash2 className="size-3.5" />
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function upsertSavedPlayer(
+  current: SavedSteamPlayer[],
+  player: SavedSteamPlayer
+) {
+  return [player, ...current.filter((item) => item.steamId !== player.steamId)]
 }
 
 function PresenceBadge({ presence }: { presence: string }) {

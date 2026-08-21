@@ -5,22 +5,26 @@ import { useCallback, useEffect, useState } from "react"
 import {
   ArrowLeft,
   CircleAlert,
+  Clock3,
   Copy,
   Map,
+  Radio,
   RefreshCw,
   Server,
-  Trophy,
+  ShieldCheck,
+  Tags,
   UsersRound,
 } from "lucide-react"
 
 import { PageHeader } from "@/components/page-primitives"
-import { apiFetch, type RustServer } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { apiFetch, type WatchlistServer } from "@/lib/api"
 
 export function ServerDetailPage({ serverId }: { serverId: string }) {
-  const [server, setServer] = useState<RustServer | null>(null)
+  const [server, setServer] = useState<WatchlistServer | null>(null)
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState("")
   const [copied, setCopied] = useState(false)
 
@@ -29,20 +33,20 @@ export function ServerDetailPage({ serverId }: { serverId: string }) {
     setError("")
     try {
       const response = await apiFetch(
-        `/api/v1/servers/${encodeURIComponent(serverId)}`
+        `/api/v1/servers/watchlist/${encodeURIComponent(serverId)}`
       )
       const payload = (await response.json().catch(() => null)) as {
-        server?: RustServer
+        server?: WatchlistServer
         error?: string
       } | null
       if (!response.ok || !payload?.server) {
-        setError(payload?.error ?? "Could not load this server")
+        setError(payload?.error ?? "Could not load this saved server")
         return
       }
       setServer(payload.server)
     } catch {
       setError(
-        "Could not reach the API. Check that the local Docker stack is running and try again."
+        "Could not reach the API. Check the local Docker stack and try again."
       )
     } finally {
       setLoading(false)
@@ -54,6 +58,33 @@ export function ServerDetailPage({ serverId }: { serverId: string }) {
     return () => window.clearTimeout(timer)
   }, [load])
 
+  async function refresh() {
+    if (!server) return
+    setRefreshing(true)
+    setError("")
+    try {
+      const response = await apiFetch(
+        `/api/v1/servers/watchlist/${server.id}/refresh`,
+        { method: "POST" }
+      )
+      const payload = (await response.json().catch(() => null)) as {
+        server?: WatchlistServer
+        error?: string
+      } | null
+      if (!response.ok || !payload?.server) {
+        setError(payload?.error ?? "Could not refresh this server")
+        return
+      }
+      setServer(payload.server)
+    } catch {
+      setError(
+        "Could not reach the API. Check the local Docker stack and try again."
+      )
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
   async function copyAddress() {
     if (!server?.address) return
     await navigator.clipboard.writeText(server.address)
@@ -62,110 +93,208 @@ export function ServerDetailPage({ serverId }: { serverId: string }) {
   }
 
   if (loading) return <LoadingDetail />
-  if (error || !server)
-    return <DetailError error={error} onRetry={() => void load()} />
+  if (!server) return <DetailError error={error} onRetry={() => void load()} />
 
-  const online = server.status.toLowerCase() === "online"
-  const address = server.address || `${server.ip}:${server.port}`
-  const playerCount = `${server.players.toLocaleString()} / ${server.maxPlayers.toLocaleString()}`
+  const online = server.status === "online"
+  const title = server.name || server.address
+  const playerCount =
+    online && server.players !== undefined && server.maxPlayers !== undefined
+      ? `${server.players} / ${server.maxPlayers}`
+      : "Not available"
 
   return (
     <>
       <PageHeader
         title="Server details"
-        description="Live basic data provided by BattleMetrics."
+        description="Stored live snapshot. More data will appear here as trusted sources become available."
         action={
           <Link
             href="/servers"
             className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-white/[0.12] px-3 text-sm text-white/75 transition-colors hover:bg-white/[0.06] hover:text-white"
           >
             <ArrowLeft className="size-4" />
-            All servers
+            Servers
           </Link>
         }
       />
-      <Card className="rounded-2xl border-white/[0.08] bg-[#171313] shadow-none">
-        <CardContent className="p-5 sm:p-6">
-          <div className="flex flex-col justify-between gap-5 border-b border-white/[0.08] pb-5 sm:flex-row sm:items-start">
+      {error && <ErrorNotice error={error} />}
+      <Card className="overflow-hidden rounded-2xl border-white/[0.08] bg-[#171313] shadow-none">
+        <CardContent className="p-0">
+          <div className="flex flex-col gap-5 border-b border-white/[0.08] px-5 py-5 sm:flex-row sm:items-start sm:justify-between sm:px-6">
             <div className="min-w-0">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 text-xs text-white/50">
                 <span
-                  className={`size-2 rounded-full ${online ? "bg-emerald-400" : "bg-white/25"}`}
+                  className={`size-1.5 rounded-full ${online ? "bg-emerald-400" : server.status === "blocked" ? "bg-amber-400" : "bg-red-400"}`}
                 />
-                <span className="text-xs font-medium text-white/50 capitalize">
-                  {server.status || "Unknown"}
-                </span>
+                <span className="capitalize">{server.status}</span>
               </div>
               <h2 className="mt-3 text-xl font-semibold tracking-[-0.03em] break-words text-white sm:text-2xl">
-                {server.name || "Unnamed Rust server"}
+                {title}
               </h2>
-              <p className="mt-2 text-sm text-white/45">
-                {server.description || "No server description was provided."}
-              </p>
-            </div>
-            <div className="flex shrink-0 items-center gap-3 rounded-xl bg-white/[0.04] px-4 py-3">
-              <UsersRound className="size-5 text-white/45" />
-              <div>
-                <p className="text-lg font-semibold text-white tabular-nums">
-                  {playerCount}
-                </p>
-                <p className="text-xs text-white/40">players online</p>
-              </div>
-            </div>
-          </div>
-
-          <dl className="grid divide-y divide-white/[0.07] sm:grid-cols-2 sm:divide-x sm:divide-y-0">
-            <DetailItem icon={<Server className="size-4" />} label="Address">
-              <div className="flex items-center gap-2">
-                <span className="truncate font-mono text-xs text-white/80">
-                  {address}
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-white/45">
+                <span className="font-mono text-xs text-white/65">
+                  {server.address}
                 </span>
-                {server.address && (
-                  <button
-                    type="button"
-                    onClick={() => void copyAddress()}
-                    className="rounded-md p-1 text-white/40 transition-colors outline-none hover:bg-white/[0.07] hover:text-white focus-visible:ring-2 focus-visible:ring-white/40"
-                    aria-label="Copy server address"
-                  >
-                    <Copy className="size-3.5" />
-                  </button>
+                <button
+                  type="button"
+                  onClick={() => void copyAddress()}
+                  className="rounded-md p-1 text-white/40 transition-colors hover:bg-white/[0.07] hover:text-white focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:outline-none"
+                  aria-label="Copy server address"
+                >
+                  <Copy className="size-3.5" />
+                </button>
+                {copied && (
+                  <span className="text-xs text-emerald-300">
+                    Address copied
+                  </span>
                 )}
               </div>
-              {copied && (
-                <span className="mt-1 block text-[11px] text-emerald-300">
-                  Address copied
-                </span>
+              {server.error && !online && (
+                <p className="mt-3 max-w-2xl text-sm leading-6 text-amber-100/80">
+                  {server.error}
+                </p>
               )}
-            </DetailItem>
-            <DetailItem icon={<Map className="size-4" />} label="Map">
-              {server.map || "Not provided"}
-              {server.mapSize ? (
-                <span className="ml-2 text-xs text-white/35">
-                  {server.mapSize.toLocaleString()} size
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={refreshing}
+              onClick={() => void refresh()}
+              className="shrink-0 rounded-xl border-white/[0.12] bg-transparent text-white hover:bg-white/[0.06]"
+            >
+              <RefreshCw
+                className={`size-4 ${refreshing ? "animate-spin" : ""}`}
+              />
+              {refreshing ? "Refreshing…" : "Refresh now"}
+            </Button>
+          </div>
+          <div className="grid divide-y divide-white/[0.08] sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-4">
+            <Fact
+              icon={UsersRound}
+              label="Players"
+              value={playerCount}
+              detail={server.bots ? `${server.bots} bots reported` : undefined}
+            />
+            <Fact icon={Map} label="Map" value={server.map || "Not reported"} />
+            <Fact
+              icon={Radio}
+              label="Query port"
+              value={portFromAddress(server.queryAddress)}
+            />
+            <Fact
+              icon={Clock3}
+              label="Last checked"
+              value={formatTimestamp(server.checkedAt)}
+              detail={
+                server.latencyMs !== undefined
+                  ? `${server.latencyMs} ms response`
+                  : undefined
+              }
+            />
+          </div>
+        </CardContent>
+      </Card>
+      <section className="mt-5 grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
+        <Card className="rounded-2xl border-white/[0.08] bg-[#171313] shadow-none">
+          <CardContent className="p-0">
+            <div className="border-b border-white/[0.08] px-5 py-4 sm:px-6">
+              <h2 className="text-sm font-semibold text-white">
+                Server identity
+              </h2>
+              <p className="mt-1 text-xs text-white/40">
+                Fields returned by the server’s public A2S query.
+              </p>
+            </div>
+            <dl className="divide-y divide-white/[0.07] px-5 sm:px-6">
+              <DataRow label="Game" value={server.gameName || "Not reported"} />
+              <DataRow
+                label="Game folder"
+                value={server.gameFolder || "Not reported"}
+                mono
+              />
+              <DataRow
+                label="Version"
+                value={server.version || "Not reported"}
+                mono
+              />
+              <DataRow
+                label="Protocol"
+                value={server.protocol?.toString() || "Not reported"}
+                mono
+              />
+              <DataRow
+                label="Server type"
+                value={server.serverKind || "Not reported"}
+              />
+              <DataRow
+                label="Environment"
+                value={server.environment || "Not reported"}
+              />
+              <DataRow
+                label="Steam server ID"
+                value={server.serverSteamId || "Not reported"}
+                mono
+              />
+            </dl>
+          </CardContent>
+        </Card>
+        <Card className="rounded-2xl border-white/[0.08] bg-[#171313] shadow-none">
+          <CardContent className="p-5 sm:p-6">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="size-4 text-white/45" />
+              <h2 className="text-sm font-semibold text-white">
+                Access & security
+              </h2>
+            </div>
+            <dl className="mt-4 space-y-4 text-sm">
+              <SecurityRow
+                label="VAC"
+                value={
+                  server.vacSecured === undefined
+                    ? "Not reported"
+                    : server.vacSecured
+                      ? "Secured"
+                      : "Not secured"
+                }
+              />
+              <SecurityRow
+                label="Password"
+                value={
+                  server.passwordProtected === undefined
+                    ? "Not reported"
+                    : server.passwordProtected
+                      ? "Required"
+                      : "Not required"
+                }
+              />
+              <SecurityRow
+                label="Saved"
+                value={formatTimestamp(server.createdAt)}
+              />
+            </dl>
+          </CardContent>
+        </Card>
+      </section>
+      <Card className="mt-5 rounded-2xl border-white/[0.08] bg-[#171313] shadow-none">
+        <CardContent className="p-5 sm:p-6">
+          <div className="flex items-center gap-2">
+            <Tags className="size-4 text-white/45" />
+            <h2 className="text-sm font-semibold text-white">Server tags</h2>
+          </div>
+          {server.tags.length ? (
+            <div className="mt-4 flex flex-wrap gap-2">
+              {server.tags.map((tag) => (
+                <span
+                  key={tag}
+                  className="rounded-lg border border-white/[0.1] bg-white/[0.03] px-2.5 py-1 text-xs text-white/60"
+                >
+                  {tag}
                 </span>
-              ) : null}
-            </DetailItem>
-            <DetailItem
-              icon={<Trophy className="size-4" />}
-              label="BattleMetrics rank"
-            >
-              {server.rank
-                ? `#${server.rank.toLocaleString()}`
-                : "Not provided"}
-            </DetailItem>
-            <DetailItem
-              icon={<RefreshCw className="size-4" />}
-              label="Last seen"
-            >
-              {formatTimestamp(server.lastSeenAt)}
-            </DetailItem>
-          </dl>
-          {server.wipeAt && (
-            <p className="mt-5 rounded-xl bg-white/[0.04] px-4 py-3 text-xs text-white/55">
-              Last wipe reported by BattleMetrics:{" "}
-              <span className="font-medium text-white/80">
-                {formatTimestamp(server.wipeAt)}
-              </span>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-3 text-sm text-white/45">
+              This server did not report tags in its public query.
             </p>
           )}
         </CardContent>
@@ -174,35 +303,80 @@ export function ServerDetailPage({ serverId }: { serverId: string }) {
   )
 }
 
-function DetailItem({
-  icon,
+function Fact({
+  icon: Icon,
   label,
-  children,
+  value,
+  detail,
 }: {
-  icon: React.ReactNode
+  icon: typeof Server
   label: string
-  children: React.ReactNode
+  value: string
+  detail?: string
 }) {
   return (
-    <div className="min-w-0 py-4 sm:px-5 sm:first:pl-0 sm:last:pr-0">
-      <dt className="flex items-center gap-2 text-xs text-white/40">
-        {icon}
+    <div className="min-w-0 px-5 py-4 sm:px-6">
+      <div className="flex items-center gap-2 text-xs text-white/40">
+        <Icon className="size-3.5" />
         {label}
-      </dt>
-      <dd className="mt-2 min-w-0 text-sm text-white/80">{children}</dd>
+      </div>
+      <p className="mt-2 truncate text-sm font-medium text-white/85 tabular-nums">
+        {value}
+      </p>
+      {detail && <p className="mt-1 text-xs text-white/38">{detail}</p>}
     </div>
   )
 }
-
+function DataRow({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string
+  value: string
+  mono?: boolean
+}) {
+  return (
+    <div className="flex items-center justify-between gap-6 py-3 text-sm">
+      <dt className="text-white/45">{label}</dt>
+      <dd
+        className={`min-w-0 truncate text-right text-white/80 ${mono ? "font-mono text-xs" : ""}`}
+      >
+        {value}
+      </dd>
+    </div>
+  )
+}
+function SecurityRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-5">
+      <dt className="text-white/45">{label}</dt>
+      <dd className="text-right font-medium text-white/80">{value}</dd>
+    </div>
+  )
+}
+function ErrorNotice({ error }: { error: string }) {
+  return (
+    <div
+      role="alert"
+      className="mb-5 flex items-start gap-3 rounded-2xl border border-red-400/20 bg-red-400/[0.08] px-4 py-3 text-sm text-red-100"
+    >
+      <CircleAlert className="mt-0.5 size-4 shrink-0 text-red-300" />
+      {error}
+    </div>
+  )
+}
 function LoadingDetail() {
   return (
-    <div className="flex min-h-72 flex-col items-center justify-center rounded-2xl border border-white/[0.08] bg-[#171313] text-center">
-      <RefreshCw className="size-5 animate-spin text-white/45" />
-      <p className="mt-3 text-sm text-white/55">Loading server details…</p>
+    <div className="space-y-5">
+      <div className="h-44 animate-pulse rounded-2xl border border-white/[0.08] bg-white/[0.04]" />
+      <div className="grid gap-5 lg:grid-cols-2">
+        <div className="h-72 animate-pulse rounded-2xl border border-white/[0.08] bg-white/[0.04]" />
+        <div className="h-72 animate-pulse rounded-2xl border border-white/[0.08] bg-white/[0.04]" />
+      </div>
     </div>
   )
 }
-
 function DetailError({
   error,
   onRetry,
@@ -214,7 +388,7 @@ function DetailError({
     <div className="flex min-h-72 flex-col items-center justify-center rounded-2xl border border-red-400/20 bg-red-400/[0.05] px-6 text-center">
       <CircleAlert className="size-5 text-red-300" />
       <p className="mt-3 text-sm font-medium text-red-100">
-        {error || "Could not load this server"}
+        {error || "Could not load this saved server"}
       </p>
       <div className="mt-4 flex items-center gap-2">
         <Button
@@ -236,10 +410,12 @@ function DetailError({
     </div>
   )
 }
-
+function portFromAddress(address: string) {
+  const separator = address.lastIndexOf(":")
+  return separator === -1 ? "Not reported" : address.slice(separator + 1)
+}
 function formatTimestamp(value?: string) {
-  if (!value) return "Not provided"
+  if (!value) return "Not reported"
   const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return "Not provided"
-  return date.toLocaleString()
+  return Number.isNaN(date.getTime()) ? "Not reported" : date.toLocaleString()
 }

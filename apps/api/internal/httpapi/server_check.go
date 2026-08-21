@@ -72,6 +72,31 @@ func (s *server) addWatchlistServer(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{"server": server})
 }
 
+func (s *server) watchlistServerDetails(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.requireAuth(w, r, "servers.view")
+	if !ok {
+		return
+	}
+	if s.checker == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "server checker is not configured"})
+		return
+	}
+	id, ok := watchlistID(w, r)
+	if !ok {
+		return
+	}
+	server, err := s.checker.Find(r.Context(), user.ID, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "saved server not found"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not load saved server"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"server": server})
+}
+
 func (s *server) refreshWatchlistServer(w http.ResponseWriter, r *http.Request) {
 	user, ok := s.requireAuth(w, r, "servers.search")
 	if !ok {

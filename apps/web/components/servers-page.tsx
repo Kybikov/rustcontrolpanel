@@ -1,9 +1,10 @@
 "use client"
 
+import Link from "next/link"
 import { useCallback, useEffect, useRef, useState } from "react"
 import {
+  ArrowUpRight,
   CircleAlert,
-  ChevronDown,
   Heart,
   Map,
   Plus,
@@ -37,7 +38,6 @@ export function ServersPage() {
   const [checking, setChecking] = useState(false)
   const [saving, setSaving] = useState(false)
   const [busyID, setBusyID] = useState<number | null>(null)
-  const [expandedWatchID, setExpandedWatchID] = useState<number | null>(null)
   const [error, setError] = useState("")
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -283,12 +283,6 @@ export function ServersPage() {
                 key={server.id}
                 server={server}
                 busy={busyID === server.id}
-                expanded={expandedWatchID === server.id}
-                onToggleDetails={() =>
-                  setExpandedWatchID((current) =>
-                    current === server.id ? null : server.id
-                  )
-                }
                 onRefresh={() => void refresh(server)}
                 onRemove={() => void remove(server)}
               />
@@ -384,15 +378,11 @@ function CheckedServerCard({
 function WatchlistRow({
   server,
   busy,
-  expanded,
-  onToggleDetails,
   onRefresh,
   onRemove,
 }: {
   server: WatchlistServer
   busy: boolean
-  expanded: boolean
-  onToggleDetails: () => void
   onRefresh: () => void
   onRemove: () => void
 }) {
@@ -453,20 +443,12 @@ function WatchlistRow({
           <RefreshCw className={`size-3.5 ${busy ? "animate-spin" : ""}`} />{" "}
           Refresh
         </Button>
-        {online && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={onToggleDetails}
-            className="rounded-xl text-white/55 hover:bg-white/[0.06] hover:text-white"
-          >
-            <ChevronDown
-              className={`size-3.5 transition-transform ${expanded ? "rotate-180" : ""}`}
-            />
-            Details
-          </Button>
-        )}
+        <Link
+          href={`/servers/${server.id}`}
+          className="inline-flex h-8 items-center gap-1.5 rounded-xl px-3 text-xs font-medium text-white/60 transition-colors hover:bg-white/[0.06] hover:text-white"
+        >
+          Details <ArrowUpRight className="size-3.5" />
+        </Link>
         <Button
           type="button"
           variant="ghost"
@@ -479,7 +461,6 @@ function WatchlistRow({
           <Trash2 className="size-3.5" />
         </Button>
       </div>
-      {online && expanded && <TechnicalDetails server={server} compact />}
     </div>
   )
 }

@@ -80,6 +80,16 @@ type WatchlistServer struct {
 	CreatedAt         time.Time  `json:"createdAt"`
 }
 
+type Notification struct {
+	ID        int64      `json:"id"`
+	Type      string     `json:"type"`
+	Title     string     `json:"title"`
+	Body      string     `json:"body"`
+	Href      string     `json:"href,omitempty"`
+	ReadAt    *time.Time `json:"readAt,omitempty"`
+	CreatedAt time.Time  `json:"createdAt"`
+}
+
 type Service struct {
 	db           *pgxpool.Pool
 	hub          *realtime.Hub
@@ -136,6 +146,17 @@ func (s *Service) EnsureSchema(ctx context.Context) error {
 			UNIQUE (user_id, ip, game_port)
 		)`,
 		`CREATE INDEX IF NOT EXISTS server_watchlist_user_updated_idx ON control.server_watchlist (user_id, updated_at DESC)`,
+		`CREATE TABLE IF NOT EXISTS control.notifications (
+			id BIGSERIAL PRIMARY KEY,
+			user_id BIGINT NOT NULL REFERENCES control.users(id) ON DELETE CASCADE,
+			type TEXT NOT NULL,
+			title TEXT NOT NULL,
+			body TEXT NOT NULL DEFAULT '',
+			href TEXT NOT NULL DEFAULT '',
+			read_at TIMESTAMPTZ,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE INDEX IF NOT EXISTS notifications_user_created_idx ON control.notifications (user_id, created_at DESC)`,
 		`ALTER TABLE control.server_watchlist DROP CONSTRAINT IF EXISTS server_watchlist_status_check`,
 		`ALTER TABLE control.server_watchlist ADD CONSTRAINT server_watchlist_status_check CHECK (status IN ('online', 'offline', 'blocked', 'unknown'))`,
 		`ALTER TABLE control.server_watchlist ADD COLUMN IF NOT EXISTS protocol INTEGER`,
@@ -293,6 +314,39 @@ func (s *Service) List(ctx context.Context, userID int64) ([]WatchlistServer, er
 	return s.list(ctx, userID)
 }
 
+func (s *Service) Find(ctx context.Context, userID, id int64) (WatchlistServer, error) {
+	return s.find(ctx, userID, id)
+}
+
+func (s *Service) ListNotifications(ctx context.Context, userID int64) ([]Notification, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT id, type, title, body, href, read_at, created_at
+		FROM control.notifications WHERE user_id = $1
+		ORDER BY created_at DESC LIMIT 50
+	`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list notifications: %w", err)
+	}
+	defer rows.Close()
+	notifications := make([]Notification, 0)
+	for rows.Next() {
+		var notification Notification
+		if err := rows.Scan(&notification.ID, &notification.Type, &notification.Title, &notification.Body,
+			&notification.Href, &notification.ReadAt, &notification.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan notification: %w", err)
+		}
+		notifications = append(notifications, notification)
+	}
+	return notifications, rows.Err()
+}
+
+func (s *Service) MarkNotificationsRead(ctx context.Context, userID int64) error {
+	if _, err := s.db.Exec(ctx, `UPDATE control.notifications SET read_at = NOW() WHERE user_id = $1 AND read_at IS NULL`, userID); err != nil {
+		return fmt.Errorf("mark notifications read: %w", err)
+	}
+	return nil
+}
+
 func (s *Service) Remove(ctx context.Context, userID, id int64) error {
 	command, err := s.db.Exec(ctx, `DELETE FROM control.server_watchlist WHERE id = $1 AND user_id = $2`, id, userID)
 	if err != nil {
@@ -345,11 +399,17 @@ func (s *Service) refreshServer(ctx context.Context, userID int64, server Watchl
 		if persistErr != nil {
 			return WatchlistServer{}, persistErr
 		}
+		if err := s.notifyStatusChange(ctx, userID, server, updated); err != nil {
+			return WatchlistServer{}, err
+		}
 		s.publish(userID, updated)
 		return updated, nil
 	}
 	updated, err := s.persistSnapshot(ctx, userID, server.ID, snapshot)
 	if err != nil {
+		return WatchlistServer{}, err
+	}
+	if err := s.notifyStatusChange(ctx, userID, server, updated); err != nil {
 		return WatchlistServer{}, err
 	}
 	s.publish(userID, updated)
@@ -432,6 +492,59 @@ func (s *Service) publish(userID int64, server WatchlistServer) {
 		Timestamp: time.Now().UTC(),
 		Payload:   map[string]any{"server": server},
 	})
+}
+
+func (s *Service) notifyStatusChange(ctx context.Context, userID int64, previous, updated WatchlistServer) error {
+	if previous.Status == "" || previous.Status == "unknown" || previous.Status == updated.Status {
+		return nil
+	}
+	name := updated.Name
+	if name == "" {
+		name = previous.Name
+	}
+	if name == "" {
+		name = updated.Address
+	}
+	title, body := serverStatusNotification(name, updated.Status)
+	var notification Notification
+	err := s.db.QueryRow(ctx, `
+		INSERT INTO control.notifications (user_id, type, title, body, href)
+		VALUES ($1, 'server.status', $2, $3, $4)
+		RETURNING id, type, title, body, href, read_at, created_at
+	`, userID, title, body, fmt.Sprintf("/servers/%d", updated.ID)).Scan(
+		&notification.ID, &notification.Type, &notification.Title, &notification.Body,
+		&notification.Href, &notification.ReadAt, &notification.CreatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("create server status notification: %w", err)
+	}
+	if _, err := s.db.Exec(ctx, `
+		DELETE FROM control.notifications WHERE id IN (
+			SELECT id FROM control.notifications WHERE user_id = $1
+			ORDER BY created_at DESC OFFSET 100
+		)
+	`, userID); err != nil {
+		return fmt.Errorf("trim notifications: %w", err)
+	}
+	if s.hub != nil {
+		s.hub.PublishToUser(userID, realtime.Event{
+			Type:      "notification.created",
+			Timestamp: time.Now().UTC(),
+			Payload:   map[string]any{"notification": notification},
+		})
+	}
+	return nil
+}
+
+func serverStatusNotification(name, status string) (string, string) {
+	switch status {
+	case "online":
+		return name + " is online", "The server answered its public Rust status query."
+	case "blocked":
+		return name + " blocks public status", "It may still be online in Rust, but its public query did not return server data."
+	default:
+		return name + " is unavailable", "The server did not answer its public Rust status query."
+	}
 }
 
 type endpoint struct {

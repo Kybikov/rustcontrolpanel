@@ -14,6 +14,7 @@ import (
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/config"
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/httpapi"
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/integrations"
+	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/playerstore"
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/realtime"
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/servercheck"
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/storage"
@@ -75,6 +76,11 @@ func main() {
 	checker := servercheck.NewService(clients.DB, hub)
 	if err := checker.EnsureSchema(ctx); err != nil {
 		logger.Error("prepare server checker schema", "error", err)
+		os.Exit(1)
+	}
+	players := playerstore.NewService(clients.DB)
+	if err := players.EnsureSchema(ctx); err != nil {
+		logger.Error("prepare saved players schema", "error", err)
 		os.Exit(1)
 	}
 	go refreshWatchlist(ctx, checker, logger)

@@ -42,6 +42,21 @@ export type SteamPlayer = {
   profileCreatedAt?: string
 }
 
+export type SavedSteamPlayer = SteamPlayer & {
+  savedAt: string
+  updatedAt: string
+}
+
+export type Notification = {
+  id: number
+  type: string
+  title: string
+  body: string
+  href?: string
+  readAt?: string
+  createdAt: string
+}
+
 export type SteamAccount = {
   steamId: string
   profileUrl: string
