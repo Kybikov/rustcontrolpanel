@@ -14,6 +14,8 @@ import (
 
 const steamAPIBaseURL = "https://api.steampowered.com"
 
+const rustSteamAppID = 252490
+
 type SteamPlayer struct {
 	SteamID          string     `json:"steamId"`
 	DisplayName      string     `json:"displayName"`
@@ -24,6 +26,14 @@ type SteamPlayer struct {
 	CurrentGame      string     `json:"currentGame,omitempty"`
 	LastLogoffAt     *time.Time `json:"lastLogoffAt,omitempty"`
 	ProfileCreatedAt *time.Time `json:"profileCreatedAt,omitempty"`
+}
+
+type SteamAccountProfile struct {
+	SteamPlayer
+	RustPlaytimeMinutes *int   `json:"rustPlaytimeMinutes"`
+	RustPlaytimeStatus  string `json:"rustPlaytimeStatus"`
+	FriendsPlayingRust  *int   `json:"friendsPlayingRust"`
+	FriendsStatus       string `json:"friendsStatus"`
 }
 
 type steamPlayerSummaryResponse struct {
@@ -41,8 +51,26 @@ type steamPlayerSummary struct {
 	AvatarFull               string `json:"avatarfull"`
 	PersonaState             int    `json:"personastate"`
 	GameExtraInfo            string `json:"gameextrainfo"`
+	GameID                   string `json:"gameid"`
 	LastLogoff               int64  `json:"lastlogoff"`
 	TimeCreated              int64  `json:"timecreated"`
+}
+
+type steamOwnedGamesResponse struct {
+	Response *struct {
+		Games []struct {
+			AppID           int `json:"appid"`
+			PlaytimeForever int `json:"playtime_forever"`
+		} `json:"games"`
+	} `json:"response"`
+}
+
+type steamFriendListResponse struct {
+	FriendsList *struct {
+		Friends []struct {
+			SteamID string `json:"steamid"`
+		} `json:"friends"`
+	} `json:"friendslist"`
 }
 
 type steamVanityResponse struct {
@@ -64,25 +92,130 @@ func (s *Service) SearchSteamPlayer(ctx context.Context, query string) (SteamPla
 		}
 	}
 
-	values := url.Values{}
-	values.Set("steamids", steamID)
-	response, err := s.steamRequest(ctx, "/ISteamUser/GetPlayerSummaries/v0002/", values)
+	players, err := s.steamPlayerSummaries(ctx, []string{steamID})
 	if err != nil {
 		return SteamPlayer{}, err
 	}
+	if len(players) == 0 {
+		return SteamPlayer{}, ErrResourceNotFound
+	}
+	return players[0].player(), nil
+}
+
+func (s *Service) SteamAccountProfile(ctx context.Context, steamID string) (SteamAccountProfile, error) {
+	if !isSteamID(steamID) {
+		return SteamAccountProfile{}, ErrResourceNotFound
+	}
+	players, err := s.steamPlayerSummaries(ctx, []string{steamID})
+	if err != nil {
+		return SteamAccountProfile{}, err
+	}
+	if len(players) == 0 {
+		return SteamAccountProfile{}, ErrResourceNotFound
+	}
+
+	profile := SteamAccountProfile{
+		SteamPlayer:        players[0].player(),
+		RustPlaytimeStatus: "unavailable",
+		FriendsStatus:      "unavailable",
+	}
+	profile.RustPlaytimeMinutes, profile.RustPlaytimeStatus = s.rustPlaytime(ctx, steamID)
+	profile.FriendsPlayingRust, profile.FriendsStatus = s.friendsPlayingRust(ctx, steamID)
+	return profile, nil
+}
+
+func (s *Service) steamPlayerSummaries(ctx context.Context, steamIDs []string) ([]steamPlayerSummary, error) {
+	if len(steamIDs) == 0 {
+		return nil, nil
+	}
+	values := url.Values{}
+	values.Set("steamids", strings.Join(steamIDs, ","))
+	response, err := s.steamRequest(ctx, "/ISteamUser/GetPlayerSummaries/v0002/", values)
+	if err != nil {
+		return nil, err
+	}
 	defer response.Body.Close()
 	if err := providerResponseError(response); err != nil {
-		return SteamPlayer{}, err
+		return nil, err
 	}
 
 	var payload steamPlayerSummaryResponse
 	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&payload); err != nil {
-		return SteamPlayer{}, fmt.Errorf("decode Steam player summary: %w", err)
+		return nil, fmt.Errorf("decode Steam player summary: %w", err)
 	}
-	if len(payload.Response.Players) == 0 {
-		return SteamPlayer{}, ErrResourceNotFound
+	return payload.Response.Players, nil
+}
+
+func (s *Service) rustPlaytime(ctx context.Context, steamID string) (*int, string) {
+	values := url.Values{}
+	values.Set("steamid", steamID)
+	values.Set("appids_filter", strconv.Itoa(rustSteamAppID))
+	response, err := s.steamRequest(ctx, "/IPlayerService/GetOwnedGames/v0001/", values)
+	if err != nil {
+		return nil, "unavailable"
 	}
-	return payload.Response.Players[0].player(), nil
+	defer response.Body.Close()
+	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {
+		return nil, "private"
+	}
+	if providerResponseError(response) != nil {
+		return nil, "unavailable"
+	}
+
+	var payload steamOwnedGamesResponse
+	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&payload); err != nil || payload.Response == nil {
+		return nil, "unavailable"
+	}
+	for _, game := range payload.Response.Games {
+		if game.AppID == rustSteamAppID {
+			minutes := max(game.PlaytimeForever, 0)
+			return &minutes, "available"
+		}
+	}
+	return nil, "not_owned"
+}
+
+func (s *Service) friendsPlayingRust(ctx context.Context, steamID string) (*int, string) {
+	values := url.Values{}
+	values.Set("steamid", steamID)
+	values.Set("relationship", "friend")
+	response, err := s.steamRequest(ctx, "/ISteamUser/GetFriendList/v0001/", values)
+	if err != nil {
+		return nil, "unavailable"
+	}
+	defer response.Body.Close()
+	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {
+		return nil, "private"
+	}
+	if providerResponseError(response) != nil {
+		return nil, "unavailable"
+	}
+
+	var payload steamFriendListResponse
+	if err := json.NewDecoder(io.LimitReader(response.Body, 2<<20)).Decode(&payload); err != nil || payload.FriendsList == nil {
+		return nil, "unavailable"
+	}
+	friendIDs := make([]string, 0, len(payload.FriendsList.Friends))
+	for _, friend := range payload.FriendsList.Friends {
+		if isSteamID(friend.SteamID) {
+			friendIDs = append(friendIDs, friend.SteamID)
+		}
+	}
+
+	playingRust := 0
+	for start := 0; start < len(friendIDs); start += 100 {
+		end := min(start+100, len(friendIDs))
+		players, err := s.steamPlayerSummaries(ctx, friendIDs[start:end])
+		if err != nil {
+			return nil, "unavailable"
+		}
+		for _, player := range players {
+			if player.GameID == strconv.Itoa(rustSteamAppID) {
+				playingRust++
+			}
+		}
+	}
+	return &playingRust, "available"
 }
 
 func (s *Service) resolveSteamVanity(ctx context.Context, vanity string) (string, error) {

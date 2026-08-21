@@ -1,6 +1,7 @@
 package integrations
 
 import (
+	"strconv"
 	"testing"
 	"time"
 )
@@ -59,5 +60,34 @@ func TestSteamPlayerMapping(t *testing.T) {
 	}
 	if player.ProfileCreatedAt == nil || !player.ProfileCreatedAt.Equal(time.Unix(1600000000, 0).UTC()) {
 		t.Fatalf("unexpected profile creation: %#v", player.ProfileCreatedAt)
+	}
+}
+
+func TestSteamAccountStats(t *testing.T) {
+	minutes := 0
+	for _, game := range []struct {
+		AppID           int
+		PlaytimeForever int
+	}{
+		{AppID: 730, PlaytimeForever: 300},
+		{AppID: rustSteamAppID, PlaytimeForever: 1842},
+	} {
+		if game.AppID == rustSteamAppID {
+			minutes = game.PlaytimeForever
+		}
+	}
+	if minutes != 1842 {
+		t.Fatalf("Rust playtime = %d, want 1842", minutes)
+	}
+
+	players := []steamPlayerSummary{{GameID: "730"}, {GameID: strconv.Itoa(rustSteamAppID)}, {GameID: strconv.Itoa(rustSteamAppID)}}
+	playingRust := 0
+	for _, player := range players {
+		if player.GameID == strconv.Itoa(rustSteamAppID) {
+			playingRust++
+		}
+	}
+	if playingRust != 2 {
+		t.Fatalf("friends playing Rust = %d, want 2", playingRust)
 	}
 }

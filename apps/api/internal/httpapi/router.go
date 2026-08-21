@@ -39,6 +39,7 @@ func NewRouter(cfg config.Config, clients *storage.Clients, hub *realtime.Hub, l
 	mux.HandleFunc("POST /api/v1/auth/steam/link", server.startSteamLink)
 	mux.HandleFunc("GET /api/v1/auth/steam/callback", server.completeSteamLink)
 	mux.HandleFunc("GET /api/v1/auth/steam", server.steamAccount)
+	mux.HandleFunc("GET /api/v1/auth/steam/profile", server.steamAccountProfile)
 	mux.HandleFunc("DELETE /api/v1/auth/steam", server.unlinkSteamAccount)
 	mux.HandleFunc("GET /api/v1/servers", server.searchServers)
 	mux.HandleFunc("GET /api/v1/servers/{id}", server.serverDetails)

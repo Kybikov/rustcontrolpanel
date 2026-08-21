@@ -1,17 +1,26 @@
 "use client"
 
-import { FormEvent, useEffect, useState } from "react"
+import { type FormEvent, type ReactNode, useEffect, useState } from "react"
+import Image from "next/image"
 import {
+  Clock3,
   ExternalLink,
+  Gamepad2,
   KeyRound,
   Link2,
   LoaderCircle,
   Save,
   Unlink,
   UserRound,
+  UsersRound,
 } from "lucide-react"
 
-import { apiFetch, type AuthUser, type SteamAccount } from "@/lib/api"
+import {
+  apiFetch,
+  type AuthUser,
+  type SteamAccount,
+  type SteamAccountProfile,
+} from "@/lib/api"
 import { PageHeader } from "@/components/page-primitives"
 import { Button } from "@/components/ui/button"
 import {
@@ -26,6 +35,10 @@ import { Input } from "@/components/ui/input"
 export function AccountPage() {
   const [user, setUser] = useState<AuthUser | null>(null)
   const [steam, setSteam] = useState<SteamAccount | null>(null)
+  const [steamProfile, setSteamProfile] = useState<SteamAccountProfile | null>(
+    null
+  )
+  const [steamProfileError, setSteamProfileError] = useState("")
   const [email, setEmail] = useState("")
   const [displayName, setDisplayName] = useState("")
   const [currentPassword, setCurrentPassword] = useState("")
@@ -44,10 +57,12 @@ export function AccountPage() {
 
     async function loadAccount() {
       try {
-        const [userResponse, steamResponse] = await Promise.all([
-          apiFetch("/api/v1/auth/me"),
-          apiFetch("/api/v1/auth/steam"),
-        ])
+        const [userResponse, steamResponse, steamProfileResponse] =
+          await Promise.all([
+            apiFetch("/api/v1/auth/me"),
+            apiFetch("/api/v1/auth/steam"),
+            apiFetch("/api/v1/auth/steam/profile"),
+          ])
         if (!active || !userResponse.ok) return
 
         const userPayload = (await userResponse.json()) as { user: AuthUser }
@@ -60,6 +75,20 @@ export function AccountPage() {
             steam: SteamAccount | null
           }
           if (active) setSteam(steamPayload.steam)
+        }
+        if (steamProfileResponse.ok) {
+          const steamProfilePayload = (await steamProfileResponse.json()) as {
+            profile: SteamAccountProfile
+          }
+          if (active) setSteamProfile(steamProfilePayload.profile)
+        } else if (steamResponse.ok) {
+          const steamProfilePayload = (await steamProfileResponse
+            .json()
+            .catch(() => null)) as { error?: string } | null
+          if (active)
+            setSteamProfileError(
+              steamProfilePayload?.error ?? "Live Steam data is unavailable."
+            )
         }
 
         const result = new URLSearchParams(window.location.search).get("steam")
@@ -179,6 +208,8 @@ export function AccountPage() {
         return
       }
       setSteam(null)
+      setSteamProfile(null)
+      setSteamProfileError("")
       setNotice("Steam account disconnected from RustControl.")
     } catch {
       setError("Could not disconnect Steam account. Try again shortly.")
@@ -315,59 +346,118 @@ export function AccountPage() {
                 account used for your future Rust+ servers.
               </CardDescription>
             </CardHeader>
-            <CardContent className="flex flex-col gap-4 border-t border-white/[0.08] pt-5 sm:flex-row sm:items-center sm:justify-between">
+            <CardContent className="border-t border-white/[0.08] pt-5">
               {steam ? (
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-white/90">
-                    Steam account connected
-                  </p>
-                  <p className="mt-1 text-xs text-white/42">
-                    SteamID64 {steam.steamId} · linked{" "}
-                    {formatLinkedAt(steam.linkedAt)}
-                  </p>
+                <div className="space-y-5">
+                  {steamProfile ? (
+                    <div className="flex min-w-0 items-center gap-3">
+                      {steamProfile.avatarUrl ? (
+                        <Image
+                          src={steamProfile.avatarUrl}
+                          alt=""
+                          width={48}
+                          height={48}
+                          className="size-12 rounded-full border border-white/10 object-cover"
+                        />
+                      ) : (
+                        <div className="grid size-12 shrink-0 place-items-center rounded-full border border-white/10 bg-white/[0.06] text-white/50">
+                          <UserRound className="size-5" />
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <p className="truncate text-base font-semibold text-white">
+                          {steamProfile.displayName || "Steam player"}
+                        </p>
+                        <p className="mt-0.5 text-xs text-white/45">
+                          {steamPresenceLabel(steamProfile.presence)} ·
+                          SteamID64 {steam.steamId}
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <p className="text-sm font-medium text-white/90">
+                        Steam account connected
+                      </p>
+                      <p className="mt-1 text-xs text-white/42">
+                        SteamID64 {steam.steamId} · linked{" "}
+                        {formatLinkedAt(steam.linkedAt)}
+                      </p>
+                    </div>
+                  )}
+
+                  {steamProfile ? (
+                    <dl className="grid divide-y divide-white/[0.08] border-y border-white/[0.08] sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+                      <SteamFact
+                        icon={<Clock3 />}
+                        label="Time in Rust"
+                        value={formatRustPlaytime(steamProfile)}
+                      />
+                      <SteamFact
+                        icon={<UsersRound />}
+                        label="Friends playing Rust"
+                        value={formatFriendsPlayingRust(steamProfile)}
+                      />
+                      <SteamFact
+                        icon={<Gamepad2 />}
+                        label="Steam status"
+                        value={steamCurrentStatus(steamProfile)}
+                      />
+                    </dl>
+                  ) : steamProfileError ? (
+                    <p className="text-xs text-white/45">{steamProfileError}</p>
+                  ) : null}
+
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-xs text-white/42">
+                      Linked {formatLinkedAt(steam.linkedAt)}
+                      {steamProfile?.profileCreatedAt
+                        ? ` · Steam since ${formatLinkedAt(steamProfile.profileCreatedAt)}`
+                        : ""}
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {(steamProfile?.profileUrl || steam.profileUrl) && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="rounded-xl"
+                          onClick={() =>
+                            window.open(
+                              steamProfile?.profileUrl || steam.profileUrl,
+                              "_blank",
+                              "noopener,noreferrer"
+                            )
+                          }
+                        >
+                          Open Steam <ExternalLink />
+                        </Button>
+                      )}
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        disabled={disconnectingSteam}
+                        onClick={() => void disconnectSteam()}
+                      >
+                        {disconnectingSteam ? (
+                          <LoaderCircle className="animate-spin" />
+                        ) : (
+                          <Unlink />
+                        )}
+                        {disconnectingSteam ? "Disconnecting…" : "Disconnect"}
+                      </Button>
+                    </div>
+                  </div>
                 </div>
               ) : (
-                <div>
-                  <p className="text-sm font-medium text-white/90">
-                    No Steam account connected
-                  </p>
-                  <p className="mt-1 text-xs text-white/42">
-                    Needed before pairing personal Rust+ servers.
-                  </p>
-                </div>
-              )}
-              <div className="flex flex-wrap gap-2">
-                {steam?.profileUrl && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="rounded-xl"
-                    onClick={() =>
-                      window.open(
-                        steam.profileUrl,
-                        "_blank",
-                        "noopener,noreferrer"
-                      )
-                    }
-                  >
-                    Open Steam <ExternalLink />
-                  </Button>
-                )}
-                {steam ? (
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    disabled={disconnectingSteam}
-                    onClick={() => void disconnectSteam()}
-                  >
-                    {disconnectingSteam ? (
-                      <LoaderCircle className="animate-spin" />
-                    ) : (
-                      <Unlink />
-                    )}
-                    {disconnectingSteam ? "Disconnecting…" : "Disconnect"}
-                  </Button>
-                ) : (
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-white/90">
+                      No Steam account connected
+                    </p>
+                    <p className="mt-1 text-xs text-white/42">
+                      Needed before pairing personal Rust+ servers.
+                    </p>
+                  </div>
                   <Button
                     type="button"
                     disabled={linkingSteam}
@@ -380,14 +470,80 @@ export function AccountPage() {
                     )}
                     {linkingSteam ? "Opening Steam…" : "Connect Steam"}
                   </Button>
-                )}
-              </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
       )}
     </>
   )
+}
+
+function SteamFact({
+  icon,
+  label,
+  value,
+}: {
+  icon: ReactNode
+  label: string
+  value: string
+}) {
+  return (
+    <div className="flex min-w-0 items-start gap-2.5 px-0 py-3 first:pt-3 last:pb-3 sm:px-4 sm:py-0 sm:first:pl-0 sm:last:pr-0">
+      <span className="mt-0.5 text-white/38 [&>svg]:size-4">{icon}</span>
+      <div className="min-w-0">
+        <dt className="text-[11px] text-white/42">{label}</dt>
+        <dd className="mt-0.5 truncate text-sm font-medium text-white/88">
+          {value}
+        </dd>
+      </div>
+    </div>
+  )
+}
+
+function formatRustPlaytime(profile: SteamAccountProfile) {
+  if (profile.rustPlaytimeStatus === "private") return "Private in Steam"
+  if (profile.rustPlaytimeStatus === "not_owned") return "Rust not in library"
+  if (
+    profile.rustPlaytimeStatus !== "available" ||
+    profile.rustPlaytimeMinutes === null
+  ) {
+    return "Unavailable now"
+  }
+  const hours = Math.floor(profile.rustPlaytimeMinutes / 60)
+  const minutes = profile.rustPlaytimeMinutes % 60
+  return hours > 0
+    ? `${hours.toLocaleString()} h ${minutes} min`
+    : `${minutes} min`
+}
+
+function formatFriendsPlayingRust(profile: SteamAccountProfile) {
+  if (profile.friendsStatus === "private") return "Private in Steam"
+  if (
+    profile.friendsStatus !== "available" ||
+    profile.friendsPlayingRust === null
+  ) {
+    return "Unavailable now"
+  }
+  return profile.friendsPlayingRust === 1
+    ? "1 friend online"
+    : `${profile.friendsPlayingRust} friends online`
+}
+
+function steamCurrentStatus(profile: SteamAccountProfile) {
+  return profile.currentGame || steamPresenceLabel(profile.presence)
+}
+
+function steamPresenceLabel(presence: string) {
+  const labels: Record<string, string> = {
+    online: "Online",
+    busy: "Busy",
+    away: "Away",
+    snooze: "Snooze",
+    offline: "Offline",
+  }
+  return labels[presence] ?? "Online"
 }
 
 function formatLinkedAt(value: string) {

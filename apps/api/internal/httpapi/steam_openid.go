@@ -85,6 +85,32 @@ func (s *server) steamAccount(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"steam": account})
 }
 
+func (s *server) steamAccountProfile(w http.ResponseWriter, r *http.Request) {
+	actor, ok := s.requireAuth(w, r, "")
+	if !ok {
+		return
+	}
+	account, err := s.auth.SteamAccount(r.Context(), actor.ID)
+	if errors.Is(err, auth.ErrSteamNotLinked) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "Connect Steam before loading player data"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not load Steam account"})
+		return
+	}
+	if s.integrations == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "Steam player data is not configured"})
+		return
+	}
+	profile, err := s.integrations.SteamAccountProfile(r.Context(), account.SteamID)
+	if err != nil {
+		writeSteamPlayerError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"profile": profile})
+}
+
 func (s *server) unlinkSteamAccount(w http.ResponseWriter, r *http.Request) {
 	actor, ok := s.requireAuth(w, r, "")
 	if !ok {

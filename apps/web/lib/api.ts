@@ -48,6 +48,13 @@ export type SteamAccount = {
   linkedAt: string
 }
 
+export type SteamAccountProfile = SteamPlayer & {
+  rustPlaytimeMinutes: number | null
+  rustPlaytimeStatus: "available" | "not_owned" | "private" | "unavailable"
+  friendsPlayingRust: number | null
+  friendsStatus: "available" | "private" | "unavailable"
+}
+
 export type RustServer = {
   id: string
   name: string
