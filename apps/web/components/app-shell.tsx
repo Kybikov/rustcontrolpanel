@@ -4,7 +4,6 @@ import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useState, type KeyboardEvent, type ReactNode } from "react"
 import {
-  Database,
   Gamepad2,
   LayoutDashboard,
   LogOut,
@@ -22,7 +21,12 @@ import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import { apiFetch, type AuthUser } from "@/lib/api"
 
-type NavItem = { label: string; href: string; icon: LucideIcon; permission?: string }
+type NavItem = {
+  label: string
+  href: string
+  icon: LucideIcon
+  permission?: string
+}
 type NavGroup = { label: string; items: NavItem[] }
 
 const navGroups: NavGroup[] = [
@@ -35,10 +39,14 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
-    label: "System",
+    label: "Administration",
     items: [
-      { label: "Integrations", href: "/integrations", icon: Database },
-      { label: "Team", href: "/team", icon: UsersRound, permission: "users.view" },
+      {
+        label: "Team",
+        href: "/team",
+        icon: UsersRound,
+        permission: "users.view",
+      },
     ],
   },
 ]
@@ -74,19 +82,28 @@ export function AppShell({ children }: { children: ReactNode }) {
   const visibleNavGroups = navGroups
     .map((group) => ({
       ...group,
-      items: group.items.filter((item) => !item.permission || user?.isSuperAdmin || user?.permissions.includes(item.permission)),
+      items: group.items.filter(
+        (item) =>
+          !item.permission ||
+          user?.isSuperAdmin ||
+          user?.permissions.includes(item.permission)
+      ),
     }))
     .filter((group) => group.items.length > 0)
   const searchableItems = visibleNavGroups.flatMap((group) => group.items)
   const matches = query.trim()
-    ? searchableItems.filter((item) => item.label.toLowerCase().includes(query.trim().toLowerCase()))
+    ? searchableItems.filter((item) =>
+        item.label.toLowerCase().includes(query.trim().toLowerCase())
+      )
     : []
 
   useEffect(() => {
     function handleShortcut(event: globalThis.KeyboardEvent) {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault()
-        const searchInput = document.querySelector<HTMLInputElement>('input[aria-label="Search pages"]')
+        const searchInput = document.querySelector<HTMLInputElement>(
+          'input[aria-label="Search pages"]'
+        )
         searchInput?.focus()
         searchInput?.select()
       }
@@ -115,17 +132,29 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   async function logout() {
     setProfileOpen(false)
-    await apiFetch("/api/v1/auth/logout", { method: "POST" }).catch(() => undefined)
+    await apiFetch("/api/v1/auth/logout", { method: "POST" }).catch(
+      () => undefined
+    )
     router.replace("/login")
   }
 
   if (!user) {
-    return <div className="grid min-h-svh place-items-center bg-[#0d0b0b] text-xs text-white/40">Checking session…</div>
+    return (
+      <div className="grid min-h-svh place-items-center bg-[#0d0b0b] text-xs text-white/40">
+        Checking session…
+      </div>
+    )
   }
 
   return (
     <div className="min-h-svh bg-[#0d0b0b] p-2 text-[#f4f0ee] md:flex md:gap-5">
-      {mobileOpen && <button className="fixed inset-0 z-20 bg-black/60 md:hidden" aria-label="Close navigation" onClick={() => setMobileOpen(false)} />}
+      {mobileOpen && (
+        <button
+          className="fixed inset-0 z-20 bg-black/60 md:hidden"
+          aria-label="Close navigation"
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
       <aside
         className={cn(
           "fixed inset-y-2 left-2 z-30 h-[calc(100vh-1rem)] shrink-0 flex-col rounded-2xl border border-white/[0.08] bg-[#120f0f] shadow-[0_18px_50px_rgba(0,0,0,0.28)] transition-[width] duration-200 md:sticky md:top-2 md:flex",
@@ -139,8 +168,12 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
           {!collapsed && (
             <div className="min-w-0 leading-tight">
-              <p className="truncate text-[15px] font-semibold tracking-[-0.02em]">RustControl</p>
-              <p className="truncate text-[11px] text-white/45">Admin console</p>
+              <p className="truncate text-[15px] font-semibold tracking-[-0.02em]">
+                RustControl
+              </p>
+              <p className="truncate text-[11px] text-white/45">
+                Player companion
+              </p>
             </div>
           )}
         </div>
@@ -149,7 +182,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           {visibleNavGroups.map((group) => (
             <div key={group.label}>
               {!collapsed && (
-                <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">{group.label}</p>
+                <p className="mb-2 px-3 text-[10px] font-semibold tracking-[0.14em] text-white/35 uppercase">
+                  {group.label}
+                </p>
               )}
               <div className="space-y-1">
                 {group.items.map((item) => {
@@ -163,12 +198,15 @@ export function AppShell({ children }: { children: ReactNode }) {
                       onClick={() => setMobileOpen(false)}
                       className={cn(
                         "flex h-9 items-center gap-3 rounded-xl px-3 text-[13px] text-white/60 transition-colors hover:bg-white/[0.05] hover:text-white",
-                        active && "bg-[#3b0e14] text-white ring-1 ring-[#7c1d29]/70",
+                        active &&
+                          "bg-[#3b0e14] text-white ring-1 ring-[#7c1d29]/70",
                         collapsed && "justify-center px-0"
                       )}
                     >
                       <Icon className="size-[15px] shrink-0" />
-                      {!collapsed && <span className="truncate">{item.label}</span>}
+                      {!collapsed && (
+                        <span className="truncate">{item.label}</span>
+                      )}
                     </Link>
                   )
                 })}
@@ -176,30 +214,66 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
           ))}
         </nav>
-
       </aside>
 
       <main className="min-w-0 flex-1">
         <header className="sticky top-2 z-10 flex h-[52px] items-center gap-3 rounded-2xl border border-white/[0.08] bg-[#171313]/95 px-3 shadow-[0_14px_40px_rgba(0,0,0,0.18)] backdrop-blur-xl sm:px-4">
-          <Button variant="ghost" size="icon-sm" className="text-white/55 hover:text-white" onClick={toggleNavigation} aria-label="Toggle navigation">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="text-white/55 hover:text-white"
+            onClick={toggleNavigation}
+            aria-label="Toggle navigation"
+          >
             <PanelLeft className="size-4" />
           </Button>
           <span className="hidden h-5 w-px bg-white/[0.1] sm:block" />
-          <div className="relative min-w-0 max-w-sm flex-1">
-            <Search className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-white/35" />
-            <Input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={submitSearch} className="h-8 border-0 bg-transparent pl-8 pr-16 text-xs text-white/80 shadow-none placeholder:text-white/35 focus-visible:ring-0" placeholder="Search pages..." aria-label="Search pages" />
-            <kbd className="pointer-events-none absolute right-1 top-1/2 -translate-y-1/2 text-[10px] text-white/35">⌘K</kbd>
+          <div className="relative max-w-sm min-w-0 flex-1">
+            <Search className="absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-white/35" />
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={submitSearch}
+              className="h-8 border-0 bg-transparent pr-16 pl-8 text-xs text-white/80 shadow-none placeholder:text-white/35 focus-visible:ring-0"
+              placeholder="Search pages..."
+              aria-label="Search pages"
+            />
+            <kbd className="pointer-events-none absolute top-1/2 right-1 -translate-y-1/2 text-[10px] text-white/35">
+              ⌘K
+            </kbd>
             {query && (
-              <div className="absolute left-0 right-0 top-10 z-50 overflow-hidden rounded-xl border border-white/[0.1] bg-[#171313] p-1 shadow-2xl">
-                {matches.length ? matches.map((item) => {
-                  const Icon = item.icon
-                  return <Link key={item.href} href={item.href} onClick={() => setQuery("")} className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs text-white/70 hover:bg-white/[0.06] hover:text-white"><Icon className="size-3.5" />{item.label}</Link>
-                }) : <p className="px-3 py-2 text-xs text-white/40">No matching page</p>}
+              <div className="absolute top-10 right-0 left-0 z-50 overflow-hidden rounded-xl border border-white/[0.1] bg-[#171313] p-1 shadow-2xl">
+                {matches.length ? (
+                  matches.map((item) => {
+                    const Icon = item.icon
+                    return (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        onClick={() => setQuery("")}
+                        className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs text-white/70 hover:bg-white/[0.06] hover:text-white"
+                      >
+                        <Icon className="size-3.5" />
+                        {item.label}
+                      </Link>
+                    )
+                  })
+                ) : (
+                  <p className="px-3 py-2 text-xs text-white/40">
+                    No matching page
+                  </p>
+                )}
               </div>
             )}
           </div>
           <div className="relative ml-auto">
-            {profileOpen && <button className="fixed inset-0 z-40 cursor-default" aria-label="Close profile menu" onClick={() => setProfileOpen(false)} />}
+            {profileOpen && (
+              <button
+                className="fixed inset-0 z-40 cursor-default"
+                aria-label="Close profile menu"
+                onClick={() => setProfileOpen(false)}
+              />
+            )}
             <Button
               variant="ghost"
               size="icon-sm"
@@ -209,24 +283,37 @@ export function AppShell({ children }: { children: ReactNode }) {
               aria-expanded={profileOpen}
             >
               {user.displayName.slice(0, 2).toUpperCase()}
-              <span className="absolute -bottom-0.5 -right-0.5 size-2 rounded-full border border-[#171313] bg-emerald-400" />
+              <span className="absolute -right-0.5 -bottom-0.5 size-2 rounded-full border border-[#171313] bg-emerald-400" />
             </Button>
             {profileOpen && (
-              <div className="absolute right-0 top-11 z-50 w-64 overflow-hidden rounded-xl border border-white/[0.1] bg-[#171313] shadow-[0_18px_50px_rgba(0,0,0,0.45)]">
+              <div className="absolute top-11 right-0 z-50 w-64 overflow-hidden rounded-xl border border-white/[0.1] bg-[#171313] shadow-[0_18px_50px_rgba(0,0,0,0.45)]">
                 <div className="flex items-center gap-3 border-b border-white/[0.08] px-4 py-3">
-                  <div className="grid size-9 shrink-0 place-items-center rounded-full bg-white/[0.1] text-xs font-semibold text-white/75">{user.displayName.slice(0, 2).toUpperCase()}</div>
+                  <div className="grid size-9 shrink-0 place-items-center rounded-full bg-white/[0.1] text-xs font-semibold text-white/75">
+                    {user.displayName.slice(0, 2).toUpperCase()}
+                  </div>
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-white/90">{user.displayName}</p>
-                    <p className="truncate text-[11px] text-white/40">{user.email}</p>
+                    <p className="truncate text-sm font-semibold text-white/90">
+                      {user.displayName}
+                    </p>
+                    <p className="truncate text-[11px] text-white/40">
+                      {user.email}
+                    </p>
                   </div>
                 </div>
                 <div className="p-1.5">
-                  <Link href="/account" onClick={() => setProfileOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs text-white/70 hover:bg-white/[0.06] hover:text-white">
+                  <Link
+                    href="/account"
+                    onClick={() => setProfileOpen(false)}
+                    className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs text-white/70 hover:bg-white/[0.06] hover:text-white"
+                  >
                     <UserRound className="size-3.5" /> My account
                   </Link>
                 </div>
                 <div className="border-t border-white/[0.08] p-1.5">
-                  <button onClick={() => void logout()} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs text-red-300 hover:bg-red-400/[0.08]">
+                  <button
+                    onClick={() => void logout()}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs text-red-300 hover:bg-red-400/[0.08]"
+                  >
                     <LogOut className="size-3.5" /> Sign out
                   </button>
                 </div>
@@ -235,7 +322,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </header>
 
-        <div className="mx-auto max-w-[1400px] px-1 py-6 sm:px-5 sm:py-8">{children}</div>
+        <div className="mx-auto max-w-[1400px] px-1 py-6 sm:px-5 sm:py-8">
+          {children}
+        </div>
       </main>
     </div>
   )

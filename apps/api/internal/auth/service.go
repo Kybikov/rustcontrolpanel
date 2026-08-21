@@ -71,7 +71,6 @@ var permissionCatalog = []Permission{
 	{Key: "servers.search", Description: "Search and inspect servers"},
 	{Key: "players.view", Description: "View player workspace"},
 	{Key: "players.search", Description: "Search and inspect players"},
-	{Key: "integrations.manage", Description: "Configure provider integrations"},
 	{Key: "users.view", Description: "View team members"},
 	{Key: "users.create", Description: "Create team members"},
 	{Key: "users.manage_access", Description: "Change team member permissions"},
@@ -83,10 +82,10 @@ var roleCatalog = []struct {
 	Description string
 	Permissions []string
 }{
-	{Slug: "admin", Name: "Admin", Description: "Full access to every current operational module.", Permissions: []string{"dashboard.view", "servers.view", "servers.search", "players.view", "players.search", "integrations.manage", "users.view", "users.create", "users.manage_access"}},
+	{Slug: "admin", Name: "Admin", Description: "Full access to every current operational module.", Permissions: []string{"dashboard.view", "servers.view", "servers.search", "players.view", "players.search", "users.view", "users.create", "users.manage_access"}},
 	{Slug: "operator", Name: "Operator", Description: "Search servers and inspect players without user administration.", Permissions: []string{"dashboard.view", "servers.view", "servers.search", "players.view", "players.search"}},
 	{Slug: "analyst", Name: "Analyst", Description: "Read-only operational visibility for dashboards and workspaces.", Permissions: []string{"dashboard.view", "servers.view", "players.view"}},
-	{Slug: "integrations", Name: "Integrations", Description: "Manage provider connections and integration health.", Permissions: []string{"dashboard.view", "integrations.manage"}},
+	{Slug: "player", Name: "Player", Description: "Use the public server and Steam player workspaces.", Permissions: []string{"dashboard.view", "servers.view", "servers.search", "players.view", "players.search"}},
 	{Slug: "viewer", Name: "Viewer", Description: "View the operational overview only.", Permissions: []string{"dashboard.view"}},
 }
 
@@ -151,6 +150,8 @@ func (s *Service) EnsureSchema(ctx context.Context) error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS sessions_user_id_idx ON control.sessions (user_id)`,
 		`CREATE INDEX IF NOT EXISTS sessions_expires_at_idx ON control.sessions (expires_at)`,
+		`DELETE FROM control.roles WHERE slug = 'integrations' AND is_system = TRUE`,
+		`DELETE FROM control.permissions WHERE permission_key = 'integrations.manage'`,
 	}
 
 	tx, err := s.db.Begin(ctx)

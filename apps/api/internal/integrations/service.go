@@ -26,6 +26,7 @@ var (
 	ErrInvalidCredential   = errors.New("provider rejected credentials")
 	ErrProviderUnavailable = errors.New("provider is unavailable")
 	ErrProviderRejected    = errors.New("provider rejected the request")
+	ErrResourceNotFound    = errors.New("provider resource was not found")
 )
 
 const (

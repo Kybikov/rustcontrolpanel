@@ -122,12 +122,9 @@ export function ServersPage() {
           <CircleAlert className="mt-0.5 size-4 shrink-0 text-red-300" />
           <div className="min-w-0 flex-1">
             <p>{error}</p>
-            <Link
-              href="/integrations"
-              className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-red-200 underline-offset-4 hover:underline"
-            >
-              Review integration status <ArrowUpRight className="size-3" />
-            </Link>
+            <p className="mt-1 text-xs text-red-200/75">
+              The provider is managed by the server. Try again shortly.
+            </p>
           </div>
         </div>
       )}

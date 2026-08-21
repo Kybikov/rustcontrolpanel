@@ -30,11 +30,16 @@ export type Permission = {
   description: string
 }
 
-export type IntegrationStatus = {
-  provider: "battlemetrics" | "steam"
-  connected: boolean
-  lastCheckedAt?: string
-  lastError?: string
+export type SteamPlayer = {
+  steamId: string
+  displayName: string
+  profileUrl: string
+  avatarUrl?: string
+  visibility: "public" | "private" | "limited"
+  presence: string
+  currentGame?: string
+  lastLogoffAt?: string
+  profileCreatedAt?: string
 }
 
 export type RustServer = {

@@ -1,5 +1,21 @@
 [
   {
+    "version": "0.1.10",
+    "date": "21 серпня 2026",
+    "added": [
+      "Додано реальний Steam player lookup: пошук за SteamID64, public profile URL або vanity name з аватаром, presence та публічним профілем.",
+      "Додано системну роль Player для звичайних користувачів із доступом до public servers і Steam players."
+    ],
+    "fixed": [
+      "Steam Web API key використовується тільки Go backend-ом із server secret і ніколи не показується чи не вводиться гравцем у браузері.",
+      "Overview і sidebar тепер ведуть до робочих player flows, а не до конфігурації провайдерів."
+    ],
+    "removed": [
+      "Сторінку, навігацію, API actions і permission для ручного керування integrations/ключами.",
+      "Застарілу системну роль Integrations."
+    ]
+  },
+  {
     "version": "0.1.9",
     "date": "21 серпня 2026",
     "added": [

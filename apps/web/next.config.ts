@@ -7,8 +7,16 @@ const appRoot = path.dirname(fileURLToPath(import.meta.url))
 const workspaceRoot = path.resolve(appRoot, "../..")
 
 const nextConfig: NextConfig = {
+  images: {
+    remotePatterns: [
+      { protocol: "https", hostname: "**.steamstatic.com" },
+      { protocol: "https", hostname: "steamcdn-a.akamaihd.net" },
+    ],
+  },
   turbopack: {
-    root: existsSync(path.join(workspaceRoot, "node_modules/next/package.json")) ? workspaceRoot : appRoot,
+    root: existsSync(path.join(workspaceRoot, "node_modules/next/package.json"))
+      ? workspaceRoot
+      : appRoot,
   },
 }
 
