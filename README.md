@@ -5,7 +5,7 @@
 - `apps/web` — Next.js 16 + React 19 + TypeScript + shadcn/ui;
 - `apps/api` — Go API з PostgreSQL, Redis і WebSocket realtime hub;
 - `db/migrations` — SQL-схема даних;
-- `docker-compose.yml` — повний Docker-стек для production: frontend, API, PostgreSQL та Redis.
+- `docker-compose.yaml` — повний Docker-стек для production: gateway, frontend, API, PostgreSQL та Redis.
 
 Поточний operational shell наслідує структуру [AdminCN Full Navbar Layout](https://shadcn-nextjs-admincn-full-navbar-layout-admin-template.vercel.app/), але вже адаптований під Rust-операції: сервери, гравці, live map, алерти, wipe calendar та activity feed.
 
@@ -18,11 +18,11 @@ docker compose up --build
 
 Після запуску:
 
-- frontend in Docker: http://localhost:3001
+- application in Docker: http://localhost:3001
 - frontend with hot reload: http://localhost:3000 (`npm run dev:web`)
-- API liveness: http://localhost:8080/healthz
-- API readiness: http://localhost:8080/readyz
-- realtime WebSocket: `ws://localhost:8080/api/v1/realtime/ws`
+- API liveness: http://localhost:3001/healthz
+- API readiness: http://localhost:3001/readyz
+- realtime WebSocket: `ws://localhost:3001/api/v1/realtime/ws`
 
 Для frontend локально:
 
@@ -55,7 +55,7 @@ go run ./cmd/api
 
 Provider credentials, super-admin password та ключ шифрування передаються одним Docker secret `RUST_CONTROL_CONFIG`. У deployment-панелі створи цю змінну як multiline value за шаблоном [secrets/keys.txt.example](secrets/keys.txt.example). Вона монтується лише в API-контейнер і не потрапляє у Git чи frontend.
 
-Для production Compose також задай `POSTGRES_PASSWORD`. Public URL вже мають production defaults `https://rust.wtmelon.store` та `https://go-api.wtmelon.store`; за потреби їх можна змінити змінними `PUBLIC_WEB_URL`, `PUBLIC_API_URL`, `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_REALTIME_URL` та `CORS_ALLOWED_ORIGINS`.
+Для production Compose також задай `POSTGRES_PASSWORD`. Усі браузерні запити й Steam callback ідуть через `https://rust.wtmelon.store`: gateway спрямовує `/api/v1/*` та WebSocket на внутрішній API-контейнер. Зовнішній API-домен не використовується.
 
 Доступи видаються окремо: `dashboard.view`, `servers.view`, `servers.search`, `players.view`, `players.search`, `integrations.manage`, `users.view`, `users.create`, `users.manage_access`.
 
