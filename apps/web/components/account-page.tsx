@@ -346,48 +346,114 @@ export function AccountPage() {
                 account used for your future Rust+ servers.
               </CardDescription>
             </CardHeader>
-            <CardContent className="border-t border-white/[0.08] pt-5">
+            <CardContent className="border-t border-white/[0.08] py-0">
               {steam ? (
-                <div className="space-y-5">
+                <div>
                   {steamProfile ? (
-                    <div className="flex min-w-0 items-center gap-3">
-                      {steamProfile.avatarUrl ? (
-                        <Image
-                          src={steamProfile.avatarUrl}
-                          alt=""
-                          width={48}
-                          height={48}
-                          className="size-12 rounded-full border border-white/10 object-cover"
-                        />
-                      ) : (
-                        <div className="grid size-12 shrink-0 place-items-center rounded-full border border-white/10 bg-white/[0.06] text-white/50">
-                          <UserRound className="size-5" />
+                    <div className="grid border-b border-white/[0.08] sm:grid-cols-[minmax(0,1fr)_auto]">
+                      <div className="flex min-w-0 items-center gap-3 py-5">
+                        {steamProfile.avatarUrl ? (
+                          <Image
+                            src={steamProfile.avatarUrl}
+                            alt=""
+                            width={48}
+                            height={48}
+                            className="size-12 rounded-full border border-white/10 object-cover"
+                          />
+                        ) : (
+                          <div className="grid size-12 shrink-0 place-items-center rounded-full border border-white/10 bg-white/[0.06] text-white/50">
+                            <UserRound className="size-5" />
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <p className="truncate text-base font-semibold text-white">
+                            {steamProfile.displayName || "Steam player"}
+                          </p>
+                          <p className="mt-0.5 text-xs text-white/45">
+                            {steamPresenceLabel(steamProfile.presence)} ·
+                            SteamID64 {steam.steamId}
+                          </p>
                         </div>
-                      )}
-                      <div className="min-w-0">
-                        <p className="truncate text-base font-semibold text-white">
-                          {steamProfile.displayName || "Steam player"}
-                        </p>
-                        <p className="mt-0.5 text-xs text-white/45">
-                          {steamPresenceLabel(steamProfile.presence)} ·
-                          SteamID64 {steam.steamId}
-                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 border-t border-white/[0.08] py-3 sm:border-t-0 sm:border-l sm:pl-5">
+                        {(steamProfile.profileUrl || steam.profileUrl) && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="rounded-xl"
+                            onClick={() =>
+                              window.open(
+                                steamProfile.profileUrl || steam.profileUrl,
+                                "_blank",
+                                "noopener,noreferrer"
+                              )
+                            }
+                          >
+                            Open Steam <ExternalLink />
+                          </Button>
+                        )}
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          disabled={disconnectingSteam}
+                          onClick={() => void disconnectSteam()}
+                        >
+                          {disconnectingSteam ? (
+                            <LoaderCircle className="animate-spin" />
+                          ) : (
+                            <Unlink />
+                          )}
+                          {disconnectingSteam ? "Disconnecting…" : "Disconnect"}
+                        </Button>
                       </div>
                     </div>
                   ) : (
-                    <div>
-                      <p className="text-sm font-medium text-white/90">
-                        Steam account connected
-                      </p>
-                      <p className="mt-1 text-xs text-white/42">
-                        SteamID64 {steam.steamId} · linked{" "}
-                        {formatLinkedAt(steam.linkedAt)}
-                      </p>
+                    <div className="grid border-b border-white/[0.08] sm:grid-cols-[minmax(0,1fr)_auto]">
+                      <div className="py-5">
+                        <p className="text-sm font-medium text-white/90">
+                          Steam account connected
+                        </p>
+                        <p className="mt-1 text-xs text-white/42">
+                          SteamID64 {steam.steamId} · linked{" "}
+                          {formatLinkedAt(steam.linkedAt)}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 border-t border-white/[0.08] py-3 sm:border-t-0 sm:border-l sm:pl-5">
+                        {steam.profileUrl && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="rounded-xl"
+                            onClick={() =>
+                              window.open(
+                                steam.profileUrl,
+                                "_blank",
+                                "noopener,noreferrer"
+                              )
+                            }
+                          >
+                            Open Steam <ExternalLink />
+                          </Button>
+                        )}
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          disabled={disconnectingSteam}
+                          onClick={() => void disconnectSteam()}
+                        >
+                          {disconnectingSteam ? (
+                            <LoaderCircle className="animate-spin" />
+                          ) : (
+                            <Unlink />
+                          )}
+                          {disconnectingSteam ? "Disconnecting…" : "Disconnect"}
+                        </Button>
+                      </div>
                     </div>
                   )}
 
                   {steamProfile ? (
-                    <dl className="grid divide-y divide-white/[0.08] border-y border-white/[0.08] sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+                    <dl className="grid divide-y divide-white/[0.08] border-b border-white/[0.08] sm:grid-cols-3 sm:divide-x sm:divide-y-0">
                       <SteamFact
                         icon={<Clock3 />}
                         label="Time in Rust"
@@ -405,51 +471,22 @@ export function AccountPage() {
                       />
                     </dl>
                   ) : steamProfileError ? (
-                    <p className="text-xs text-white/45">{steamProfileError}</p>
+                    <p className="border-b border-white/[0.08] py-4 text-xs text-white/45">
+                      {steamProfileError}
+                    </p>
                   ) : null}
 
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex min-h-14 items-center py-3">
                     <p className="text-xs text-white/42">
                       Linked {formatLinkedAt(steam.linkedAt)}
                       {steamProfile?.profileCreatedAt
                         ? ` · Steam since ${formatLinkedAt(steamProfile.profileCreatedAt)}`
                         : ""}
                     </p>
-                    <div className="flex flex-wrap gap-2">
-                      {(steamProfile?.profileUrl || steam.profileUrl) && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="rounded-xl"
-                          onClick={() =>
-                            window.open(
-                              steamProfile?.profileUrl || steam.profileUrl,
-                              "_blank",
-                              "noopener,noreferrer"
-                            )
-                          }
-                        >
-                          Open Steam <ExternalLink />
-                        </Button>
-                      )}
-                      <Button
-                        type="button"
-                        variant="destructive"
-                        disabled={disconnectingSteam}
-                        onClick={() => void disconnectSteam()}
-                      >
-                        {disconnectingSteam ? (
-                          <LoaderCircle className="animate-spin" />
-                        ) : (
-                          <Unlink />
-                        )}
-                        {disconnectingSteam ? "Disconnecting…" : "Disconnect"}
-                      </Button>
-                    </div>
                   </div>
                 </div>
               ) : (
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-col gap-4 py-5 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="text-sm font-medium text-white/90">
                       No Steam account connected
@@ -490,8 +527,8 @@ function SteamFact({
   value: string
 }) {
   return (
-    <div className="flex min-w-0 items-start gap-2.5 px-0 py-3 first:pt-3 last:pb-3 sm:px-4 sm:py-0 sm:first:pl-0 sm:last:pr-0">
-      <span className="mt-0.5 text-white/38 [&>svg]:size-4">{icon}</span>
+    <div className="flex min-h-20 min-w-0 items-center gap-2.5 py-4 first:pt-4 last:pb-4 sm:px-5 sm:py-4 sm:first:pl-0 sm:last:pr-0">
+      <span className="text-white/38 [&>svg]:size-4">{icon}</span>
       <div className="min-w-0">
         <dt className="text-[11px] text-white/42">{label}</dt>
         <dd className="mt-0.5 truncate text-sm font-medium text-white/88">
