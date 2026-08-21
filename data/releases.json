@@ -1,5 +1,14 @@
 [
   {
+    "version": "0.1.12",
+    "date": "21 серпня 2026",
+    "added": [],
+    "fixed": [
+      "Виправлено прив’язку Steam: RustControl тепер приймає фактичний Steam OpenID callback endpoint і коректно підтверджує SteamID після входу."
+    ],
+    "removed": []
+  },
+  {
     "version": "0.1.11",
     "date": "21 серпня 2026",
     "added": [

@@ -32,6 +32,9 @@ func (s *Service) CreateSteamLinkState(ctx context.Context, userID int64) (strin
 	if err != nil {
 		return "", err
 	}
+	if _, err := s.db.Exec(ctx, `DELETE FROM control.steam_openid_states WHERE user_id = $1`, userID); err != nil {
+		return "", fmt.Errorf("clear prior Steam link state: %w", err)
+	}
 	_, err = s.db.Exec(ctx, `
 		INSERT INTO control.steam_openid_states (state, user_id, expires_at)
 		VALUES ($1, $2, NOW() + INTERVAL '10 minutes')

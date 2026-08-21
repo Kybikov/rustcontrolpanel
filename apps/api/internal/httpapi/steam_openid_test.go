@@ -42,6 +42,20 @@ func TestSteamIDFromClaimedID(t *testing.T) {
 	}
 }
 
+func TestIsSteamOpenIDEndpoint(t *testing.T) {
+	for _, endpoint := range []string{
+		"https://steamcommunity.com/openid/",
+		"https://steamcommunity.com/openid/login",
+	} {
+		if !isSteamOpenIDEndpoint(endpoint) {
+			t.Fatalf("isSteamOpenIDEndpoint(%q) = false", endpoint)
+		}
+	}
+	if isSteamOpenIDEndpoint("https://steamcommunity.com/not-openid/login") {
+		t.Fatal("unexpected non-OpenID endpoint accepted")
+	}
+}
+
 func TestVerifySteamOpenID(t *testing.T) {
 	verified := false
 	verifier := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

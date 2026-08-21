@@ -199,7 +199,10 @@ func isSteamOpenIDEndpoint(value string) bool {
 	if err != nil || endpoint.Scheme != "https" || endpoint.Hostname() != "steamcommunity.com" {
 		return false
 	}
-	return endpoint.Path == "/openid" || endpoint.Path == "/openid/"
+	// Steam returns its signed assertion with /openid/login as the OP endpoint.
+	// Keep the allowed paths explicit so the response is still bound to Steam
+	// while accepting the endpoint used by the actual authentication flow.
+	return endpoint.Path == "/openid" || endpoint.Path == "/openid/" || endpoint.Path == "/openid/login"
 }
 
 func steamIDFromClaimedID(value string) (string, error) {
