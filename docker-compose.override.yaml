@@ -1,0 +1,4 @@
+services:
+  gateway:
+    ports:
+      - "${APP_HOST_PORT:-3001}:80"

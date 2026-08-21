@@ -6,8 +6,6 @@ services:
       context: ./deploy
       dockerfile: nginx.Dockerfile
     restart: unless-stopped
-    ports:
-      - "${APP_HOST_PORT:-3000}:80"
     expose:
       - "80"
     depends_on:

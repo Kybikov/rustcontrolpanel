@@ -5,7 +5,8 @@
 - `apps/web` — Next.js 16 + React 19 + TypeScript + shadcn/ui;
 - `apps/api` — Go API з PostgreSQL, Redis і WebSocket realtime hub;
 - `db/migrations` — SQL-схема даних;
-- `docker-compose.yaml` — повний Docker-стек для production: gateway, frontend, API, PostgreSQL та Redis.
+- `docker-compose.yaml` — повний Docker-стек для production: gateway, frontend, API, PostgreSQL та Redis;
+- `docker-compose.override.yaml` — лише локальне відкриття gateway на порт хоста; Coolify його не використовує.
 
 Поточний operational shell наслідує структуру [AdminCN Full Navbar Layout](https://shadcn-nextjs-admincn-full-navbar-layout-admin-template.vercel.app/), але вже адаптований під Rust-операції: сервери, гравці, live map, алерти, wipe calendar та activity feed.
 
