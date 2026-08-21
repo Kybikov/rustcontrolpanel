@@ -45,14 +45,15 @@ go run ./cmd/api
 
 - login: http://localhost:3000/login або Docker web на http://localhost:3001/login;
 - керування людьми, ролями та permission matrix: `/team`;
-- власний профіль і зміна пароля: `/account`;
-- статус і синхронізація BattleMetrics та Steam Web API: `/integrations`;
+- власний профіль, зміна пароля та прив’язка Steam: `/account`;
+- пошук публічних Steam-профілів: `/players`;
+- пошук і базова інформація Rust-серверів: `/servers`;
 - сесія зберігається в HttpOnly cookie;
 - super admin має повний доступ до всіх поточних і майбутніх функцій.
 
 `INTEGRATIONS_ENCRYPTION_KEY` є обов’язковим ключем для шифрування credentials у PostgreSQL. Підключення спочатку проходить live-check провайдера, і лише після успіху credential зберігається backend-ом.
 
-Provider credentials завантажуються backend-ом із `INTEGRATION_CREDENTIALS_FILE` або Docker secret `RUST_CONTROL_KEYS_FILE`. Вони не вводяться у frontend, не повертаються API та не комітяться у Git. Після заміни файла натисни `Sync from server` на `/integrations` або перезапусти API.
+Provider credentials завантажуються backend-ом із `INTEGRATION_CREDENTIALS_FILE` або Docker secret `RUST_CONTROL_KEYS_FILE`. Вони не вводяться у frontend, не повертаються API та не комітяться у Git. Після заміни файла перезапусти API.
 
 Доступи видаються окремо: `dashboard.view`, `servers.view`, `servers.search`, `players.view`, `players.search`, `integrations.manage`, `users.view`, `users.create`, `users.manage_access`.
 

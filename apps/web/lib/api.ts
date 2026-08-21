@@ -42,6 +42,12 @@ export type SteamPlayer = {
   profileCreatedAt?: string
 }
 
+export type SteamAccount = {
+  steamId: string
+  profileUrl: string
+  linkedAt: string
+}
+
 export type RustServer = {
   id: string
   name: string

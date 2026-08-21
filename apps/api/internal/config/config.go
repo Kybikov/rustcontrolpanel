@@ -20,6 +20,8 @@ type Config struct {
 	IntegrationCredentialsFile string
 	BattleMetricsAPIToken      string
 	SteamWebAPIKey             string
+	PublicAPIURL               string
+	PublicWebURL               string
 }
 
 func Load() (Config, error) {
@@ -50,6 +52,8 @@ func Load() (Config, error) {
 		IntegrationCredentialsFile: os.Getenv("INTEGRATION_CREDENTIALS_FILE"),
 		BattleMetricsAPIToken:      os.Getenv("BATTLEMETRICS_API_TOKEN"),
 		SteamWebAPIKey:             os.Getenv("STEAM_WEB_API_KEY"),
+		PublicAPIURL:               env("PUBLIC_API_URL", "http://localhost:8080"),
+		PublicWebURL:               env("PUBLIC_WEB_URL", "http://localhost:3001"),
 	}, nil
 }
 
