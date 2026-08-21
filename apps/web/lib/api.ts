@@ -91,6 +91,12 @@ export type CheckedRustServer = {
   tags: string[]
   vacSecured: boolean
   passwordProtected: boolean
+  protocol: number
+  gameFolder: string
+  gameName: string
+  serverKind: string
+  environment: string
+  serverSteamId?: string
   latencyMs: number
   checkedAt: string
 }
@@ -99,7 +105,7 @@ export type WatchlistServer = {
   id: number
   address: string
   queryAddress: string
-  status: "online" | "offline" | "unknown" | "removed"
+  status: "online" | "offline" | "blocked" | "unknown" | "removed"
   error?: string
   name?: string
   map?: string
@@ -110,6 +116,12 @@ export type WatchlistServer = {
   tags: string[]
   vacSecured?: boolean
   passwordProtected?: boolean
+  protocol?: number
+  gameFolder?: string
+  gameName?: string
+  serverKind?: string
+  environment?: string
+  serverSteamId?: string
   latencyMs?: number
   checkedAt?: string
   createdAt: string

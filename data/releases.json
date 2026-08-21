@@ -1,5 +1,17 @@
 [
   {
+    "version": "0.1.16",
+    "date": "21 серпня 2026",
+    "added": [
+      "Перевірка сервера та вотчліст тепер зберігають extended A2S-дані: query port, Rust build, game folder/name, тип сервера, ОС, Steam server ID і повний набір server tags.",
+      "У результаті перевірки та у вотчлісті з’явився компактний розділ Technical details, який розкриває фактичні дані сервера лише за потреби."
+    ],
+    "fixed": [
+      "Відхилений публічний A2S-запит більше не позначається як offline: RustControl явно показує стан Public query blocked."
+    ],
+    "removed": []
+  },
+  {
     "version": "0.1.15",
     "date": "21 серпня 2026",
     "added": [

@@ -26,9 +26,10 @@ const (
 )
 
 var (
-	ErrInvalidAddress = errors.New("enter a public IPv4 address and port, for example 79.137.98.23:28015")
-	ErrNotRustServer  = errors.New("the endpoint answered, but it is not a Rust server")
-	ErrWatchlistFull  = fmt.Errorf("a watchlist can contain at most %d servers", maxWatchlist)
+	ErrInvalidAddress     = errors.New("enter a public IPv4 address and port, for example 79.137.98.23:28015")
+	ErrNotRustServer      = errors.New("the endpoint answered, but it is not a Rust server")
+	ErrPublicQueryBlocked = errors.New("server blocks public status queries")
+	ErrWatchlistFull      = fmt.Errorf("a watchlist can contain at most %d servers", maxWatchlist)
 )
 
 type Snapshot struct {
@@ -43,6 +44,12 @@ type Snapshot struct {
 	Tags              []string  `json:"tags"`
 	VACSecured        bool      `json:"vacSecured"`
 	PasswordProtected bool      `json:"passwordProtected"`
+	Protocol          int       `json:"protocol"`
+	GameFolder        string    `json:"gameFolder"`
+	GameName          string    `json:"gameName"`
+	ServerKind        string    `json:"serverKind"`
+	Environment       string    `json:"environment"`
+	ServerSteamID     string    `json:"serverSteamId,omitempty"`
 	LatencyMS         int       `json:"latencyMs"`
 	CheckedAt         time.Time `json:"checkedAt"`
 }
@@ -62,6 +69,12 @@ type WatchlistServer struct {
 	Tags              []string   `json:"tags"`
 	VACSecured        *bool      `json:"vacSecured,omitempty"`
 	PasswordProtected *bool      `json:"passwordProtected,omitempty"`
+	Protocol          *int       `json:"protocol,omitempty"`
+	GameFolder        string     `json:"gameFolder,omitempty"`
+	GameName          string     `json:"gameName,omitempty"`
+	ServerKind        string     `json:"serverKind,omitempty"`
+	Environment       string     `json:"environment,omitempty"`
+	ServerSteamID     string     `json:"serverSteamId,omitempty"`
 	LatencyMS         *int       `json:"latencyMs,omitempty"`
 	CheckedAt         *time.Time `json:"checkedAt,omitempty"`
 	CreatedAt         time.Time  `json:"createdAt"`
@@ -99,7 +112,7 @@ func (s *Service) EnsureSchema(ctx context.Context) error {
 			ip INET NOT NULL,
 			game_port INTEGER NOT NULL CHECK (game_port BETWEEN 1 AND 65535),
 			query_port INTEGER NOT NULL CHECK (query_port BETWEEN 1 AND 65535),
-			status TEXT NOT NULL DEFAULT 'unknown' CHECK (status IN ('online', 'offline', 'unknown')),
+			status TEXT NOT NULL DEFAULT 'unknown' CHECK (status IN ('online', 'offline', 'blocked', 'unknown')),
 			last_error TEXT NOT NULL DEFAULT '',
 			server_name TEXT NOT NULL DEFAULT '',
 			map_name TEXT NOT NULL DEFAULT '',
@@ -110,6 +123,12 @@ func (s *Service) EnsureSchema(ctx context.Context) error {
 			tags TEXT[] NOT NULL DEFAULT '{}',
 			vac_secured BOOLEAN,
 			password_protected BOOLEAN,
+			protocol INTEGER,
+			game_folder TEXT NOT NULL DEFAULT '',
+			game_name TEXT NOT NULL DEFAULT '',
+			server_kind TEXT NOT NULL DEFAULT '',
+			environment TEXT NOT NULL DEFAULT '',
+			server_steam_id TEXT NOT NULL DEFAULT '',
 			latency_ms INTEGER,
 			last_checked_at TIMESTAMPTZ,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -117,6 +136,14 @@ func (s *Service) EnsureSchema(ctx context.Context) error {
 			UNIQUE (user_id, ip, game_port)
 		)`,
 		`CREATE INDEX IF NOT EXISTS server_watchlist_user_updated_idx ON control.server_watchlist (user_id, updated_at DESC)`,
+		`ALTER TABLE control.server_watchlist DROP CONSTRAINT IF EXISTS server_watchlist_status_check`,
+		`ALTER TABLE control.server_watchlist ADD CONSTRAINT server_watchlist_status_check CHECK (status IN ('online', 'offline', 'blocked', 'unknown'))`,
+		`ALTER TABLE control.server_watchlist ADD COLUMN IF NOT EXISTS protocol INTEGER`,
+		`ALTER TABLE control.server_watchlist ADD COLUMN IF NOT EXISTS game_folder TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE control.server_watchlist ADD COLUMN IF NOT EXISTS game_name TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE control.server_watchlist ADD COLUMN IF NOT EXISTS server_kind TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE control.server_watchlist ADD COLUMN IF NOT EXISTS environment TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE control.server_watchlist ADD COLUMN IF NOT EXISTS server_steam_id TEXT NOT NULL DEFAULT ''`,
 	}
 	for _, statement := range statements {
 		if _, err := s.db.Exec(ctx, statement); err != nil {
@@ -151,6 +178,12 @@ func (s *Service) Check(ctx context.Context, rawAddress string) (Snapshot, error
 				Tags:              snapshot.Tags,
 				VACSecured:        snapshot.VACSecured,
 				PasswordProtected: snapshot.PasswordProtected,
+				Protocol:          snapshot.Protocol,
+				GameFolder:        snapshot.Folder,
+				GameName:          snapshot.Game,
+				ServerKind:        snapshot.ServerKind,
+				Environment:       snapshot.Environment,
+				ServerSteamID:     steamIDString(snapshot.ServerSteamID),
 				LatencyMS:         snapshot.LatencyMS,
 				CheckedAt:         time.Now().UTC(),
 			}, nil
@@ -182,6 +215,7 @@ func (s *Service) Add(ctx context.Context, userID int64, rawAddress string) (Wat
 	}
 	var snapshot Snapshot
 	var fromCache bool
+	var checkErr error
 	s.cacheMu.Lock()
 	s.pruneRecentChecks(time.Now())
 	if cached, ok := s.recentChecks[recentCheckKey{userID: userID, address: net.JoinHostPort(endpoint.ip.String(), strconv.Itoa(endpoint.port))}]; ok {
@@ -189,7 +223,6 @@ func (s *Service) Add(ctx context.Context, userID int64, rawAddress string) (Wat
 	}
 	s.cacheMu.Unlock()
 	if !fromCache {
-		var checkErr error
 		snapshot, checkErr = s.Check(ctx, rawAddress)
 		if checkErr == nil {
 			endpoint, _ = parseEndpoint(snapshot.Address)
@@ -237,7 +270,7 @@ func (s *Service) Add(ctx context.Context, userID int64, rawAddress string) (Wat
 				return WatchlistServer{}, err
 			}
 		} else {
-			server, err = s.persistFailure(ctx, userID, server.ID, errors.New("server did not answer"))
+			server, err = s.persistFailure(ctx, userID, server.ID, checkErr)
 			if err != nil {
 				return WatchlistServer{}, err
 			}
@@ -283,7 +316,7 @@ func (s *Service) Refresh(ctx context.Context, userID, id int64) (WatchlistServe
 func (s *Service) RefreshAll(ctx context.Context) error {
 	rows, err := s.db.Query(ctx, `
 		SELECT id, user_id, host(ip), game_port, query_port, status, last_error, server_name, map_name,
-			players, max_players, bots, version, tags, vac_secured, password_protected, latency_ms,
+			players, max_players, bots, version, tags, vac_secured, password_protected, protocol, game_folder, game_name, server_kind, environment, server_steam_id, latency_ms,
 			last_checked_at, created_at
 		FROM control.server_watchlist
 		ORDER BY updated_at ASC
@@ -326,7 +359,7 @@ func (s *Service) refreshServer(ctx context.Context, userID int64, server Watchl
 func (s *Service) list(ctx context.Context, userID int64) ([]WatchlistServer, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT id, host(ip), game_port, query_port, status, last_error, server_name, map_name,
-			players, max_players, bots, version, tags, vac_secured, password_protected, latency_ms,
+			players, max_players, bots, version, tags, vac_secured, password_protected, protocol, game_folder, game_name, server_kind, environment, server_steam_id, latency_ms,
 			last_checked_at, created_at
 		FROM control.server_watchlist
 		WHERE user_id = $1
@@ -350,7 +383,7 @@ func (s *Service) list(ctx context.Context, userID int64) ([]WatchlistServer, er
 func (s *Service) find(ctx context.Context, userID, id int64) (WatchlistServer, error) {
 	row := s.db.QueryRow(ctx, `
 		SELECT id, host(ip), game_port, query_port, status, last_error, server_name, map_name,
-			players, max_players, bots, version, tags, vac_secured, password_protected, latency_ms,
+			players, max_players, bots, version, tags, vac_secured, password_protected, protocol, game_folder, game_name, server_kind, environment, server_steam_id, latency_ms,
 			last_checked_at, created_at
 		FROM control.server_watchlist WHERE id = $1 AND user_id = $2
 	`, id, userID)
@@ -362,28 +395,31 @@ func (s *Service) persistSnapshot(ctx context.Context, userID, id int64, snapsho
 		UPDATE control.server_watchlist SET
 			query_port = $3, status = 'online', last_error = '', server_name = $4, map_name = $5,
 			players = $6, max_players = $7, bots = $8, version = $9, tags = $10, vac_secured = $11,
-			password_protected = $12, latency_ms = $13, last_checked_at = $14, updated_at = NOW()
+			password_protected = $12, protocol = $13, game_folder = $14, game_name = $15, server_kind = $16,
+			environment = $17, server_steam_id = $18, latency_ms = $19, last_checked_at = $20, updated_at = NOW()
 		WHERE id = $1 AND user_id = $2
 		RETURNING id, host(ip), game_port, query_port, status, last_error, server_name, map_name,
-			players, max_players, bots, version, tags, vac_secured, password_protected, latency_ms,
+			players, max_players, bots, version, tags, vac_secured, password_protected, protocol, game_folder, game_name, server_kind, environment, server_steam_id, latency_ms,
 			last_checked_at, created_at
 	`, id, userID, portFromAddress(snapshot.QueryAddress), snapshot.Name, snapshot.Map, snapshot.Players,
 		snapshot.MaxPlayers, snapshot.Bots, snapshot.Version, snapshot.Tags, snapshot.VACSecured,
-		snapshot.PasswordProtected, snapshot.LatencyMS, snapshot.CheckedAt)
+		snapshot.PasswordProtected, snapshot.Protocol, snapshot.GameFolder, snapshot.GameName, snapshot.ServerKind,
+		snapshot.Environment, snapshot.ServerSteamID, snapshot.LatencyMS, snapshot.CheckedAt)
 	return scanWatchlistServer(row)
 }
 
 func (s *Service) persistFailure(ctx context.Context, userID, id int64, checkErr error) (WatchlistServer, error) {
 	row := s.db.QueryRow(ctx, `
 		UPDATE control.server_watchlist SET
-			status = 'offline', last_error = $3, server_name = '', map_name = '', players = NULL,
+			status = $3, last_error = $4, server_name = '', map_name = '', players = NULL,
 			max_players = NULL, bots = NULL, version = '', tags = '{}', vac_secured = NULL,
-			password_protected = NULL, latency_ms = NULL, last_checked_at = NOW(), updated_at = NOW()
+			password_protected = NULL, protocol = NULL, game_folder = '', game_name = '', server_kind = '',
+			environment = '', server_steam_id = '', latency_ms = NULL, last_checked_at = NOW(), updated_at = NOW()
 		WHERE id = $1 AND user_id = $2
 		RETURNING id, host(ip), game_port, query_port, status, last_error, server_name, map_name,
-			players, max_players, bots, version, tags, vac_secured, password_protected, latency_ms,
+			players, max_players, bots, version, tags, vac_secured, password_protected, protocol, game_folder, game_name, server_kind, environment, server_steam_id, latency_ms,
 			last_checked_at, created_at
-	`, id, userID, clientError(checkErr))
+	`, id, userID, failureStatus(checkErr), clientError(checkErr))
 	return scanWatchlistServer(row)
 }
 
@@ -434,8 +470,11 @@ type infoResponse struct {
 	Name, Map, Folder, Game, Version string
 	Players, MaxPlayers, Bots        int
 	VACSecured, PasswordProtected    bool
+	Protocol                         int
+	ServerKind, Environment          string
 	AdvertisedPort                   int
 	GameID                           uint64
+	ServerSteamID                    uint64
 	Tags                             []string
 	LatencyMS                        int
 }
@@ -491,6 +530,9 @@ func readPacket(conn *net.UDPConn) ([]byte, error) {
 		return nil, err
 	}
 	packet := buffer[:n]
+	if len(packet) == 1 && packet[0] == 0 {
+		return nil, ErrPublicQueryBlocked
+	}
 	if len(packet) < 5 || binary.LittleEndian.Uint32(packet[:4]) != 0xffffffff {
 		return nil, errors.New("unsupported server response")
 	}
@@ -502,7 +544,8 @@ func parseInfoPacket(packet []byte) (infoResponse, error) {
 		return infoResponse{}, errors.New("server did not return status information")
 	}
 	reader := packetReader{data: packet[5:]}
-	if _, err := reader.byte(); err != nil { // protocol
+	protocol, err := reader.byte()
+	if err != nil {
 		return infoResponse{}, err
 	}
 	name, err := reader.string()
@@ -536,10 +579,12 @@ func parseInfoPacket(packet []byte) (infoResponse, error) {
 	if err != nil {
 		return infoResponse{}, err
 	}
-	if _, err := reader.byte(); err != nil {
+	serverType, err := reader.byte()
+	if err != nil {
 		return infoResponse{}, err
 	}
-	if _, err := reader.byte(); err != nil {
+	environment, err := reader.byte()
+	if err != nil {
 		return infoResponse{}, err
 	}
 	password, err := reader.byte()
@@ -554,7 +599,7 @@ func parseInfoPacket(packet []byte) (infoResponse, error) {
 	if err != nil {
 		return infoResponse{}, err
 	}
-	info := infoResponse{Name: name, Map: mapName, Folder: folder, Game: game, Version: version, Players: int(players), MaxPlayers: int(maxPlayers), Bots: int(bots), PasswordProtected: password != 0, VACSecured: vac != 0}
+	info := infoResponse{Name: name, Map: mapName, Folder: folder, Game: game, Version: version, Players: int(players), MaxPlayers: int(maxPlayers), Bots: int(bots), PasswordProtected: password != 0, VACSecured: vac != 0, Protocol: int(protocol), ServerKind: serverKindLabel(serverType), Environment: environmentLabel(environment)}
 	if reader.remaining() == 0 {
 		return info, nil
 	}
@@ -570,9 +615,11 @@ func parseInfoPacket(packet []byte) (infoResponse, error) {
 		info.AdvertisedPort = int(port)
 	}
 	if edf&0x10 != 0 {
-		if _, err := reader.uint64(); err != nil {
+		steamID, err := reader.uint64()
+		if err != nil {
 			return infoResponse{}, err
 		}
+		info.ServerSteamID = steamID
 	}
 	if edf&0x40 != 0 {
 		if _, err := reader.uint16(); err != nil {
@@ -653,7 +700,17 @@ func splitTags(raw string) []string {
 	return tags
 }
 
+func steamIDString(value uint64) string {
+	if value == 0 {
+		return ""
+	}
+	return strconv.FormatUint(value, 10)
+}
+
 func queryError(err error) error {
+	if errors.Is(err, ErrPublicQueryBlocked) {
+		return ErrPublicQueryBlocked
+	}
 	if errors.Is(err, net.ErrClosed) || errors.Is(err, context.DeadlineExceeded) {
 		return errors.New("server did not answer in time")
 	}
@@ -664,8 +721,36 @@ func queryError(err error) error {
 	return errors.New("server did not answer")
 }
 
+func serverKindLabel(value byte) string {
+	switch value {
+	case 'd':
+		return "dedicated"
+	case 'l':
+		return "listen"
+	case 'p':
+		return "proxy"
+	default:
+		return "unknown"
+	}
+}
+
+func environmentLabel(value byte) string {
+	switch value {
+	case 'l':
+		return "linux"
+	case 'w':
+		return "windows"
+	case 'm', 'o':
+		return "macos"
+	default:
+		return "unknown"
+	}
+}
+
 func clientError(err error) string {
 	switch {
+	case errors.Is(err, ErrPublicQueryBlocked):
+		return "This server blocks public status queries."
 	case errors.Is(err, ErrNotRustServer):
 		return "The endpoint is not a Rust server."
 	case errors.Is(err, ErrInvalidAddress):
@@ -673,6 +758,13 @@ func clientError(err error) string {
 	default:
 		return "No response from the server."
 	}
+}
+
+func failureStatus(err error) string {
+	if errors.Is(err, ErrPublicQueryBlocked) {
+		return "blocked"
+	}
+	return "offline"
 }
 
 func portFromAddress(address string) int {
@@ -690,7 +782,7 @@ func scanWatchlistServer(row rowScanner) (WatchlistServer, error) {
 	var server WatchlistServer
 	var ip string
 	var gamePort, queryPort int
-	err := row.Scan(&server.ID, &ip, &gamePort, &queryPort, &server.Status, &server.Error, &server.Name, &server.Map, &server.Players, &server.MaxPlayers, &server.Bots, &server.Version, &server.Tags, &server.VACSecured, &server.PasswordProtected, &server.LatencyMS, &server.CheckedAt, &server.CreatedAt)
+	err := row.Scan(&server.ID, &ip, &gamePort, &queryPort, &server.Status, &server.Error, &server.Name, &server.Map, &server.Players, &server.MaxPlayers, &server.Bots, &server.Version, &server.Tags, &server.VACSecured, &server.PasswordProtected, &server.Protocol, &server.GameFolder, &server.GameName, &server.ServerKind, &server.Environment, &server.ServerSteamID, &server.LatencyMS, &server.CheckedAt, &server.CreatedAt)
 	if err != nil {
 		return WatchlistServer{}, err
 	}
@@ -704,7 +796,7 @@ func scanWatchlistServerWithUser(row rowScanner) (WatchlistServer, int64, error)
 	var userID int64
 	var ip string
 	var gamePort, queryPort int
-	err := row.Scan(&server.ID, &userID, &ip, &gamePort, &queryPort, &server.Status, &server.Error, &server.Name, &server.Map, &server.Players, &server.MaxPlayers, &server.Bots, &server.Version, &server.Tags, &server.VACSecured, &server.PasswordProtected, &server.LatencyMS, &server.CheckedAt, &server.CreatedAt)
+	err := row.Scan(&server.ID, &userID, &ip, &gamePort, &queryPort, &server.Status, &server.Error, &server.Name, &server.Map, &server.Players, &server.MaxPlayers, &server.Bots, &server.Version, &server.Tags, &server.VACSecured, &server.PasswordProtected, &server.Protocol, &server.GameFolder, &server.GameName, &server.ServerKind, &server.Environment, &server.ServerSteamID, &server.LatencyMS, &server.CheckedAt, &server.CreatedAt)
 	if err != nil {
 		return WatchlistServer{}, 0, err
 	}

@@ -135,6 +135,8 @@ func writeCheckError(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 	case errors.Is(err, servercheck.ErrNotRustServer):
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+	case errors.Is(err, servercheck.ErrPublicQueryBlocked):
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "This server blocks public status queries. It may still be online in Rust."})
 	case errors.Is(err, servercheck.ErrWatchlistFull):
 		writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
 	default:

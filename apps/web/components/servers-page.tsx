@@ -3,12 +3,14 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import {
   CircleAlert,
+  ChevronDown,
   Heart,
   Map,
   Plus,
   Radio,
   RefreshCw,
   ShieldCheck,
+  Tag,
   Trash2,
   UsersRound,
 } from "lucide-react"
@@ -35,6 +37,7 @@ export function ServersPage() {
   const [checking, setChecking] = useState(false)
   const [saving, setSaving] = useState(false)
   const [busyID, setBusyID] = useState<number | null>(null)
+  const [expandedWatchID, setExpandedWatchID] = useState<number | null>(null)
   const [error, setError] = useState("")
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -279,6 +282,12 @@ export function ServersPage() {
                 key={server.id}
                 server={server}
                 busy={busyID === server.id}
+                expanded={expandedWatchID === server.id}
+                onToggleDetails={() =>
+                  setExpandedWatchID((current) =>
+                    current === server.id ? null : server.id
+                  )
+                }
                 onRefresh={() => void refresh(server)}
                 onRemove={() => void remove(server)}
               />
@@ -365,6 +374,7 @@ function CheckedServerCard({
             }
           />
         </div>
+        <TechnicalDetails server={server} />
       </CardContent>
     </Card>
   )
@@ -373,31 +383,44 @@ function CheckedServerCard({
 function WatchlistRow({
   server,
   busy,
+  expanded,
+  onToggleDetails,
   onRefresh,
   onRemove,
 }: {
   server: WatchlistServer
   busy: boolean
+  expanded: boolean
+  onToggleDetails: () => void
   onRefresh: () => void
   onRemove: () => void
 }) {
   const online = server.status === "online"
+  const blocked = server.status === "blocked"
   return (
     <div className="flex flex-col gap-4 border-b border-white/[0.07] px-4 py-4 last:border-0 sm:px-5 md:flex-row md:items-center">
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span
-            className={`size-1.5 shrink-0 rounded-full ${online ? "bg-emerald-400" : "bg-red-400"}`}
+            className={`size-1.5 shrink-0 rounded-full ${online ? "bg-emerald-400" : blocked ? "bg-amber-400" : "bg-red-400"}`}
           />
           <p className="truncate text-sm font-medium text-white/90">
-            {online ? server.name || "Unnamed Rust server" : "Server offline"}
+            {online
+              ? server.name || "Unnamed Rust server"
+              : blocked
+                ? "Public query blocked"
+                : "Server unavailable"}
           </p>
         </div>
         <p className="mt-1 pl-3.5 font-mono text-xs text-white/38">
           {server.address}
         </p>
         {!online && server.error && (
-          <p className="mt-2 pl-3.5 text-xs text-red-200/70">{server.error}</p>
+          <p
+            className={`mt-2 pl-3.5 text-xs ${blocked ? "text-amber-200/70" : "text-red-200/70"}`}
+          >
+            {server.error}
+          </p>
         )}
       </div>
       <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-xs md:w-[310px] md:grid-cols-3">
@@ -429,6 +452,20 @@ function WatchlistRow({
           <RefreshCw className={`size-3.5 ${busy ? "animate-spin" : ""}`} />{" "}
           Refresh
         </Button>
+        {online && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onToggleDetails}
+            className="rounded-xl text-white/55 hover:bg-white/[0.06] hover:text-white"
+          >
+            <ChevronDown
+              className={`size-3.5 transition-transform ${expanded ? "rotate-180" : ""}`}
+            />
+            Details
+          </Button>
+        )}
         <Button
           type="button"
           variant="ghost"
@@ -441,6 +478,74 @@ function WatchlistRow({
           <Trash2 className="size-3.5" />
         </Button>
       </div>
+      {online && expanded && <TechnicalDetails server={server} compact />}
+    </div>
+  )
+}
+
+function TechnicalDetails({
+  server,
+  compact = false,
+}: {
+  server:
+    | Pick<
+        CheckedRustServer,
+        | "address"
+        | "queryAddress"
+        | "version"
+        | "protocol"
+        | "gameFolder"
+        | "gameName"
+        | "serverKind"
+        | "environment"
+        | "serverSteamId"
+        | "tags"
+      >
+    | WatchlistServer
+  compact?: boolean
+}) {
+  const details = [
+    ["Game port", server.address],
+    ["Query port", server.queryAddress],
+    ["Server type", server.serverKind],
+    ["Operating system", server.environment],
+    ["A2S protocol", server.protocol?.toString()],
+    ["Game", server.gameName || server.gameFolder],
+    ["Build", server.version],
+    ["Steam server ID", server.serverSteamId],
+  ].filter(([, value]) => value) as [string, string][]
+
+  return (
+    <div
+      className={`border-t border-white/[0.08] ${compact ? "px-4 py-4 sm:px-5" : "px-5 py-4 sm:px-6"}`}
+    >
+      {!compact && (
+        <p className="text-xs font-medium text-white/65">Technical details</p>
+      )}
+      <div
+        className={`grid gap-x-6 gap-y-3 ${compact ? "mt-0 sm:grid-cols-3 lg:grid-cols-4" : "mt-4 sm:grid-cols-2 lg:grid-cols-4"}`}
+      >
+        {details.map(([label, value]) => (
+          <Stat key={label} label={label} value={value} />
+        ))}
+      </div>
+      {server.tags.length > 0 && (
+        <div className="mt-4 border-t border-white/[0.07] pt-3">
+          <div className="flex items-center gap-2 text-[10px] font-medium tracking-[0.12em] text-white/32 uppercase">
+            <Tag className="size-3" /> Server tags
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {server.tags.map((tag) => (
+              <span
+                key={tag}
+                className="max-w-full rounded-md border border-white/[0.08] bg-white/[0.03] px-2 py-1 font-mono text-[10px] break-all text-white/55"
+              >
+                {tag}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
