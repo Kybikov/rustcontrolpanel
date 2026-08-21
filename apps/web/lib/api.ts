@@ -37,7 +37,32 @@ export type IntegrationStatus = {
   lastError?: string
 }
 
-export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080"
+export type RustServer = {
+  id: string
+  name: string
+  address: string
+  ip: string
+  port: number
+  players: number
+  maxPlayers: number
+  rank?: number
+  status: string
+  map?: string
+  mapSize?: number
+  description?: string
+  wipeAt?: string
+  lastSeenAt?: string
+}
+
+export type ServerSearchResult = {
+  servers: RustServer[]
+  page: number
+  perPage: number
+  hasMore: boolean
+}
+
+export const API_URL =
+  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080"
 
 export function apiFetch(path: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers)

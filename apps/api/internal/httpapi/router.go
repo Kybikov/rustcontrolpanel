@@ -40,6 +40,8 @@ func NewRouter(cfg config.Config, clients *storage.Clients, hub *realtime.Hub, l
 	mux.HandleFunc("POST /api/v1/integrations/{provider}/test", server.testIntegration)
 	mux.HandleFunc("POST /api/v1/integrations/{provider}/sync", server.syncIntegration)
 	mux.HandleFunc("DELETE /api/v1/integrations/{provider}", server.disconnectIntegration)
+	mux.HandleFunc("GET /api/v1/servers", server.searchServers)
+	mux.HandleFunc("GET /api/v1/servers/{id}", server.serverDetails)
 	mux.HandleFunc("GET /api/v1/permissions", server.listPermissions)
 	mux.HandleFunc("GET /api/v1/roles", server.listRoles)
 	mux.HandleFunc("POST /api/v1/roles", server.createRole)
