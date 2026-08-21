@@ -107,5 +107,11 @@
   }
   html {
     @apply font-sans;
+    background: #0d0b0b;
+    scrollbar-gutter: stable;
+  }
+  body {
+    min-width: 320px;
+    min-height: 100svh;
   }
 }

@@ -22,6 +22,9 @@ type Config struct {
 	SteamWebAPIKey             string
 	PublicAPIURL               string
 	PublicWebURL               string
+	VAPIDPublicKey             string
+	VAPIDPrivateKey            string
+	VAPIDSubject               string
 }
 
 func Load() (Config, error) {
@@ -54,6 +57,9 @@ func Load() (Config, error) {
 		SteamWebAPIKey:             os.Getenv("STEAM_WEB_API_KEY"),
 		PublicAPIURL:               env("PUBLIC_API_URL", "http://localhost:8080"),
 		PublicWebURL:               env("PUBLIC_WEB_URL", "http://localhost:3001"),
+		VAPIDPublicKey:             os.Getenv("VAPID_PUBLIC_KEY"),
+		VAPIDPrivateKey:            os.Getenv("VAPID_PRIVATE_KEY"),
+		VAPIDSubject:               env("VAPID_SUBJECT", "mailto:rustcontrol@localhost"),
 	}, nil
 }
 

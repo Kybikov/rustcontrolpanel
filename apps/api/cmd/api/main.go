@@ -15,6 +15,7 @@ import (
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/httpapi"
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/integrations"
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/playerstore"
+	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/push"
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/realtime"
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/servercheck"
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/storage"
@@ -67,18 +68,34 @@ func main() {
 	if managedCredentials.SteamWebAPIKey == "" {
 		managedCredentials.SteamWebAPIKey = cfg.SteamWebAPIKey
 	}
+	if managedCredentials.VAPIDPublicKey != "" {
+		cfg.VAPIDPublicKey = managedCredentials.VAPIDPublicKey
+	}
+	if managedCredentials.VAPIDPrivateKey != "" {
+		cfg.VAPIDPrivateKey = managedCredentials.VAPIDPrivateKey
+	}
+	if managedCredentials.VAPIDSubject != "" {
+		cfg.VAPIDSubject = managedCredentials.VAPIDSubject
+	}
 	if err := integrationService.EnsureConfigured(ctx, managedCredentials); err != nil {
 		logger.Warn("sync managed integration credentials", "error", err)
 	}
 
 	hub := realtime.NewHub()
 	go hub.Run(ctx)
-	checker := servercheck.NewService(clients.DB, hub)
+	pushService := push.NewService(clients.DB, push.Config{
+		PublicKey: cfg.VAPIDPublicKey, PrivateKey: cfg.VAPIDPrivateKey, Subject: cfg.VAPIDSubject,
+	})
+	if err := pushService.EnsureSchema(ctx); err != nil {
+		logger.Error("prepare push schema", "error", err)
+		os.Exit(1)
+	}
+	checker := servercheck.NewService(clients.DB, hub, pushService)
 	if err := checker.EnsureSchema(ctx); err != nil {
 		logger.Error("prepare server checker schema", "error", err)
 		os.Exit(1)
 	}
-	players := playerstore.NewService(clients.DB, hub)
+	players := playerstore.NewService(clients.DB, hub, pushService)
 	if err := players.EnsureSchema(ctx); err != nil {
 		logger.Error("prepare saved players schema", "error", err)
 		os.Exit(1)

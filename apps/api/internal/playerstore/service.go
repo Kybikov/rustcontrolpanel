@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/integrations"
+	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/push"
 	"github.com/Kybikov/rustcontrolpanel/apps/api/internal/realtime"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -38,12 +39,17 @@ type ActivityPoint struct {
 }
 
 type Service struct {
-	db  *pgxpool.Pool
-	hub *realtime.Hub
+	db   *pgxpool.Pool
+	hub  *realtime.Hub
+	push *push.Service
 }
 
-func NewService(db *pgxpool.Pool, hub *realtime.Hub) *Service {
-	return &Service{db: db, hub: hub}
+func NewService(db *pgxpool.Pool, hub *realtime.Hub, pushServices ...*push.Service) *Service {
+	var pushService *push.Service
+	if len(pushServices) > 0 {
+		pushService = pushServices[0]
+	}
+	return &Service{db: db, hub: hub, push: pushService}
 }
 
 func (s *Service) EnsureSchema(ctx context.Context) error {
@@ -311,6 +317,11 @@ func (s *Service) publishUpdate(ctx context.Context, userID int64, previous, upd
 				Type:      "notification.created",
 				Timestamp: time.Now().UTC(),
 				Payload:   map[string]any{"notification": notification},
+			})
+		}
+		if s.push != nil {
+			s.push.SendToUser(ctx, userID, push.Payload{
+				Title: notification.Title, Body: notification.Body, Href: notification.Href, Tag: notification.Type,
 			})
 		}
 	}

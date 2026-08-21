@@ -143,6 +143,9 @@ export type WatchlistServer = {
   serverKind?: string
   environment?: string
   serverSteamId?: string
+  mapSeed?: number
+  mapSize?: number
+  mapUrl?: string
   latencyMs?: number
   checkedAt?: string
   createdAt: string

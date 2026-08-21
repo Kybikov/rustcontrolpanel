@@ -8,6 +8,8 @@ import {
   CircleAlert,
   Clock3,
   Copy,
+  ExternalLink,
+  Layers3,
   Map,
   Radio,
   RefreshCw,
@@ -346,34 +348,91 @@ function Overview({
   )
 }
 function MapSection({ server }: { server: WatchlistServer }) {
+  const previewURL = imageURL(server.mapUrl)
+  const rustMapsURL =
+    server.mapSeed && server.mapSize
+      ? `https://rustmaps.com/map/${server.mapSize}_${server.mapSeed}`
+      : undefined
+  const sourceURL = previewURL || safeURL(server.mapUrl) || rustMapsURL
+
   return (
     <section className="mt-5 grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
       <Card className="rounded-2xl border-white/[0.08] bg-[#171313] shadow-none">
-        <CardContent className="p-5 sm:p-6">
-          <div className="flex items-center gap-2">
-            <Map className="size-4 text-white/45" />
-            <h2 className="text-sm font-semibold text-white">Reported map</h2>
+        <CardContent className="p-0">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.08] px-5 py-4 sm:px-6">
+            <div className="flex items-center gap-2">
+              <Map className="size-4 text-white/45" />
+              <h2 className="text-sm font-semibold text-white">Server map</h2>
+            </div>
+            {sourceURL && (
+              <a
+                href={sourceURL}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex h-8 items-center gap-1.5 rounded-xl px-2.5 text-xs text-white/60 transition-colors hover:bg-white/[0.06] hover:text-white"
+              >
+                {previewURL || safeURL(server.mapUrl) ? "Open source" : "Open provider"}
+                <ExternalLink className="size-3.5" />
+              </a>
+            )}
           </div>
-          <p className="mt-4 text-xl font-semibold tracking-[-0.02em] break-words text-white">
-            {server.map || "Map was not reported"}
-          </p>
-          <p className="mt-2 max-w-prose text-sm leading-6 text-white/50">
-            This is the exact map label from the server’s A2S response. A visual
-            map preview needs a matching external source such as RustLabs; it is
-            intentionally not fabricated here.
-          </p>
+          {previewURL ? (
+            // The URL is supplied by the server and cannot use Next's static remote allowlist.
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={previewURL}
+              alt={server.map ? `${server.map} map` : "Server map"}
+              className="aspect-[16/10] w-full bg-black/20 object-cover"
+              referrerPolicy="no-referrer"
+            />
+          ) : server.mapSeed && server.mapSize ? (
+            <div className="flex min-h-56 flex-col items-center justify-center px-6 py-10 text-center">
+              <Layers3 className="size-5 text-white/35" />
+              <p className="mt-3 text-sm font-medium text-white/75">
+                Map image is not published yet
+              </p>
+              <p className="mt-1 max-w-md text-xs leading-5 text-white/40">
+                This server reports procedural map {server.mapSize} / {server.mapSeed},
+                but its current map has no public image to display. RustControl
+                keeps the verified seed and size ready for a provider image.
+              </p>
+            </div>
+          ) : (
+            <div className="flex min-h-56 flex-col items-center justify-center px-6 py-10 text-center">
+              <Layers3 className="size-5 text-white/35" />
+              <p className="mt-3 text-sm font-medium text-white/75">
+                This server has not published a renderable map
+              </p>
+              <p className="mt-1 max-w-md text-xs leading-5 text-white/40">
+                The public server query returned{" "}
+                {server.map ? `“${server.map}”` : "no map label"}, but not the
+                seed, size or image URL needed to render the actual map.
+              </p>
+            </div>
+          )}
         </CardContent>
       </Card>
       <Card className="rounded-2xl border-white/[0.08] bg-[#171313] shadow-none">
         <CardContent className="p-5 sm:p-6">
           <div className="flex items-center gap-2">
             <Tags className="size-4 text-white/45" />
-            <h2 className="text-sm font-semibold text-white">
-              Map & mode tags
-            </h2>
+            <h2 className="text-sm font-semibold text-white">Map details</h2>
           </div>
+          <dl className="mt-4 space-y-4">
+            <DataRow label="Map" value={server.map || "Not reported"} />
+            <DataRow
+              label="Seed"
+              value={server.mapSeed?.toString() || "Not published"}
+              mono
+            />
+            <DataRow
+              label="World size"
+              value={server.mapSize ? `${server.mapSize} m` : "Not published"}
+              mono
+            />
+          </dl>
           {server.tags.length ? (
-            <div className="mt-4 flex flex-wrap gap-2">
+            <div className="mt-5 flex flex-wrap gap-2">
               {server.tags.map((tag) => (
                 <span
                   key={tag}
@@ -392,6 +451,23 @@ function MapSection({ server }: { server: WatchlistServer }) {
       </Card>
     </section>
   )
+}
+function safeURL(value?: string) {
+  if (!value) return undefined
+  try {
+    const url = new URL(value)
+    return url.protocol === "https:" || url.protocol === "http:"
+      ? url.toString()
+      : undefined
+  } catch {
+    return undefined
+  }
+}
+function imageURL(value?: string) {
+  const url = safeURL(value)
+  return url && /\.(?:avif|gif|jpe?g|png|webp)(?:$|[?#])/i.test(url)
+    ? url
+    : undefined
 }
 function HistorySection({
   history,
@@ -479,10 +555,10 @@ function DataRow({
   mono?: boolean
 }) {
   return (
-    <div className="flex items-center justify-between gap-6 py-3 text-sm">
+    <div className="flex items-center justify-between gap-4 py-3 text-sm max-[420px]:flex-col max-[420px]:items-start">
       <dt className="text-white/45">{label}</dt>
       <dd
-        className={`min-w-0 truncate text-right text-white/80 ${mono ? "font-mono text-xs" : ""}`}
+        className={`min-w-0 truncate text-right text-white/80 max-[420px]:max-w-full max-[420px]:text-left ${mono ? "font-mono text-xs" : ""}`}
       >
         {value}
       </dd>

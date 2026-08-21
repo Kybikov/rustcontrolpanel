@@ -10,6 +10,9 @@ import (
 type ManagedCredentials struct {
 	BattleMetricsToken string
 	SteamWebAPIKey     string
+	VAPIDPublicKey     string
+	VAPIDPrivateKey    string
+	VAPIDSubject       string
 }
 
 func LoadManagedCredentials(path string) (ManagedCredentials, error) {
@@ -37,6 +40,12 @@ func LoadManagedCredentials(path string) (ManagedCredentials, error) {
 			credentials.BattleMetricsToken = value
 		case strings.Contains(normalizedKey, "steam") && (strings.Contains(normalizedKey, "api") || strings.Contains(normalizedKey, "key")):
 			credentials.SteamWebAPIKey = value
+		case normalizedKey == "vapid_public_key":
+			credentials.VAPIDPublicKey = value
+		case normalizedKey == "vapid_private_key":
+			credentials.VAPIDPrivateKey = value
+		case normalizedKey == "vapid_subject":
+			credentials.VAPIDSubject = value
 		}
 	}
 	if err := scanner.Err(); err != nil {

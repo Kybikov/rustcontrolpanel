@@ -412,10 +412,10 @@ function DataRow({
   mono?: boolean
 }) {
   return (
-    <div className="flex items-center justify-between gap-6 py-3 text-sm">
+    <div className="flex items-center justify-between gap-4 py-3 text-sm max-[420px]:flex-col max-[420px]:items-start">
       <dt className="text-white/45">{label}</dt>
       <dd
-        className={`min-w-0 truncate text-right text-white/80 ${mono ? "font-mono text-xs" : ""}`}
+        className={`min-w-0 truncate text-right text-white/80 max-[420px]:max-w-full max-[420px]:text-left ${mono ? "font-mono text-xs" : ""}`}
       >
         {value}
       </dd>

@@ -65,6 +65,23 @@ func TestQueryErrorRetainsBlockedStatus(t *testing.T) {
 	}
 }
 
+func TestMapMetadataUsesPublishedRustRules(t *testing.T) {
+	seed, size, mapURL := mapMetadata(map[string]string{
+		"world.seed":  "123456",
+		"world.size":  "4250",
+		"server.levelurl": "https://cdn.example.test/maps/123456.png",
+	})
+	if seed == nil || *seed != 123456 {
+		t.Fatalf("map seed = %v, want 123456", seed)
+	}
+	if size == nil || *size != 4250 {
+		t.Fatalf("map size = %v, want 4250", size)
+	}
+	if mapURL != "https://cdn.example.test/maps/123456.png" {
+		t.Fatalf("map URL = %q", mapURL)
+	}
+}
+
 func appendUint16(packet []byte, value uint16) []byte {
 	buffer := make([]byte, 2)
 	binary.LittleEndian.PutUint16(buffer, value)

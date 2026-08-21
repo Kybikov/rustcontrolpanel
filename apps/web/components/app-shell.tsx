@@ -26,9 +26,15 @@ import {
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { PushAlertsControl } from "@/components/push-alerts-control"
+import { PWARegister } from "@/components/pwa-register"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import { API_URL, apiFetch, type AuthUser, type Notification } from "@/lib/api"
+import {
+  notificationSoundEnabled,
+  playNotificationSound,
+} from "@/lib/notification-sound"
 
 type NavItem = {
   label: string
@@ -69,6 +75,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [profileOpen, setProfileOpen] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [notifications, setNotifications] = useState<Notification[]>([])
+  const [soundEnabled, setSoundEnabled] = useState(() =>
+    notificationSoundEnabled()
+  )
   const [user, setUser] = useState<AuthUser | null>(null)
   const notificationReconnectTimer = useRef<number | null>(null)
 
@@ -126,6 +135,9 @@ export function AppShell({ children }: { children: ReactNode }) {
             notification,
             ...current.filter((item) => item.id !== notification.id),
           ])
+          if (document.visibilityState === "visible") {
+            playNotificationSound()
+          }
         }
       }
       socket.onclose = () => {
@@ -226,6 +238,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-svh bg-[#0d0b0b] p-2 text-[#f4f0ee] md:flex md:gap-5">
+      <PWARegister />
       {mobileOpen && (
         <button
           className="fixed inset-0 z-20 bg-black/60 md:hidden"
@@ -316,7 +329,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               placeholder="Search pages..."
               aria-label="Search pages"
             />
-            <kbd className="pointer-events-none absolute top-1/2 right-1 -translate-y-1/2 text-[10px] text-white/35">
+            <kbd className="pointer-events-none absolute top-1/2 right-1 hidden -translate-y-1/2 text-[10px] text-white/35 sm:block">
               ⌘K
             </kbd>
             {query && (
@@ -377,6 +390,8 @@ export function AppShell({ children }: { children: ReactNode }) {
                   notifications={notifications}
                   onClose={() => setNotificationsOpen(false)}
                   onMarkRead={() => void markNotificationsRead()}
+                  soundEnabled={soundEnabled}
+                  onSoundChange={setSoundEnabled}
                 />
               )}
             </div>
@@ -431,7 +446,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </header>
 
-        <div className="mx-auto max-w-[1400px] px-1 py-6 sm:px-5 sm:py-8">
+        <div className="mx-auto max-w-[1400px] px-2 py-5 sm:px-5 sm:py-8">
           {children}
         </div>
       </main>
@@ -443,10 +458,14 @@ function NotificationsMenu({
   notifications,
   onClose,
   onMarkRead,
+  soundEnabled,
+  onSoundChange,
 }: {
   notifications: Notification[]
   onClose: () => void
   onMarkRead: () => void
+  soundEnabled: boolean
+  onSoundChange: (enabled: boolean) => void
 }) {
   const unread = notifications.some((notification) => !notification.readAt)
   return (
@@ -469,6 +488,10 @@ function NotificationsMenu({
           </button>
         )}
       </div>
+      <PushAlertsControl
+        soundEnabled={soundEnabled}
+        onSoundChange={onSoundChange}
+      />
       {notifications.length ? (
         <div className="max-h-[min(26rem,calc(100vh-7rem))] overflow-y-auto p-1.5">
           {notifications.map((notification) => {
