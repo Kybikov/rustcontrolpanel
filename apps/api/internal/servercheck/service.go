@@ -483,10 +483,20 @@ func isPublicIPv4(ip netip.Addr) bool {
 }
 
 func probePorts(port int) []int {
-	if port >= 65535 {
-		return []int{port}
+	ports := make([]int, 0, 3)
+	seen := make(map[int]struct{}, 3)
+	for _, offset := range []int{0, 1, 5} {
+		candidate := port + offset
+		if candidate < 1 || candidate > 65535 {
+			continue
+		}
+		if _, exists := seen[candidate]; exists {
+			continue
+		}
+		seen[candidate] = struct{}{}
+		ports = append(ports, candidate)
 	}
-	return []int{port, port + 1}
+	return ports
 }
 
 type infoResponse struct {

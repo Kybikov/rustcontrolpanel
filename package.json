@@ -1,7 +1,7 @@
 {
   "name": "rust-control",
   "private": true,
-  "version": "0.1.17",
+  "version": "0.1.18",
   "workspaces": ["apps/web"],
   "scripts": {
     "dev:web": "npm --workspace apps/web run dev",

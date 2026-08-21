@@ -17,6 +17,22 @@ func TestParseEndpointAllowsPublicIPv4AndRejectsPrivateNetworks(t *testing.T) {
 	}
 }
 
+func TestProbePortsIncludesCommonRustQueryOffsets(t *testing.T) {
+	ports := probePorts(28010)
+	want := []int{28010, 28011, 28015}
+	if len(ports) != len(want) {
+		t.Fatalf("probePorts() = %v, want %v", ports, want)
+	}
+	for index, port := range want {
+		if ports[index] != port {
+			t.Fatalf("probePorts() = %v, want %v", ports, want)
+		}
+	}
+	if got := probePorts(65535); len(got) != 1 || got[0] != 65535 {
+		t.Fatalf("probePorts(65535) = %v, want [65535]", got)
+	}
+}
+
 func TestParseInfoPacketKeepsExtendedRustDetails(t *testing.T) {
 	packet := []byte{0xff, 0xff, 0xff, 0xff, 0x49, 17}
 	for _, value := range []string{"Example Rust", "Procedural Map", "rust", "Rust"} {

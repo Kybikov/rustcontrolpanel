@@ -245,8 +245,8 @@ export function ServersPage() {
           </form>
           <p className="mt-3 text-xs text-white/32">
             Public IPv4 and server domains are accepted. Domains are resolved on
-            the backend to a public IP; the checker tries the game and query
-            port once.
+            the backend to a public IP; the checker tries the entered port and
+            the common query-port variants +1 and +5, once each.
           </p>
         </CardContent>
       </Card>
