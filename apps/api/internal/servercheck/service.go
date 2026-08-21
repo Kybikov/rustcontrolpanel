@@ -90,6 +90,17 @@ type Notification struct {
 	CreatedAt time.Time  `json:"createdAt"`
 }
 
+type HistoryPoint struct {
+	Status     string    `json:"status"`
+	Name       string    `json:"name,omitempty"`
+	Map        string    `json:"map,omitempty"`
+	Players    *int      `json:"players,omitempty"`
+	MaxPlayers *int      `json:"maxPlayers,omitempty"`
+	LatencyMS  *int      `json:"latencyMs,omitempty"`
+	Error      string    `json:"error,omitempty"`
+	CheckedAt  time.Time `json:"checkedAt"`
+}
+
 type Service struct {
 	db           *pgxpool.Pool
 	hub          *realtime.Hub
@@ -157,6 +168,19 @@ func (s *Service) EnsureSchema(ctx context.Context) error {
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
 		`CREATE INDEX IF NOT EXISTS notifications_user_created_idx ON control.notifications (user_id, created_at DESC)`,
+		`CREATE TABLE IF NOT EXISTS control.server_watchlist_history (
+			id BIGSERIAL PRIMARY KEY,
+			watchlist_id BIGINT NOT NULL REFERENCES control.server_watchlist(id) ON DELETE CASCADE,
+			status TEXT NOT NULL,
+			server_name TEXT NOT NULL DEFAULT '',
+			map_name TEXT NOT NULL DEFAULT '',
+			players INTEGER,
+			max_players INTEGER,
+			latency_ms INTEGER,
+			last_error TEXT NOT NULL DEFAULT '',
+			checked_at TIMESTAMPTZ NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS server_watchlist_history_watchlist_checked_idx ON control.server_watchlist_history (watchlist_id, checked_at DESC)`,
 		`ALTER TABLE control.server_watchlist DROP CONSTRAINT IF EXISTS server_watchlist_status_check`,
 		`ALTER TABLE control.server_watchlist ADD CONSTRAINT server_watchlist_status_check CHECK (status IN ('online', 'offline', 'blocked', 'unknown'))`,
 		`ALTER TABLE control.server_watchlist ADD COLUMN IF NOT EXISTS protocol INTEGER`,
@@ -318,6 +342,35 @@ func (s *Service) Find(ctx context.Context, userID, id int64) (WatchlistServer, 
 	return s.find(ctx, userID, id)
 }
 
+func (s *Service) History(ctx context.Context, userID, id int64) ([]HistoryPoint, error) {
+	var exists bool
+	if err := s.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM control.server_watchlist WHERE id = $1 AND user_id = $2)`, id, userID).Scan(&exists); err != nil {
+		return nil, fmt.Errorf("find server history owner: %w", err)
+	}
+	if !exists {
+		return nil, pgx.ErrNoRows
+	}
+	rows, err := s.db.Query(ctx, `
+		SELECT status, server_name, map_name, players, max_players, latency_ms, last_error, checked_at
+		FROM control.server_watchlist_history WHERE watchlist_id = $1
+		ORDER BY checked_at DESC LIMIT 200
+	`, id)
+	if err != nil {
+		return nil, fmt.Errorf("list server history: %w", err)
+	}
+	defer rows.Close()
+	history := make([]HistoryPoint, 0)
+	for rows.Next() {
+		var point HistoryPoint
+		if err := rows.Scan(&point.Status, &point.Name, &point.Map, &point.Players, &point.MaxPlayers,
+			&point.LatencyMS, &point.Error, &point.CheckedAt); err != nil {
+			return nil, fmt.Errorf("scan server history: %w", err)
+		}
+		history = append(history, point)
+	}
+	return history, rows.Err()
+}
+
 func (s *Service) ListNotifications(ctx context.Context, userID int64) ([]Notification, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT id, type, title, body, href, read_at, created_at
@@ -465,7 +518,37 @@ func (s *Service) persistSnapshot(ctx context.Context, userID, id int64, snapsho
 		snapshot.MaxPlayers, snapshot.Bots, snapshot.Version, snapshot.Tags, snapshot.VACSecured,
 		snapshot.PasswordProtected, snapshot.Protocol, snapshot.GameFolder, snapshot.GameName, snapshot.ServerKind,
 		snapshot.Environment, snapshot.ServerSteamID, snapshot.LatencyMS, snapshot.CheckedAt)
-	return scanWatchlistServer(row)
+	server, err := scanWatchlistServer(row)
+	if err != nil {
+		return WatchlistServer{}, err
+	}
+	if err := s.appendHistory(ctx, server); err != nil {
+		return WatchlistServer{}, err
+	}
+	return server, nil
+}
+
+func (s *Service) appendHistory(ctx context.Context, server WatchlistServer) error {
+	checkedAt := time.Now().UTC()
+	if server.CheckedAt != nil {
+		checkedAt = *server.CheckedAt
+	}
+	if _, err := s.db.Exec(ctx, `
+		INSERT INTO control.server_watchlist_history (
+			watchlist_id, status, server_name, map_name, players, max_players, latency_ms, last_error, checked_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	`, server.ID, server.Status, server.Name, server.Map, server.Players, server.MaxPlayers, server.LatencyMS, server.Error, checkedAt); err != nil {
+		return fmt.Errorf("save server history: %w", err)
+	}
+	if _, err := s.db.Exec(ctx, `
+		DELETE FROM control.server_watchlist_history WHERE id IN (
+			SELECT id FROM control.server_watchlist_history WHERE watchlist_id = $1
+			ORDER BY checked_at DESC OFFSET 10080
+		)
+	`, server.ID); err != nil {
+		return fmt.Errorf("trim server history: %w", err)
+	}
+	return nil
 }
 
 func (s *Service) persistFailure(ctx context.Context, userID, id int64, checkErr error) (WatchlistServer, error) {
@@ -480,7 +563,14 @@ func (s *Service) persistFailure(ctx context.Context, userID, id int64, checkErr
 			players, max_players, bots, version, tags, vac_secured, password_protected, protocol, game_folder, game_name, server_kind, environment, server_steam_id, latency_ms,
 			last_checked_at, created_at
 	`, id, userID, failureStatus(checkErr), clientError(checkErr))
-	return scanWatchlistServer(row)
+	server, err := scanWatchlistServer(row)
+	if err != nil {
+		return WatchlistServer{}, err
+	}
+	if err := s.appendHistory(ctx, server); err != nil {
+		return WatchlistServer{}, err
+	}
+	return server, nil
 }
 
 func (s *Service) publish(userID int64, server WatchlistServer) {

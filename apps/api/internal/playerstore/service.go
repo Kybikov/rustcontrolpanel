@@ -31,6 +31,12 @@ type SavedPlayer struct {
 	UpdatedAt        time.Time  `json:"updatedAt"`
 }
 
+type ActivityPoint struct {
+	Presence    string    `json:"presence"`
+	CurrentGame string    `json:"currentGame,omitempty"`
+	CapturedAt  time.Time `json:"capturedAt"`
+}
+
 type Service struct {
 	db  *pgxpool.Pool
 	hub *realtime.Hub
@@ -62,6 +68,15 @@ func (s *Service) EnsureSchema(ctx context.Context) error {
 			PRIMARY KEY (user_id, steam_id)
 		)`,
 		`CREATE INDEX IF NOT EXISTS saved_players_user_updated_idx ON control.saved_players (user_id, updated_at DESC)`,
+		`CREATE TABLE IF NOT EXISTS control.player_activity_history (
+			id BIGSERIAL PRIMARY KEY,
+			user_id BIGINT NOT NULL REFERENCES control.users(id) ON DELETE CASCADE,
+			steam_id TEXT NOT NULL,
+			presence TEXT NOT NULL,
+			current_game TEXT NOT NULL DEFAULT '',
+			captured_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE INDEX IF NOT EXISTS player_activity_history_user_steam_captured_idx ON control.player_activity_history (user_id, steam_id, captured_at DESC)`,
 	}
 	for _, statement := range statements {
 		if _, err := s.db.Exec(ctx, statement); err != nil {
@@ -101,6 +116,30 @@ func (s *Service) Find(ctx context.Context, userID int64, steamID string) (Saved
 	return scan(row)
 }
 
+func (s *Service) ActivityHistory(ctx context.Context, userID int64, steamID string) ([]ActivityPoint, error) {
+	if _, err := s.Find(ctx, userID, steamID); err != nil {
+		return nil, err
+	}
+	rows, err := s.db.Query(ctx, `
+		SELECT presence, current_game, captured_at
+		FROM control.player_activity_history WHERE user_id = $1 AND steam_id = $2
+		ORDER BY captured_at DESC LIMIT 200
+	`, userID, strings.TrimSpace(steamID))
+	if err != nil {
+		return nil, fmt.Errorf("list player activity history: %w", err)
+	}
+	defer rows.Close()
+	history := make([]ActivityPoint, 0)
+	for rows.Next() {
+		var point ActivityPoint
+		if err := rows.Scan(&point.Presence, &point.CurrentGame, &point.CapturedAt); err != nil {
+			return nil, fmt.Errorf("scan player activity history: %w", err)
+		}
+		history = append(history, point)
+	}
+	return history, rows.Err()
+}
+
 func (s *Service) Save(ctx context.Context, userID int64, player integrations.SteamPlayer) (SavedPlayer, error) {
 	if strings.TrimSpace(player.SteamID) == "" {
 		return SavedPlayer{}, errors.New("Steam player identity is required")
@@ -132,7 +171,16 @@ func (s *Service) Save(ctx context.Context, userID int64, player integrations.St
 			last_logoff_at, profile_created_at, created_at, updated_at
 	`, userID, player.SteamID, player.DisplayName, player.ProfileURL, player.AvatarURL, player.Visibility,
 		player.Presence, player.CurrentGame, player.LastLogoffAt, player.ProfileCreatedAt)
-	return scan(row)
+	saved, err := scan(row)
+	if err != nil {
+		return SavedPlayer{}, err
+	}
+	if !exists {
+		if err := s.ensureInitialActivity(ctx, userID, saved); err != nil {
+			return SavedPlayer{}, err
+		}
+	}
+	return saved, nil
 }
 
 func (s *Service) Remove(ctx context.Context, userID int64, steamID string) error {
@@ -157,6 +205,9 @@ func (s *Service) Refresh(ctx context.Context, userID int64, steamID string, sou
 	}
 	updated, err := s.Save(ctx, userID, player)
 	if err != nil {
+		return SavedPlayer{}, err
+	}
+	if err := s.ensureInitialActivity(ctx, userID, updated); err != nil {
 		return SavedPlayer{}, err
 	}
 	if err := s.publishUpdate(ctx, userID, previous, updated); err != nil {
@@ -212,6 +263,9 @@ func (s *Service) RefreshAll(ctx context.Context, source *integrations.Service) 
 		if err != nil {
 			return err
 		}
+		if err := s.ensureInitialActivity(ctx, item.userID, updated); err != nil {
+			return err
+		}
 		if err := s.publishUpdate(ctx, item.userID, previous, updated); err != nil {
 			return err
 		}
@@ -221,6 +275,9 @@ func (s *Service) RefreshAll(ctx context.Context, source *integrations.Service) 
 
 func (s *Service) publishUpdate(ctx context.Context, userID int64, previous, updated SavedPlayer) error {
 	if playerActivityChanged(previous, updated) {
+		if err := s.appendActivity(ctx, userID, updated); err != nil {
+			return err
+		}
 		title, body := playerActivityNotification(updated)
 		var notification struct {
 			ID        int64      `json:"id"`
@@ -263,6 +320,37 @@ func (s *Service) publishUpdate(ctx context.Context, userID int64, previous, upd
 			Timestamp: time.Now().UTC(),
 			Payload:   map[string]any{"player": updated},
 		})
+	}
+	return nil
+}
+
+func (s *Service) ensureInitialActivity(ctx context.Context, userID int64, player SavedPlayer) error {
+	if _, err := s.db.Exec(ctx, `
+		INSERT INTO control.player_activity_history (user_id, steam_id, presence, current_game)
+		SELECT $1, $2, $3, $4
+		WHERE NOT EXISTS (
+			SELECT 1 FROM control.player_activity_history WHERE user_id = $1 AND steam_id = $2
+		)
+	`, userID, player.SteamID, player.Presence, player.CurrentGame); err != nil {
+		return fmt.Errorf("save initial player activity history: %w", err)
+	}
+	return nil
+}
+
+func (s *Service) appendActivity(ctx context.Context, userID int64, player SavedPlayer) error {
+	if _, err := s.db.Exec(ctx, `
+		INSERT INTO control.player_activity_history (user_id, steam_id, presence, current_game)
+		VALUES ($1, $2, $3, $4)
+	`, userID, player.SteamID, player.Presence, player.CurrentGame); err != nil {
+		return fmt.Errorf("save player activity history: %w", err)
+	}
+	if _, err := s.db.Exec(ctx, `
+		DELETE FROM control.player_activity_history WHERE id IN (
+			SELECT id FROM control.player_activity_history WHERE user_id = $1 AND steam_id = $2
+			ORDER BY captured_at DESC OFFSET 1000
+		)
+	`, userID, player.SteamID); err != nil {
+		return fmt.Errorf("trim player activity history: %w", err)
 	}
 	return nil
 }

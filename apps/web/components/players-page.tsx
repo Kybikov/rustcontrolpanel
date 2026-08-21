@@ -253,8 +253,8 @@ export function PlayersPage() {
               Saved players
             </h2>
             <p className="mt-1 text-xs text-white/38">
-              Public Steam presence refreshes every minute and updates this list
-              live.
+              Public Steam presence refreshes every 30 seconds and updates this
+              list live.
             </p>
           </div>
           <span className="text-xs text-white/35 tabular-nums">

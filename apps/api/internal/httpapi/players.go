@@ -103,6 +103,27 @@ func (s *server) savedPlayerDetails(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"player": player})
 }
 
+func (s *server) savedPlayerHistory(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.requireAuth(w, r, "players.view")
+	if !ok {
+		return
+	}
+	if s.players == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "saved players are not configured"})
+		return
+	}
+	history, err := s.players.ActivityHistory(r.Context(), user.ID, r.PathValue("steamID"))
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "saved player not found"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not load player activity history"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"history": history})
+}
+
 func (s *server) refreshSavedPlayer(w http.ResponseWriter, r *http.Request) {
 	user, ok := s.requireAuth(w, r, "players.search")
 	if !ok {

@@ -47,6 +47,12 @@ export type SavedSteamPlayer = SteamPlayer & {
   updatedAt: string
 }
 
+export type PlayerActivityPoint = {
+  presence: string
+  currentGame?: string
+  capturedAt: string
+}
+
 export type Notification = {
   id: number
   type: string
@@ -140,6 +146,17 @@ export type WatchlistServer = {
   latencyMs?: number
   checkedAt?: string
   createdAt: string
+}
+
+export type ServerHistoryPoint = {
+  status: string
+  name?: string
+  map?: string
+  players?: number
+  maxPlayers?: number
+  latencyMs?: number
+  error?: string
+  checkedAt: string
 }
 
 export const API_URL =
