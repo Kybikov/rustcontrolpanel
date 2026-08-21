@@ -26,7 +26,7 @@ const (
 )
 
 var (
-	ErrInvalidAddress     = errors.New("enter a public IPv4 address and port, for example 79.137.98.23:28015")
+	ErrInvalidAddress     = errors.New("enter a public server address and port, for example 79.137.98.23:28015 or eu2xt.warbandits.gg:28015")
 	ErrNotRustServer      = errors.New("the endpoint answered, but it is not a Rust server")
 	ErrPublicQueryBlocked = errors.New("server blocks public status queries")
 	ErrWatchlistFull      = fmt.Errorf("a watchlist can contain at most %d servers", maxWatchlist)
@@ -154,7 +154,7 @@ func (s *Service) EnsureSchema(ctx context.Context) error {
 }
 
 func (s *Service) Check(ctx context.Context, rawAddress string) (Snapshot, error) {
-	endpoint, err := parseEndpoint(rawAddress)
+	endpoint, err := parseEndpoint(ctx, rawAddress)
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -209,7 +209,7 @@ func (s *Service) CheckForUser(ctx context.Context, userID int64, rawAddress str
 }
 
 func (s *Service) Add(ctx context.Context, userID int64, rawAddress string) (WatchlistServer, error) {
-	endpoint, parseErr := parseEndpoint(rawAddress)
+	endpoint, parseErr := parseEndpoint(ctx, rawAddress)
 	if parseErr != nil {
 		return WatchlistServer{}, parseErr
 	}
@@ -225,7 +225,7 @@ func (s *Service) Add(ctx context.Context, userID int64, rawAddress string) (Wat
 	if !fromCache {
 		snapshot, checkErr = s.Check(ctx, rawAddress)
 		if checkErr == nil {
-			endpoint, _ = parseEndpoint(snapshot.Address)
+			endpoint, _ = parseEndpoint(ctx, snapshot.Address)
 		}
 	}
 
@@ -439,20 +439,43 @@ type endpoint struct {
 	port int
 }
 
-func parseEndpoint(raw string) (endpoint, error) {
+func parseEndpoint(ctx context.Context, raw string) (endpoint, error) {
 	host, rawPort, err := net.SplitHostPort(strings.TrimSpace(raw))
 	if err != nil {
-		return endpoint{}, ErrInvalidAddress
-	}
-	ip, err := netip.ParseAddr(host)
-	if err != nil || !ip.Is4() || !isPublicIPv4(ip) {
 		return endpoint{}, ErrInvalidAddress
 	}
 	port, err := strconv.Atoi(rawPort)
 	if err != nil || port < 1 || port > 65535 {
 		return endpoint{}, ErrInvalidAddress
 	}
+	ip, err := resolvePublicIPv4(ctx, host)
+	if err != nil {
+		return endpoint{}, ErrInvalidAddress
+	}
 	return endpoint{ip: ip, port: port}, nil
+}
+
+func resolvePublicIPv4(ctx context.Context, host string) (netip.Addr, error) {
+	host = strings.TrimSuffix(strings.TrimSpace(host), ".")
+	if ip, err := netip.ParseAddr(host); err == nil {
+		if !ip.Is4() || !isPublicIPv4(ip) {
+			return netip.Addr{}, ErrInvalidAddress
+		}
+		return ip, nil
+	}
+	if host == "" || len(host) > 253 || strings.Contains(host, " ") {
+		return netip.Addr{}, ErrInvalidAddress
+	}
+	addresses, err := net.DefaultResolver.LookupNetIP(ctx, "ip4", host)
+	if err != nil {
+		return netip.Addr{}, err
+	}
+	for _, address := range addresses {
+		if address.Is4() && isPublicIPv4(address) {
+			return address, nil
+		}
+	}
+	return netip.Addr{}, ErrInvalidAddress
 }
 
 func isPublicIPv4(ip netip.Addr) bool {

@@ -1,10 +1,21 @@
 package servercheck
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"testing"
 )
+
+func TestParseEndpointAllowsPublicIPv4AndRejectsPrivateNetworks(t *testing.T) {
+	endpoint, err := parseEndpoint(context.Background(), "79.137.98.23:28015")
+	if err != nil || endpoint.ip.String() != "79.137.98.23" || endpoint.port != 28015 {
+		t.Fatalf("parse public endpoint = %+v, %v", endpoint, err)
+	}
+	if _, err := parseEndpoint(context.Background(), "127.0.0.1:28015"); !errors.Is(err, ErrInvalidAddress) {
+		t.Fatalf("private endpoint error = %v, want ErrInvalidAddress", err)
+	}
+}
 
 func TestParseInfoPacketKeepsExtendedRustDetails(t *testing.T) {
 	packet := []byte{0xff, 0xff, 0xff, 0xff, 0x49, 17}

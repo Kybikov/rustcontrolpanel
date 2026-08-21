@@ -209,9 +209,9 @@ export function ServersPage() {
                 Check a server
               </h2>
               <p className="mt-1 text-xs leading-5 text-white/42">
-                Paste its public IP and game port from Rust&apos;s console or
-                BattleMetrics. RustControl checks the server directly — no admin
-                access required.
+                Paste its public IP or server domain with the game port from
+                Rust&apos;s console or BattleMetrics. RustControl checks the
+                server directly — no admin access required.
               </p>
             </div>
           </div>
@@ -226,7 +226,7 @@ export function ServersPage() {
               id="server-address"
               value={address}
               onChange={(event) => setAddress(event.target.value)}
-              placeholder="79.137.98.23:28015"
+              placeholder="79.137.98.23:28015 or eu2xt.warbandits.gg:28015"
               className="h-10 rounded-xl border-white/[0.08] bg-white/[0.04] font-mono text-sm text-white placeholder:text-white/28"
             />
             <Button
@@ -244,8 +244,9 @@ export function ServersPage() {
             </Button>
           </form>
           <p className="mt-3 text-xs text-white/32">
-            Only public IPv4 endpoints are accepted. The checker tries the
-            entered port and its Rust query port once.
+            Public IPv4 and server domains are accepted. Domains are resolved on
+            the backend to a public IP; the checker tries the game and query
+            port once.
           </p>
         </CardContent>
       </Card>
