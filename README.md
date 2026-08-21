@@ -5,7 +5,7 @@
 - `apps/web` — Next.js 16 + React 19 + TypeScript + shadcn/ui;
 - `apps/api` — Go API з PostgreSQL, Redis і WebSocket realtime hub;
 - `db/migrations` — SQL-схема даних;
-- `docker-compose.yml` — локальний повний стек.
+- `docker-compose.yml` — повний Docker-стек для production: frontend, API, PostgreSQL та Redis.
 
 Поточний operational shell наслідує структуру [AdminCN Full Navbar Layout](https://shadcn-nextjs-admincn-full-navbar-layout-admin-template.vercel.app/), але вже адаптований під Rust-операції: сервери, гравці, live map, алерти, wipe calendar та activity feed.
 
@@ -53,7 +53,9 @@ go run ./cmd/api
 
 `INTEGRATIONS_ENCRYPTION_KEY` є обов’язковим ключем для шифрування credentials у PostgreSQL. Підключення спочатку проходить live-check провайдера, і лише після успіху credential зберігається backend-ом.
 
-Provider credentials завантажуються backend-ом із `INTEGRATION_CREDENTIALS_FILE` або Docker secret `RUST_CONTROL_KEYS_FILE`. Вони не вводяться у frontend, не повертаються API та не комітяться у Git. Після заміни файла перезапусти API.
+Provider credentials, super-admin password та ключ шифрування передаються одним Docker secret `RUST_CONTROL_CONFIG`. У deployment-панелі створи цю змінну як multiline value за шаблоном [secrets/keys.txt.example](secrets/keys.txt.example). Вона монтується лише в API-контейнер і не потрапляє у Git чи frontend.
+
+Для production Compose також задай `POSTGRES_PASSWORD`. Public URL вже мають production defaults `https://rust.wtmelon.store` та `https://go-api.wtmelon.store`; за потреби їх можна змінити змінними `PUBLIC_WEB_URL`, `PUBLIC_API_URL`, `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_REALTIME_URL` та `CORS_ALLOWED_ORIGINS`.
 
 Доступи видаються окремо: `dashboard.view`, `servers.view`, `servers.search`, `players.view`, `players.search`, `integrations.manage`, `users.view`, `users.create`, `users.manage_access`.
 

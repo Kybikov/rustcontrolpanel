@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"strconv"
@@ -28,6 +29,17 @@ type Config struct {
 }
 
 func Load() (Config, error) {
+	secretValues := loadSecretValues(os.Getenv("INTEGRATION_CREDENTIALS_FILE"))
+	envOrSecret := func(key, fallback string) string {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			return value
+		}
+		if value := strings.TrimSpace(secretValues[key]); value != "" {
+			return value
+		}
+		return fallback
+	}
+
 	port := env("API_PORT", "8080")
 	if _, err := strconv.Atoi(port); err != nil {
 		return Config{}, fmt.Errorf("API_PORT must be numeric: %w", err)
@@ -49,18 +61,52 @@ func Load() (Config, error) {
 		RedisURL:                   env("REDIS_URL", "redis://localhost:6379/0"),
 		RedisEnabled:               redisEnabled,
 		AllowedOrigins:             origins,
-		SuperAdminEmail:            env("SUPERADMIN_EMAIL", "admin@rustcontrol.local"),
-		SuperAdminPassword:         os.Getenv("SUPERADMIN_PASSWORD"),
-		IntegrationsEncryptionKey:  os.Getenv("INTEGRATIONS_ENCRYPTION_KEY"),
+		SuperAdminEmail:            envOrSecret("SUPERADMIN_EMAIL", "admin@rustcontrol.local"),
+		SuperAdminPassword:         envOrSecret("SUPERADMIN_PASSWORD", ""),
+		IntegrationsEncryptionKey:  envOrSecret("INTEGRATIONS_ENCRYPTION_KEY", ""),
 		IntegrationCredentialsFile: os.Getenv("INTEGRATION_CREDENTIALS_FILE"),
-		BattleMetricsAPIToken:      os.Getenv("BATTLEMETRICS_API_TOKEN"),
-		SteamWebAPIKey:             os.Getenv("STEAM_WEB_API_KEY"),
+		BattleMetricsAPIToken:      envOrSecret("BATTLEMETRICS_API_TOKEN", ""),
+		SteamWebAPIKey:             envOrSecret("STEAM_WEB_API_KEY", ""),
 		PublicAPIURL:               env("PUBLIC_API_URL", "http://localhost:8080"),
 		PublicWebURL:               env("PUBLIC_WEB_URL", "http://localhost:3001"),
-		VAPIDPublicKey:             os.Getenv("VAPID_PUBLIC_KEY"),
-		VAPIDPrivateKey:            os.Getenv("VAPID_PRIVATE_KEY"),
-		VAPIDSubject:               env("VAPID_SUBJECT", "mailto:rustcontrol@localhost"),
+		VAPIDPublicKey:             envOrSecret("VAPID_PUBLIC_KEY", ""),
+		VAPIDPrivateKey:            envOrSecret("VAPID_PRIVATE_KEY", ""),
+		VAPIDSubject:               envOrSecret("VAPID_SUBJECT", "mailto:rustcontrol@localhost"),
 	}, nil
+}
+
+// loadSecretValues reads a Docker secret containing KEY=value entries. Missing
+// files are intentionally ignored so local development keeps working without one.
+func loadSecretValues(path string) map[string]string {
+	values := make(map[string]string)
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return values
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return values
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, found := strings.Cut(line, "=")
+		if !found {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		value = strings.Trim(strings.TrimSpace(value), "\"'")
+		if key != "" && value != "" {
+			values[key] = value
+		}
+	}
+	return values
 }
 
 func env(key, fallback string) string {
