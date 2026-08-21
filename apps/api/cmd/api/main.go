@@ -136,7 +136,7 @@ func refreshWatchlist(ctx context.Context, checker *servercheck.Service, logger 
 }
 
 func refreshSavedPlayers(ctx context.Context, players *playerstore.Service, integrationService *integrations.Service, logger *slog.Logger) {
-	ticker := time.NewTicker(time.Minute)
+	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 	for {
 		select {
